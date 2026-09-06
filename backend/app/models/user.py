@@ -1,0 +1,33 @@
+from typing import Optional
+from pydantic import BaseModel, EmailStr, Field
+from app.config.constants import ROLES
+
+
+class UserRegister(BaseModel):
+    name: str
+    email: EmailStr
+    password: str = Field(min_length=6)
+    role: str  # must be one of ROLES — validated in the router
+    org_type: Optional[str] = None  # "LMO" or "GATC", only relevant for those roles
+    org_name: Optional[str] = None
+    contact: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    name: str
+    email: EmailStr
+    role: str
+    org_type: Optional[str] = None
+    org_name: Optional[str] = None
+    contact: Optional[str] = None
+
+
+class TokenResponse(BaseModel):
+    user: UserOut
+    token: str
