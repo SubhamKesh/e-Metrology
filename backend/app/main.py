@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config.db import init_indexes
-from app.routers import auth
+from app.routers import auth, instruments, applications, inspections, dashboard
 
 app = FastAPI(title="MaapSetu API", version="1.0.0")
 
@@ -25,10 +25,10 @@ def health():
 
 
 app.include_router(auth.router)
+app.include_router(instruments.router)
+app.include_router(applications.router)
+app.include_router(inspections.router)
+app.include_router(dashboard.router)
 
-# Additional routers get included here as they're built:
-# app.include_router(instruments.router)
-# app.include_router(applications.router)
-# app.include_router(inspections.router)
+# Kiran's routers get included here as they're built:
 # app.include_router(certificates.router)
-# app.include_router(dashboard.router)
