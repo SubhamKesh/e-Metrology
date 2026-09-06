@@ -67,3 +67,33 @@ def transition_status(application_id: str, new_status: str, meta: dict | None = 
     )
 
     return applications_col.find_one({"_id": oid})
+
+
+def mark_expiring(application_id, reason: str = "certificate entering expiry window") -> dict:
+    """
+    Convenience wrapper for expiry_cron.py — moves certified -> expiring.
+    Silently no-ops (returns the current doc unchanged) if the application
+    isn't in 'certified' status, since the cron may see the same cert
+    across multiple runs before it actually needs to transition.
+    """
+    oid = application_id if isinstance(application_id, ObjectId) else ObjectId(application_id)
+    application = applications_col.find_one({"_id": oid})
+    if not application:
+        raise ApplicationNotFoundError(f"No application with id {application_id}")
+    if application["status"] != "certified":
+        return application
+    return transition_status(oid, "expiring", meta={"reason": reason})
+
+
+def mark_expired(application_id, reason: str = "certificate valid_until has passed") -> dict:
+    """
+    Convenience wrapper for expiry_cron.py — moves expiring -> expired.
+    Same no-op behavior as mark_expiring if not currently 'expiring'.
+    """
+    oid = application_id if isinstance(application_id, ObjectId) else ObjectId(application_id)
+    application = applications_col.find_one({"_id": oid})
+    if not application:
+        raise ApplicationNotFoundError(f"No application with id {application_id}")
+    if application["status"] != "expiring":
+        return application
+    return transition_status(oid, "expired", meta={"reason": reason})

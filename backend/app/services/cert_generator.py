@@ -1,21 +1,22 @@
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
+from bson import ObjectId
 import uuid
 
 from app.config.db import (
-    inspections_collection,
-    applications_collection,
-    instruments_collection,
-    certificates_collection,
+    inspections_col,
+    applications_col,
+    instruments_col,
+    certificates_col,
 )
 from app.services.qr_generator import generate_qr
 from app.utils.upload_to_cloudinary import upload_bytes
 
 
 def _generate_cert_number() -> str:
-    return f"CERT-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    return f"CERT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
 
 def _generate_pdf_bytes(cert_no, instrument, inspection, valid_until) -> bytes:
@@ -31,7 +32,7 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, valid_until) -> bytes:
     for line in [
         f"Certificate No: {cert_no}",
         f"Instrument: {instrument['type']} (Serial: {instrument['serial_no']})",
-        f"Inspected on: {inspection['date']}",
+        f"Inspected on: {inspection['inspected_at']}",
         f"Result: {inspection['result']}",
         f"Valid Until: {valid_until.strftime('%d %b %Y')}",
     ]:
@@ -43,27 +44,32 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, valid_until) -> bytes:
     return buf.getvalue()
 
 
-def issue_certificate(inspection_id: str) -> dict:
+def issue_certificate(inspection_id) -> dict:
     """
-    Called from app/services/status_transition.py when an inspection
-    result is 'pass' and the application moves inspected -> certified.
-    CONFIRM exact call site and function name with Deep.
+    Generates and stores a certificate for a passed inspection.
+
+    Called from app/routers/inspections.py right after an application
+    transitions inspected -> certified. inspection_id may be a string or
+    ObjectId — both are accepted.
     """
-    inspection = inspections_collection.find_one({"_id": inspection_id})
+    insp_oid = inspection_id if isinstance(inspection_id, ObjectId) else ObjectId(inspection_id)
+
+    inspection = inspections_col.find_one({"_id": insp_oid})
     if not inspection:
         raise ValueError("Inspection not found")
 
-    application = applications_collection.find_one({"_id": inspection["application_id"]})
+    application = applications_col.find_one({"_id": inspection["application_id"]})
     if not application:
         raise ValueError("Application not found for this inspection")
 
-    instrument = instruments_collection.find_one({"_id": application["instrument_id"]})
+    instrument = instruments_col.find_one({"_id": application["instrument_id"]})
     if not instrument:
         raise ValueError("Instrument not found for this application")
 
     cert_id = str(uuid.uuid4())
     cert_no = _generate_cert_number()
-    valid_until = datetime.utcnow() + timedelta(days=365)
+    issued_at = datetime.now(timezone.utc)
+    valid_until = issued_at + timedelta(days=365)
 
     qr_url = generate_qr(cert_id)
     pdf_bytes = _generate_pdf_bytes(cert_no, instrument, inspection, valid_until)
@@ -72,11 +78,16 @@ def issue_certificate(inspection_id: str) -> dict:
     cert_doc = {
         "_id": cert_id,
         "inspection_id": inspection["_id"],
+        # These two are required by app/routers/dashboard.py's owner
+        # next_expiry lookup — without them that feature silently returns
+        # nothing even when certificates exist.
+        "application_id": application["_id"],
+        "instrument_id": instrument["_id"],
         "cert_no": cert_no,
         "qr_url": qr_url,
         "pdf_url": pdf_url,
-        "issued_at": datetime.utcnow(),
+        "issued_at": issued_at,
         "valid_until": valid_until,
     }
-    certificates_collection.insert_one(cert_doc)
+    certificates_col.insert_one(cert_doc)
     return cert_doc

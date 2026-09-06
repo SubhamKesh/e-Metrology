@@ -11,6 +11,7 @@ from app.services.status_transition import (
     InvalidTransitionError,
     ApplicationNotFoundError,
 )
+from app.services.cert_generator import issue_certificate
 
 router = APIRouter(prefix="/api/v1/inspections", tags=["inspections"])
 
@@ -79,6 +80,19 @@ def submit_inspection(
         raise HTTPException(status_code=409, detail=str(e))
     except ApplicationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    # A pass triggers certificate generation (Kiran's cert_generator).
+    # This runs after the status is already 'certified' — if cert
+    # generation fails for some reason (Cloudinary down, etc.), the
+    # application stays correctly certified and this can be retried
+    # manually, rather than the whole inspection call failing.
+    if final_status == "certified":
+        try:
+            issue_certificate(doc["_id"])
+        except Exception as e:
+            # Don't fail the inspection submission over this — log and
+            # move on. Surface it in your terminal so it isn't silently lost.
+            print(f"[WARN] Certificate generation failed for inspection {doc['_id']}: {e}")
 
     return to_inspection_out(doc)
 

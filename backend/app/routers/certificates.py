@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.config.db import certificates_collection, inspections_collection, applications_collection, instruments_collection
+from datetime import datetime, timezone
+
+from app.config.db import certificates_col, applications_col, instruments_col, users_col
 from app.middleware.auth import get_current_user
-from datetime import datetime
 
 router = APIRouter(prefix="/api/v1/certificates", tags=["certificates"])
 
@@ -21,26 +22,49 @@ def _serialize_cert(cert: dict) -> dict:
 # otherwise FastAPI matches "verify" as a cert_id value.
 @router.get("/verify/{cert_id}")
 def verify_certificate(cert_id: str):
-    cert = certificates_collection.find_one({"_id": cert_id})
-    if not cert:
-        return {"valid": False}
+    """
+    Public, unauthenticated. Powers verify-page/src/pages/[certId].jsx.
 
-    inspection = inspections_collection.find_one({"_id": cert["inspection_id"]})
-    application = applications_collection.find_one({"_id": inspection["application_id"]})
-    instrument = instruments_collection.find_one({"_id": application["instrument_id"]})
+    Response shape below is the one confirmed with Aritra/Anushka's
+    verify-page — this is the locked contract, not a proposal anymore.
+    """
+    cert = certificates_col.find_one({"_id": cert_id})
+    if not cert:
+        return {"valid": False, "reason": "not_found"}
+
+    application = applications_col.find_one({"_id": cert["application_id"]})
+    instrument = instruments_col.find_one({"_id": cert["instrument_id"]})
+    owner = users_col.find_one({"_id": application["owner_id"]}) if application else None
+
+    valid_until = cert["valid_until"]
+    if valid_until.tzinfo is None:
+        valid_until = valid_until.replace(tzinfo=timezone.utc)
+    is_expired = valid_until < datetime.now(timezone.utc)
 
     return {
-        "valid": cert["valid_until"] > datetime.utcnow(),
-        "cert_no": cert["cert_no"],
-        "instrument_type": instrument["type"],
-        "serial_no": instrument["serial_no"],
-        "valid_until": cert["valid_until"],
+        "valid": True,
+        "certificate": {
+            "id": cert["_id"],
+            "verified_on": cert["issued_at"].isoformat(),
+            "valid_until": cert["valid_until"].isoformat(),
+            "is_expired": is_expired,
+        },
+        "instrument": {
+            "type": instrument["type"] if instrument else None,
+            "manufacturer": instrument["manufacturer"] if instrument else None,
+            "model": instrument["model"] if instrument else None,
+            "serial_no": instrument["serial_no"] if instrument else None,
+        },
+        "owner": {
+            "org_name": owner["org_name"] if owner else None,
+            "location": instrument["location"] if instrument else None,
+        },
     }
 
 
 @router.get("/{cert_id}")
 def get_certificate(cert_id: str, user=Depends(get_current_user)):
-    cert = certificates_collection.find_one({"_id": cert_id})
+    cert = certificates_col.find_one({"_id": cert_id})
     if not cert:
         raise HTTPException(404, "Certificate not found")
     return _serialize_cert(cert)
@@ -48,5 +72,5 @@ def get_certificate(cert_id: str, user=Depends(get_current_user)):
 
 @router.get("/")
 def list_certificates(user=Depends(get_current_user)):
-    certs = list(certificates_collection.find())
+    certs = list(certificates_col.find())
     return [_serialize_cert(c) for c in certs]
