@@ -3,9 +3,9 @@ uvicorn[standard]==0.30.6
 pymongo==4.8.0
 python-dotenv==1.0.1
 pydantic==2.9.2
-pydantic-settings==2.5.2
 PyJWT==2.9.0
-passlib[bcrypt]==1.7.4
+passlib==1.7.4
+bcrypt==4.0.1
 python-multipart==0.0.9
 cloudinary==1.41.0
 qrcode[pil]==7.4.2
