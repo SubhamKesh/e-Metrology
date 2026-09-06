@@ -79,7 +79,7 @@ def seed_instruments(user_ids: dict) -> dict:
             "manufacturer": i["manufacturer"],
             "model": i["model"],
             "capacity": i["capacity"],
-            "serial_no": i["serial_no"],
+            "uiid": i["uiid"],
             "location": i["location"],
         })
     return id_map

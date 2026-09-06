@@ -5,6 +5,7 @@ from pydantic import BaseModel
 class NextExpiry(BaseModel):
     instrument_type: str
     serial_no: str
+    uiid: str
     valid_until: str
     days_remaining: int
 

@@ -8,11 +8,15 @@ class ApplicationCreate(BaseModel):
 
 
 class HistoryEntry(BaseModel):
-    from_status: Optional[str] = None
-    to: str
+    # Field names match frontend's ApplicationHistoryEntry exactly:
+    # {status, at, by?, note?}. Internally, status_transition.py still
+    # writes {from, to, at, changed_by, reason} to MongoDB — the router's
+    # to_application_out() maps between the two shapes, so status_transition.py
+    # (shared with Kiran's code) didn't need to change.
+    status: str
     at: datetime
-    changed_by: Optional[str] = None
-    reason: Optional[str] = None
+    by: Optional[str] = None
+    note: Optional[str] = None
 
 
 class ApplicationOut(BaseModel):
@@ -21,5 +25,5 @@ class ApplicationOut(BaseModel):
     owner_id: str
     status: str
     assigned_officer_id: Optional[str] = None
-    submitted_at: datetime
+    created_at: datetime
     history: list[HistoryEntry] = []

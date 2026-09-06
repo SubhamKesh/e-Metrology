@@ -22,7 +22,6 @@ def owner_dashboard(current_user: dict = Depends(role_required("owner"))):
     pending = applications_col.count_documents({"owner_id": owner_id, "status": {"$in": PENDING_STATUSES}})
     expired = applications_col.count_documents({"owner_id": owner_id, "status": "expired"})
 
-    # Find the soonest-expiring certificate among this owner's applications.
     owner_app_ids = [a["_id"] for a in applications_col.find({"owner_id": owner_id}, {"_id": 1})]
     next_expiry = None
     if owner_app_ids:
@@ -38,7 +37,7 @@ def owner_dashboard(current_user: dict = Depends(role_required("owner"))):
             days_remaining = (valid_until - datetime.now(timezone.utc)).days
             next_expiry = NextExpiry(
                 instrument_type=instrument["type"] if instrument else "Unknown",
-                serial_no=instrument["serial_no"] if instrument else "Unknown",
+                uiid=instrument["uiid"] if instrument else "Unknown",
                 valid_until=valid_until.isoformat(),
                 days_remaining=days_remaining,
             )
@@ -52,10 +51,11 @@ def owner_dashboard(current_user: dict = Depends(role_required("owner"))):
     )
 
 
-@router.get("/officer", response_model=OfficerDashboard)
-def officer_dashboard(current_user: dict = Depends(role_required("lmo", "gatc"))):
-    officer_id = current_user["_id"]
-
+def _officer_dashboard_data(officer_id) -> OfficerDashboard:
+    """Shared logic for /lmo and /gatc — same shape, scoped to whichever
+    officer is calling. Frontend hits these as two separate paths
+    (DashboardApi.lmo() / DashboardApi.gatc()) rather than one shared
+    /dashboard/officer, so both routes below call this helper directly."""
     assigned = applications_col.count_documents({"assigned_officer_id": officer_id})
     pending = applications_col.count_documents({"assigned_officer_id": officer_id, "status": "scheduled"})
     completed = applications_col.count_documents(
@@ -75,6 +75,16 @@ def officer_dashboard(current_user: dict = Depends(role_required("lmo", "gatc"))
     )
 
 
+@router.get("/lmo", response_model=OfficerDashboard)
+def lmo_dashboard(current_user: dict = Depends(role_required("lmo"))):
+    return _officer_dashboard_data(current_user["_id"])
+
+
+@router.get("/gatc", response_model=OfficerDashboard)
+def gatc_dashboard(current_user: dict = Depends(role_required("gatc"))):
+    return _officer_dashboard_data(current_user["_id"])
+
+
 @router.get("/admin", response_model=AdminDashboard)
 def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
     total_instruments = instruments_col.count_documents({})
@@ -82,10 +92,6 @@ def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
     pending = applications_col.count_documents({"status": {"$in": PENDING_STATUSES}})
     expired = applications_col.count_documents({"status": "expired"})
 
-    # NOTE: instruments only store a free-text `location` field today, not a
-    # structured state/district. This groups by that raw text. If the team
-    # wants a real state-wise breakdown for the admin dashboard, add a
-    # dedicated `state` field to Instrument and group by that instead.
     pipeline = [
         {"$group": {"_id": "$location", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},

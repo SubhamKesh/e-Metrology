@@ -7,6 +7,7 @@ from pymongo.errors import DuplicateKeyError
 from app.config.db import instruments_col
 from app.models.instrument import InstrumentCreate, InstrumentOut
 from app.middleware.auth import get_current_user, role_required
+from app.services.uiid_generator import generate_uiid
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -15,6 +16,7 @@ def to_instrument_out(doc: dict) -> InstrumentOut:
     return InstrumentOut(
         id=str(doc["_id"]),
         owner_id=str(doc["owner_id"]),
+        uiid=doc["uiid"],
         type=doc["type"],
         manufacturer=doc["manufacturer"],
         model=doc["model"],
@@ -31,6 +33,7 @@ def register_instrument(
 ):
     doc = {
         "owner_id": current_user["_id"],
+        "uiid": generate_uiid(),
         "type": payload.type,
         "manufacturer": payload.manufacturer,
         "model": payload.model,
@@ -91,4 +94,20 @@ def get_instrument(
     if not (is_owner or is_admin):
         raise HTTPException(status_code=403, detail="Not authorized to view this instrument")
 
+    return to_instrument_out(doc)
+
+
+@router.get("/by-uiid/{uiid}", response_model=InstrumentOut)
+def get_instrument_by_uiid(
+    uiid: str,
+    current_user: dict = Depends(role_required("lmo", "gatc", "admin")),
+):
+    """
+    Lookup by UIID instead of Mongo _id — this is what an officer's QR
+    scan resolves to in the field-verification flow (scan -> get UIID ->
+    fetch the registered instrument -> compare serial number physically).
+    """
+    doc = instruments_col.find_one({"uiid": uiid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="No instrument registered with this UIID")
     return to_instrument_out(doc)

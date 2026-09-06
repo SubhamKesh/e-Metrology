@@ -6,6 +6,16 @@
 
 Roles: `owner`, `lmo`, `gatc`, `admin`
 
+Frontend display labels for these roles (login page / dashboard headers) — the API
+itself only ever uses the short codes above, this mapping is frontend-only:
+
+| Role code | Display label |
+|---|---|
+| `owner` | Business / User |
+| `lmo` | Legal Metrology Officer |
+| `gatc` | GATC |
+| `admin` | Super Admin |
+
 ---
 
 ## Auth
@@ -98,7 +108,7 @@ Returns one application with its full status `history[]`. Visible to its owner, 
 ### POST `/applications/{application_id}/claim` — role: `lmo`, `gatc`
 Self-claim an unassigned application from the queue. Sets `assigned_officer_id` to the calling officer and transitions status `submitted → scheduled`.
 
-Returns `409` if the application is already claimed by someone else.
+Claiming is atomic — if two officers hit this at the same instant, exactly one succeeds. Returns `409` if the application is already claimed by someone else (whether that happened moments ago or simultaneously), `404` if the application doesn't exist.
 
 ---
 
@@ -116,11 +126,11 @@ Submit an inspection result for an application assigned to you.
   "photos": ["https://res.cloudinary.com/.../photo1.jpg"]
 }
 ```
-`result` is `"pass"` or `"fail"`. `photos` is a list of URLs — upload each photo first via the photo-upload endpoint (Backend Dev's scope, not yet built) to get these URLs.
+`result` is `"pass"` or `"fail"`. `photos` is a list of URLs — upload each photo first via `POST /uploads/photo` to get these URLs.
 
 **Requirements:** the application must currently be `scheduled` and assigned to you, or this returns `409` / `403`.
 
-**Effect:** automatically transitions the application `scheduled → inspected → certified` (if `pass`) or `→ rejected` (if `fail`).
+**Effect:** automatically transitions the application `scheduled → inspected → certified` (if `pass`) or `→ rejected` (if `fail`). On a pass, a certificate is generated and stored (see Certificates below). If certificate generation fails (e.g. Cloudinary is down), the inspection still succeeds and the application stays `certified` — the certificate can be regenerated separately, this endpoint won't fail because of it.
 
 ### GET `/inspections/{inspection_id}`
 Returns one inspection. Visible to the officer who submitted it, or an admin.
@@ -128,6 +138,8 @@ Returns one inspection. Visible to the officer who submitted it, or an admin.
 ---
 
 ## Dashboards
+
+Each role has its own dashboard endpoint — there is no shared/combined dashboard route.
 
 ### GET `/dashboard/owner` — role: `owner`
 ```json
@@ -146,7 +158,9 @@ Returns one inspection. Visible to the officer who submitted it, or an admin.
 ```
 `next_expiry` is `null` if there are no active certificates.
 
-### GET `/dashboard/officer` — role: `lmo`, `gatc`
+### GET `/dashboard/lmo` — role: `lmo`
+### GET `/dashboard/gatc` — role: `gatc`
+Same response shape for both — each officer only ever sees their own numbers, and an LMO account cannot call the GATC route or vice versa:
 ```json
 { "assigned": 45, "pending": 18, "completed": 27, "today_inspections": 6 }
 ```
@@ -168,20 +182,69 @@ Returns one inspection. Visible to the officer who submitted it, or an admin.
 
 ---
 
+## Certificates
+
+### GET `/certificates/verify/{cert_id}` — **public**, no auth
+Powers verify-page's `[certId].jsx`. This is the locked response contract confirmed with Aritra/Anushka — don't change the shape without telling them.
+```json
+{
+  "valid": true,
+  "certificate": {
+    "id": "...",
+    "verified_on": "2026-08-05T13:00:00+00:00",
+    "valid_until": "2027-08-05T13:00:00+00:00",
+    "is_expired": false
+  },
+  "instrument": {
+    "type": "Electronic Weighing Machine",
+    "manufacturer": "Avery",
+    "model": "AWS-200",
+    "serial_no": "AWS200-2024-0001"
+  },
+  "owner": {
+    "org_name": "Sharma General Store",
+    "location": "Baharampur, West Bengal"
+  }
+}
+```
+If the certificate doesn't exist: `{ "valid": false, "reason": "not_found" }` (still `200`, not a `404` — this is a QR-scan landing page, not an API error case).
+
+### GET `/certificates/{cert_id}`
+Full certificate detail including `qr_url` and `pdf_url`. Access-controlled: visible to the certificate's owner (via the underlying application), the officer assigned to that application, or an admin — not to any other authenticated user.
+
+### GET `/certificates/`
+Lists certificates, scoped by role:
+- `owner` → only certificates tied to their own applications
+- `lmo` / `gatc` → only certificates tied to applications assigned to them
+- `admin` → everything
+
+---
+
+## Uploads
+
+### POST `/uploads/photo`
+Multipart file upload (`file` field). Uploads to Cloudinary and returns the URL, for use in an Inspection's `photos[]`.
+**Response:** `{ "url": "https://res.cloudinary.com/..." }`
+
+---
+
 ## Application status lifecycle
 
 ```
 submitted → scheduled → inspected → certified → expiring → expired
                               ↘ rejected
 ```
-All transitions are enforced by `app/services/status_transition.py` — nothing outside that file should ever set `status` directly, including Kiran's cron job and certificate logic.
+All transitions are enforced by `app/services/status_transition.py` — nothing outside that file should ever set `status` directly, including the expiry cron and certificate logic.
+
+The expiry cron (`app/services/expiry_cron.py`) runs hourly and handles both ends automatically: certificates within 30 days of expiry move their application `certified → expiring` and log a reminder alert; certificates past `valid_until` move `expiring → expired` and log an expired alert.
 
 ---
 
-## Not in this document — Backend Dev (Kiran) scope, not yet built
-- `POST /uploads/photo` — Cloudinary upload, returns a URL for use in Inspection's `photos[]`
-- `GET /certificates/{id}` — view a certificate
-- `GET /certificates/verify/{certId}` — **public**, powers the QR-scan landing page
-- Expiry-reminder cron (`certified → expiring → expired`, sends alerts)
+## Seeding
 
-This section gets filled in once Kiran's endpoints are built — update this file rather than creating a second one.
+`backend/seed/seed.py` wipes and reseeds all 6 collections from `backend/seed/seed_data.py`. Run with:
+```
+cd backend
+python -m seed.seed
+```
+Seeded users share their `seed_data.py` passwords (e.g. `seed-pass-001`) — log in with the plaintext version, the DB only stores the hash.

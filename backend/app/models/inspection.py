@@ -17,4 +17,4 @@ class InspectionOut(BaseModel):
     observations: str
     result: str
     photos: list[str] = []
-    inspected_at: datetime
+    created_at: datetime  # frontend field name — stored internally as inspected_at

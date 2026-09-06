@@ -24,7 +24,7 @@ def to_inspection_out(doc: dict) -> InspectionOut:
         observations=doc["observations"],
         result=doc["result"],
         photos=doc.get("photos", []),
-        inspected_at=doc["inspected_at"],
+        created_at=doc["inspected_at"],
     )
 
 

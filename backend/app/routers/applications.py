@@ -3,7 +3,6 @@ from typing import Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pymongo import ReturnDocument
 
 from app.config.db import applications_col, instruments_col
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
@@ -20,11 +19,10 @@ router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 def to_application_out(doc: dict) -> ApplicationOut:
     history = [
         HistoryEntry(
-            from_status=h.get("from"),
-            to=h["to"],
+            status=h["to"],
             at=h["at"],
-            changed_by=str(h["changed_by"]) if h.get("changed_by") else None,
-            reason=h.get("reason"),
+            by=str(h["changed_by"]) if h.get("changed_by") else None,
+            note=h.get("reason"),
         )
         for h in doc.get("history", [])
     ]
@@ -34,7 +32,7 @@ def to_application_out(doc: dict) -> ApplicationOut:
         owner_id=str(doc["owner_id"]),
         status=doc["status"],
         assigned_officer_id=str(doc["assigned_officer_id"]) if doc.get("assigned_officer_id") else None,
-        submitted_at=doc["submitted_at"],
+        created_at=doc["submitted_at"],
         history=history,
     )
 
@@ -130,27 +128,21 @@ def claim_application(
     current_user: dict = Depends(role_required("lmo", "gatc")),
 ):
     try:
-        app_oid = ObjectId(application_id)
+        doc = applications_col.find_one({"_id": ObjectId(application_id)})
     except InvalidId:
         raise HTTPException(status_code=400, detail="Invalid application id")
 
-    # Atomic check-and-set: the filter only matches a still-unclaimed
-    # application, so two officers claiming at the same instant can't both
-    # succeed — whichever update lands first in Mongo wins, the second
-    # simply matches nothing and we report it as already claimed.
-    doc = applications_col.find_one_and_update(
-        {"_id": app_oid, "assigned_officer_id": None},
-        {"$set": {"assigned_officer_id": current_user["_id"]}},
-        return_document=ReturnDocument.AFTER,
-    )
-
     if not doc:
-        # Either the application doesn't exist, or it was already claimed
-        # (possibly by someone else in the same instant) — tell them apart.
-        existing = applications_col.find_one({"_id": app_oid})
-        if not existing:
-            raise HTTPException(status_code=404, detail="Application not found")
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    if doc.get("assigned_officer_id") is not None:
         raise HTTPException(status_code=409, detail="Application already claimed by another officer")
+
+    # Assign the officer first, then transition the status.
+    applications_col.update_one(
+        {"_id": doc["_id"]},
+        {"$set": {"assigned_officer_id": current_user["_id"]}},
+    )
 
     try:
         updated = transition_status(

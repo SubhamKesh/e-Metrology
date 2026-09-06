@@ -81,7 +81,7 @@ INSTRUMENTS = [
         "manufacturer": "Avery",
         "model": "AWS-200",
         "capacity": "30 kg",
-        "serial_no": "AWS200-2024-0001",
+        "uiid": "AWS200-2024-0001",
         "location": "Baharampur, West Bengal",
     },
     {
@@ -91,7 +91,7 @@ INSTRUMENTS = [
         "manufacturer": "Avery",
         "model": "AWS-100",
         "capacity": "10 kg",
-        "serial_no": "AWS100-2024-0002",
+        "uiid": "AWS100-2024-0002",
         "location": "Baharampur, West Bengal",
     },
     {
@@ -101,7 +101,7 @@ INSTRUMENTS = [
         "manufacturer": "Gilbarco",
         "model": "GX-500",
         "capacity": "N/A",
-        "serial_no": "GX500-2023-0451",
+        "uiid": "GX500-2023-0451",
         "location": "Murshidabad, West Bengal",
     },
     {
@@ -111,7 +111,7 @@ INSTRUMENTS = [
         "manufacturer": "Essae",
         "model": "PS-500",
         "capacity": "500 kg",
-        "serial_no": "PS500-2022-0812",
+        "uiid": "PS500-2022-0812",
         "location": "Kolkata, West Bengal",
     },
 ]

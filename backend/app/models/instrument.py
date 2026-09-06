@@ -7,7 +7,7 @@ class InstrumentCreate(BaseModel):
     manufacturer: str
     model: str
     capacity: str  # e.g. "30 kg" — kept as string since units vary by instrument type
-    serial_no: str = Field(min_length=1)
+    uiid: str = Field(min_length=1)
     location: Optional[str] = None  # shop/business address
 
 
@@ -19,4 +19,5 @@ class InstrumentOut(BaseModel):
     model: str
     capacity: str
     serial_no: str
+    uiid: str
     location: Optional[str] = None
