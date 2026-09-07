@@ -4,10 +4,40 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
-from app.config.db import instruments_col
+from app.config.db import instruments_col, applications_col
 from app.models.instrument import InstrumentCreate, InstrumentOut
 from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
+
+
+def _normalize_id(value) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _can_view_instrument_for_assigned_application(doc: dict, current_user: dict) -> bool:
+    if current_user["role"] not in ("lmo", "gatc"):
+        return False
+
+    current_user_id = current_user["_id"]
+    current_user_id_str = str(current_user_id)
+    instrument_id = doc["_id"]
+
+    # Either the officer is already assigned to an application for this
+    # instrument, or the instrument belongs to an unclaimed application
+    # still sitting in the shared queue (visible to any lmo/gatc, mirroring
+    # applications.py's own queue/claim visibility rules).
+    app = applications_col.find_one(
+        {
+            "instrument_id": instrument_id,
+            "$or": [
+                {"assigned_officer_id": {"$in": [current_user_id, current_user_id_str]}},
+                {"assigned_officer_id": None, "status": "submitted"},
+            ],
+        }
+    )
+    return app is not None
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -89,9 +119,10 @@ def get_instrument(
     if not doc:
         raise HTTPException(status_code=404, detail="Instrument not found")
 
-    is_owner = current_user["role"] == "owner" and doc["owner_id"] == current_user["_id"]
+    is_owner = current_user["role"] == "owner" and _normalize_id(doc.get("owner_id")) == _normalize_id(current_user["_id"])
     is_admin = current_user["role"] == "admin"
-    if not (is_owner or is_admin):
+    is_assigned_officer = _can_view_instrument_for_assigned_application(doc, current_user)
+    if not (is_owner or is_admin or is_assigned_officer):
         raise HTTPException(status_code=403, detail="Not authorized to view this instrument")
 
     return to_instrument_out(doc)
