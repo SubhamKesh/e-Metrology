@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthLayout } from "./AuthLayout";
 import { TextInput, SelectInput } from "@/components/ui/Field";
@@ -34,7 +34,7 @@ export default function Register() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);

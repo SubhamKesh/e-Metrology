@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import type { ApplicationStatus, InspectionResult } from "@/lib/types";
 
@@ -42,7 +43,7 @@ export function InspectionResultBadge({ result }: { result: InspectionResult }) 
   return <Badge tone={result === "pass" ? "success" : "danger"}>{result === "pass" ? "Pass" : "Fail"}</Badge>;
 }
 
-export function Badge({ tone = "neutral", children }: { tone?: Tone; children: React.ReactNode }) {
+export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
       className={cn(

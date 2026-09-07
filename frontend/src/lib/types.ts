@@ -51,6 +51,7 @@ export interface Instrument {
   model: string;
   capacity: string;
   serial_no: string;
+  uiid?: string;
   location: string;
 }
 
@@ -106,7 +107,7 @@ export interface CertificateVerifyResponse {
   valid: boolean;
   reason?: "not_found";
   certificate?: CertificateSummary;
-  instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "serial_no">;
+  instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "serial_no"> & { uiid?: string };
   owner?: { org_name: string; location: string };
 }
 
@@ -123,7 +124,8 @@ export interface OwnerDashboard {
   expired: number;
   next_expiry: {
     instrument_type: string;
-    serial_no: string;
+    serial_no?: string;
+    uiid?: string;
     valid_until: string;
     days_remaining: number;
   } | null;
