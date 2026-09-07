@@ -21,14 +21,36 @@ export interface User {
   contact: string | null;
 }
 
+// Kept in sync with the allowed list enforced server-side in
+// backend/app/models/instrument.py — update both together.
+export const INSTRUMENT_TYPES = [
+  "water meters",
+  "clinical thermometers",
+  "automatic rail weighbridges",
+  "tape measures",
+  "non-automatic weighing instruments",
+  "load cells",
+  "beam scales",
+  "counter machines",
+  "weights",
+  "gas meters",
+  "energy meters",
+  "moisture meters",
+  "speed meters",
+  "breath analysers",
+  "flow meters",
+] as const;
+
+export type InstrumentType = (typeof INSTRUMENT_TYPES)[number];
+
 export interface Instrument {
   id: string;
   owner_id: string;
-  type: string;
+  type: InstrumentType;
   manufacturer: string;
   model: string;
   capacity: string;
-  uiid: string;
+  serial_no: string;
   location: string;
 }
 
@@ -84,7 +106,7 @@ export interface CertificateVerifyResponse {
   valid: boolean;
   reason?: "not_found";
   certificate?: CertificateSummary;
-  instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "uiid">;
+  instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "serial_no">;
   owner?: { org_name: string; location: string };
 }
 
@@ -101,7 +123,7 @@ export interface OwnerDashboard {
   expired: number;
   next_expiry: {
     instrument_type: string;
-    uiid: string;
+    serial_no: string;
     valid_until: string;
     days_remaining: number;
   } | null;
