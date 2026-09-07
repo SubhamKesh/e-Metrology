@@ -1,175 +1,98 @@
-
 import { useState } from "react";
-import type { FormEvent } from "react";
-
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { TextInput, SelectInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Card";
 import { useCreateInstrument } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
-import { INSTRUMENT_TYPES, type InstrumentType } from "@/lib/types";
 
-const INSTRUMENT_TYPE_OPTIONS = INSTRUMENT_TYPES.map((t) => ({
-  value: t,
-  label: t,
-}));
+// Kept in sync with ALLOWED_INSTRUMENT_TYPES in the backend
+// (app/models/instrument.py) — the backend rejects anything outside this
+// exact set, so the dropdown here must offer only these values, spelled
+// exactly the same way.
+const INSTRUMENT_TYPE_OPTIONS = [
+  { value: "Electronic Weighing Machine", label: "Electronic Weighing Machine" },
+  { value: "Fuel Dispensing Unit", label: "Fuel Dispensing Unit" },
+  { value: "Platform Scale", label: "Platform Scale" },
+  { value: "Water Meter", label: "Water Meter" },
+  { value: "Clinical Thermometer", label: "Clinical Thermometer" },
+  { value: "Automatic Rail Weighbridge", label: "Automatic Rail Weighbridge" },
+  { value: "Tape Measure", label: "Tape Measure" },
+  { value: "Non-Automatic Weighing Instrument", label: "Non-Automatic Weighing Instrument" },
+  { value: "Load Cell", label: "Load Cell" },
+  { value: "Beam Scale", label: "Beam Scale" },
+  { value: "Counter Machine", label: "Counter Machine" },
+  { value: "Weights", label: "Weights" },
+  { value: "Gas Meter", label: "Gas Meter" },
+  { value: "Energy Meter", label: "Energy Meter" },
+  { value: "Moisture Meter", label: "Moisture Meter" },
+  { value: "Speed Meter", label: "Speed Meter" },
+  { value: "Breath Analyser", label: "Breath Analyser" },
+  { value: "Flow Meter", label: "Flow Meter" },
+];
 
-type FormState = {
-  type: string;
-  manufacturer: string;
-  model: string;
-  capacity: string;
-  serial_no: string;
-  location: string;
-};
-
-const EMPTY: FormState = {
-  type: "",
-  manufacturer: "",
-  model: "",
-  capacity: "",
-  serial_no: "",
-  location: "",
-};
+const EMPTY = { type: "", manufacturer: "", model: "", capacity: "", serial_no: "", location: "" };
 
 export default function RegisterInstrument() {
+  const navigate = useNavigate();
   const create = useCreateInstrument();
-
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
 
-  const navigate = (destination: string | number) => {
-    if (typeof destination === "number") {
-      window.history.go(destination);
-    } else {
-      window.location.assign(destination);
-    }
-  };
-
-  function setField<K extends keyof FormState>(key: K, value: string) {
-    setForm((current) => ({
-      ...current,
-      [key]: value,
-    }));
+  function set<K extends keyof typeof form>(key: K, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
   }
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
     try {
-      const instrument = await create.mutateAsync({
-        ...form,
-        type: form.type as InstrumentType,
-      });
-
+      const instrument = await create.mutateAsync(form);
       navigate(`/app/owner/instruments/${instrument.id}`);
-    } catch (err: unknown) {
+    } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError(
-          "An instrument with this serial number is already registered in the system.",
-        );
-      } else if (err instanceof ApiError) {
-        setError(err.message);
+        setError("This instrument couldn't be registered — please try again.");
       } else {
-        setError("Something went wrong. Try again.");
+        setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
       }
     }
   }
 
   return (
     <div className="max-w-xl">
-      <PageHeader
-        title="Register instrument"
-        description="Add a new weighing or measuring instrument to your account."
-      />
-
+      <PageHeader title="Register instrument" description="Add a new weighing or measuring instrument to your account." />
       <Panel className="p-6">
-        <form
-          onSubmit={onSubmit}
-          className="flex flex-col gap-4"
-        >
+        <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <SelectInput
             label="Instrument type"
             required
             placeholder="Select an instrument type"
             options={INSTRUMENT_TYPE_OPTIONS}
             value={form.type}
-            onChange={(e) => setField("type", e.target.value)}
+            onChange={(e) => set("type", e.target.value)}
           />
-
           <div className="grid grid-cols-2 gap-4">
-            <TextInput
-              label="Manufacturer"
-              required
-              value={form.manufacturer}
-              onChange={(e) =>
-                setField("manufacturer", e.target.value)
-              }
-            />
-
-            <TextInput
-              label="Model"
-              required
-              value={form.model}
-              onChange={(e) =>
-                setField("model", e.target.value)
-              }
-            />
+            <TextInput label="Manufacturer" required value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)} />
+            <TextInput label="Model" required value={form.model} onChange={(e) => set("model", e.target.value)} />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
-            <TextInput
-              label="Capacity"
-              required
-              placeholder="e.g. 30 kg"
-              value={form.capacity}
-              onChange={(e) =>
-                setField("capacity", e.target.value)
-              }
-            />
-
-            <TextInput
-              label="Serial number"
-              required
-              value={form.serial_no}
-              onChange={(e) =>
-                setField("serial_no", e.target.value)
-              }
-            />
+            <TextInput label="Capacity" required placeholder="e.g. 30 kg" value={form.capacity} onChange={(e) => set("capacity", e.target.value)} />
+            <TextInput label="Serial number" required value={form.serial_no} onChange={(e) => set("serial_no", e.target.value)} />
           </div>
-
           <TextInput
             label="Location"
             required
             placeholder="e.g. Baharampur, West Bengal"
             value={form.location}
-            onChange={(e) =>
-              setField("location", e.target.value)
-            }
+            onChange={(e) => set("location", e.target.value)}
           />
-
-          {error && (
-            <p className="text-sm text-danger" role="alert">
-              {error}
-            </p>
-          )}
-
+          {error && <p className="text-sm text-danger">{error}</p>}
           <div className="mt-2 flex gap-3">
-            <Button
-              type="submit"
-              loading={create.isPending}
-            >
+            <Button type="submit" loading={create.isPending}>
               Register instrument
             </Button>
-
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => navigate(-1)}
-              disabled={create.isPending}
-            >
+            <Button type="button" variant="secondary" onClick={() => navigate(-1)}>
               Cancel
             </Button>
           </div>
@@ -178,4 +101,3 @@ export default function RegisterInstrument() {
     </div>
   );
 }
-

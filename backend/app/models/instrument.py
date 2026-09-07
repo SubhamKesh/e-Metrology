@@ -9,12 +9,42 @@ ALLOWED_INSTRUMENT_TYPES = [
     "Electronic Weighing Machine",
     "Fuel Dispensing Unit",
     "Platform Scale",
+    "Water Meter",
+    "Clinical Thermometer",
+    "Automatic Rail Weighbridge",
+    "Tape Measure",
+    "Non-Automatic Weighing Instrument",
+    "Load Cell",
+    "Beam Scale",
+    "Counter Machine",
+    "Weights",
+    "Gas Meter",
+    "Energy Meter",
+    "Moisture Meter",
+    "Speed Meter",
+    "Breath Analyser",
+    "Flow Meter",
 ]
 
 InstrumentType = Literal[
     "Electronic Weighing Machine",
     "Fuel Dispensing Unit",
     "Platform Scale",
+    "Water Meter",
+    "Clinical Thermometer",
+    "Automatic Rail Weighbridge",
+    "Tape Measure",
+    "Non-Automatic Weighing Instrument",
+    "Load Cell",
+    "Beam Scale",
+    "Counter Machine",
+    "Weights",
+    "Gas Meter",
+    "Energy Meter",
+    "Moisture Meter",
+    "Speed Meter",
+    "Breath Analyser",
+    "Flow Meter",
 ]
 
 
@@ -32,7 +62,7 @@ class InstrumentCreate(BaseModel):
 class InstrumentOut(BaseModel):
     id: str
     owner_id: str
-    type: InstrumentType
+    type: str
     manufacturer: str
     model: str
     capacity: str
