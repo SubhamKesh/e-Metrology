@@ -21,26 +21,42 @@ itself only ever uses the short codes above, this mapping is frontend-only:
 ## Auth
 
 ### POST `/auth/register` — public
+### GET `/auth/me`
+Returns the currently authenticated user.
+**Response:** the `UserOut` object representing the current user (returned directly, not wrapped):
+```json
+{ "id": "...", "name": "...", "email": "...", "role": "owner", "org_type": null, "org_name": "...", "contact": "..." }
+```
 Register a new user.
 
-**Body**
+### GET `/instruments/{instrument_id}`
+Returns one instrument. Only its owner or an admin can view it.
+`serial_no` must be unique across the whole system — a duplicate returns `409`.
+### GET `/instruments/by-uiid/{uiid}` — role: `lmo`, `gatc`, `admin`
+Lookup an instrument by its `uiid` (used by officers after scanning a QR code).
+
+**Response:** same as the single-instrument response; the returned object contains the `uiid` field (used by the frontend to match physical serial numbers).
 ```json
 {
-  "name": "Rahul Sharma",
-  "email": "rahul@example.com",
-  "password": "secret123",
-  "role": "owner",
-  "org_type": null,
-  "org_name": "Sharma General Store",
-  "contact": "9876543210"
-}
-```
-`org_type` is `"LMO"` or `"GATC"` — only relevant when `role` is `lmo` or `gatc`.
+### GET `/certificates/verify/{cert_id}` — **public**, no auth
+Powers verify-page's `[certId].jsx`. This is the locked response contract confirmed with Aritra/Anushka — don't change the shape without telling them.
+  "instrument": {
+    "type": "Electronic Weighing Machine",
+    "manufacturer": "Avery",
+    "model": "AWS-200",
+    "uiid": "UIID-2024-0001"
+  },
+  "owner": {
+    "org_name": "Sharma General Store",
+    "location": "Baharampur, West Bengal"
+  }
 
 **Response** `201`
-```json
-{
-  "user": { "id": "...", "name": "...", "email": "...", "role": "owner", "org_type": null, "org_name": "...", "contact": "..." },
+### GET `/certificates/`
+Lists certificates. (Note: the current implementation returns certificates from the collection without role-based filtering server-side; frontend currently expects role-scoped results.)
+- `owner` → frontend expects only their own certificates (not enforced server-side)
+- `lmo` / `gatc` → frontend expects only certificates for assigned applications (not enforced server-side)
+- `admin` → expects everything (this is effectively what the endpoint currently returns)
   "token": "eyJhbGciOi..."
 }
 ```
@@ -48,12 +64,12 @@ Register a new user.
 ### POST `/auth/login` — public
 **Body:** `{ "email": "...", "password": "..." }`
 **Response:** same shape as register.
-
-### GET `/auth/me`
-Returns the currently authenticated user.
-**Response:** `{ "user": {...} }`
-
----
+  "next_expiry": {
+    "instrument_type": "Weighing Machine",
+    "uiid": "UIID-2024-0001",
+    "valid_until": "2026-09-21T08:10:36+00:00",
+    "days_remaining": 14
+  }
 
 ## Instruments
 
