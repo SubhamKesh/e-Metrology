@@ -53,9 +53,9 @@ export default function OwnerDashboardPage() {
       )}
 
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        <QuickAction to="/app/owner/instruments/new" title="Register instrument" description="Add a new weighing or measuring instrument." />
-        <QuickAction to="/app/owner/applications/new" title="Apply for verification" description="Submit an existing instrument for verification." />
-        <QuickAction to="/app/owner/certificates" title="View certificates" description="See all issued certificates and their validity." />
+        <QuickAction to="/app/owner/instruments" title="View instruments" description="Review registered equipment and their current verification status." />
+        <QuickAction to="/app/owner/applications/new" title="Submit application" description="Create a new verification request for an existing instrument." />
+        <QuickAction to="/app/owner/certificates" title="Review certificates" description="Check issued certificates, validity windows, and renewal timing." />
       </div>
     </div>
   );

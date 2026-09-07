@@ -29,7 +29,11 @@ export interface Instrument {
   model: string;
   capacity: string;
   serial_no: string;
+<<<<<<< HEAD
   uiid: string;
+=======
+  uiid?: string;
+>>>>>>> 314680b94176aba14e0826ea7d62f0935da061c3
   location: string;
 }
 
@@ -85,7 +89,11 @@ export interface CertificateVerifyResponse {
   valid: boolean;
   reason?: "not_found";
   certificate?: CertificateSummary;
+<<<<<<< HEAD
   instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "uiid">;
+=======
+  instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "serial_no"> & { uiid?: string };
+>>>>>>> 314680b94176aba14e0826ea7d62f0935da061c3
   owner?: { org_name: string; location: string };
 }
 
@@ -102,7 +110,12 @@ export interface OwnerDashboard {
   expired: number;
   next_expiry: {
     instrument_type: string;
+<<<<<<< HEAD
     uiid: string;
+=======
+    serial_no?: string;
+    uiid?: string;
+>>>>>>> 314680b94176aba14e0826ea7d62f0935da061c3
     valid_until: string;
     days_remaining: number;
   } | null;

@@ -3,12 +3,17 @@ import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
+import globals from "globals";
 
 export default [
   js.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
       parser: tsparser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
@@ -21,6 +26,12 @@ export default [
       ...tseslint.configs.recommended.rules,
       "react-hooks/rules-of-hooks": "error",
       "no-unused-vars": "off",
+    },
+  },
+  {
+    files: ["vite.config.ts"],
+    languageOptions: {
+      globals: { ...globals.node },
     },
   },
   { ignores: ["dist"] },

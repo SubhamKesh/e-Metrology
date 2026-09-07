@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useVerifyCertificate } from "@/hooks/useData";
 import { TextInput } from "@/components/ui/Field";
@@ -107,7 +107,7 @@ export default function VerifyCertificate() {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen justify-center bg-paper2 px-4 py-10 sm:py-16">
       <div className="w-full max-w-md">

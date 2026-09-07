@@ -40,7 +40,14 @@ export function useInstruments(params?: { owner_id?: string }) {
         // In those views we don't need the full instrument list, so treat
         // 403 as an empty result to avoid noisy errors in the officer UI.
         // Re-throw other errors to surface real failures.
-        if (err instanceof Error && (err as any).status === 403) return [];
+        if (
+          err instanceof Error &&
+          "status" in err &&
+          typeof (err as { status?: number }).status === "number" &&
+          (err as { status?: number }).status === 403
+        ) {
+          return [];
+        }
         throw err;
       }
     },

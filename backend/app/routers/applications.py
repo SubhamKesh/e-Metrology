@@ -1,19 +1,16 @@
+from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pymongo import ReturnDocument
 
 from app.config.db import applications_col, instruments_col
 import asyncio
 from app.services.notifications import broadcast
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
 from app.middleware.auth import get_current_user, role_required
-from app.services.status_transition import (
-    transition_status,
-    InvalidTransitionError,
-    ApplicationNotFoundError,
-)
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 
@@ -160,31 +157,38 @@ def claim_application(
     current_user: dict = Depends(role_required("lmo", "gatc")),
 ):
     try:
-        doc = applications_col.find_one({"_id": ObjectId(application_id)})
+        oid = ObjectId(application_id)
     except InvalidId:
         raise HTTPException(status_code=400, detail="Invalid application id")
 
-    if not doc:
-        raise HTTPException(status_code=404, detail="Application not found")
-
-    if doc.get("assigned_officer_id") is not None:
-        raise HTTPException(status_code=409, detail="Application already claimed by another officer")
-
-    # Assign the officer first, then transition the status.
-    applications_col.update_one(
-        {"_id": doc["_id"]},
-        {"$set": {"assigned_officer_id": current_user["_id"]}},
+    now = datetime.now(timezone.utc)
+    updated = applications_col.find_one_and_update(
+        {"_id": oid, "status": "submitted", "assigned_officer_id": None},
+        {
+            "$set": {
+                "assigned_officer_id": current_user["_id"],
+                "status": "scheduled",
+            },
+            "$push": {
+                "history": {
+                    "from": "submitted",
+                    "to": "scheduled",
+                    "at": now,
+                    "changed_by": current_user["_id"],
+                }
+            },
+        },
+        return_document=ReturnDocument.AFTER,
     )
 
-    try:
-        updated = transition_status(
-            doc["_id"],
-            "scheduled",
-            meta={"changed_by": current_user["_id"]},
-        )
-    except InvalidTransitionError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except ApplicationNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    if updated is None:
+        doc = applications_col.find_one({"_id": oid})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Application not found")
+        if doc.get("assigned_officer_id") is not None:
+            raise HTTPException(status_code=409, detail="Application already claimed by another officer")
+        if doc.get("status") != "submitted":
+            raise HTTPException(status_code=409, detail=f"Application is not claimable in status '{doc.get('status')}'")
+        raise HTTPException(status_code=409, detail="Application is no longer claimable")
 
     return to_application_out(updated)

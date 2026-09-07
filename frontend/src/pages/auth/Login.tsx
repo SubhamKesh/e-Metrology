@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AuthLayout } from "./AuthLayout";
 import { TextInput } from "@/components/ui/Field";
@@ -7,18 +7,35 @@ import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
 import { roleHome } from "@/lib/roleHome";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation() as { state?: { from?: { pathname: string } } };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [emailError, setEmailError] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: React.FormEvent) {
+  function handleEmailChange(value: string) {
+    setEmail(value);
+    if (emailError && EMAIL_REGEX.test(value)) {
+      setEmailError(undefined);
+    }
+  }
+
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!EMAIL_REGEX.test(email)) {
+      setEmailError("Enter a valid email address.");
+      return;
+    }
+    setEmailError(undefined);
+
     setLoading(true);
     try {
       const user = await login(email, password);
@@ -40,7 +57,8 @@ export default function Login() {
           autoComplete="email"
           required
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => handleEmailChange(e.target.value)}
+          error={emailError}
         />
         <TextInput
           label="Password"

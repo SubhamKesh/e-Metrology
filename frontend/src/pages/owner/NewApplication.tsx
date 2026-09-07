@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type FormEvent, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { SelectInput } from "@/components/ui/Field";
@@ -17,7 +17,7 @@ export default function NewApplication() {
   const [instrumentId, setInstrumentId] = useState(params.get("instrument") ?? "");
   const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
