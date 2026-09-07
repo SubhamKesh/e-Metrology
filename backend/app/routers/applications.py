@@ -1,3 +1,4 @@
+from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 from bson import ObjectId
@@ -5,6 +6,8 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.config.db import applications_col, instruments_col
+import asyncio
+from app.services.notifications import broadcast
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
 from app.middleware.auth import get_current_user, role_required
 from app.services.status_transition import (
@@ -14,6 +17,18 @@ from app.services.status_transition import (
 )
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
+
+
+def _normalize_id(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, ObjectId):
+        return str(value)
+    return str(value)
+
+
+def _matches_user_id(doc_value, user_value) -> bool:
+    return _normalize_id(doc_value) == _normalize_id(user_value)
 
 
 def to_application_out(doc: dict) -> ApplicationOut:
@@ -67,6 +82,13 @@ def submit_application(
 
     result = applications_col.insert_one(doc)
     doc["_id"] = result.inserted_id
+    # Broadcast a lightweight event to connected officers so UIs can react in real-time.
+    try:
+        payload = {"type": "application_submitted", "application": to_application_out(doc).dict()}
+        asyncio.create_task(broadcast(payload))
+    except Exception:
+        # don't fail the request if broadcasting fails
+        pass
     return to_application_out(doc)
 
 
@@ -77,14 +99,17 @@ def list_applications(
     current_user: dict = Depends(get_current_user),
 ):
     query: dict = {}
+    user_id = current_user["_id"]
+    user_id_str = str(user_id)
 
     if current_user["role"] == "owner":
-        # Owners only ever see their own applications.
-        query["owner_id"] = current_user["_id"]
+        # Owners only ever see their own applications. Some historical records may
+        # store owner_id as a string while newer ones use ObjectId, so match both.
+        query["owner_id"] = {"$in": [user_id, user_id_str]}
     elif current_user["role"] in ("lmo", "gatc"):
         if mine:
             # "my assigned applications"
-            query["assigned_officer_id"] = current_user["_id"]
+            query["assigned_officer_id"] = {"$in": [user_id, user_id_str]}
         else:
             # the claimable queue — unassigned, still submitted
             query["status"] = "submitted"
@@ -112,11 +137,19 @@ def get_application(
         raise HTTPException(status_code=404, detail="Application not found")
 
     role = current_user["role"]
-    is_owner = role == "owner" and doc["owner_id"] == current_user["_id"]
-    is_assigned_officer = role in ("lmo", "gatc") and doc.get("assigned_officer_id") == current_user["_id"]
+    is_owner = role == "owner" and _matches_user_id(doc.get("owner_id"), current_user["_id"])
+    is_assigned_officer = role in ("lmo", "gatc") and _matches_user_id(doc.get("assigned_officer_id"), current_user["_id"])
+    # Unassigned, still-submitted applications sit in the shared claim queue and must
+    # stay visible to any lmo/gatc officer so they can open the detail page and claim
+    # it — mirrors the queue query in list_applications() above.
+    is_claimable_by_officer = (
+        role in ("lmo", "gatc")
+        and doc.get("assigned_officer_id") is None
+        and doc.get("status") == "submitted"
+    )
     is_admin = role == "admin"
 
-    if not (is_owner or is_assigned_officer or is_admin):
+    if not (is_owner or is_assigned_officer or is_claimable_by_officer or is_admin):
         raise HTTPException(status_code=403, detail="Not authorized to view this application")
 
     return to_application_out(doc)

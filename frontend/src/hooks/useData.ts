@@ -32,7 +32,19 @@ export function useDashboard(role: Role) {
 export function useInstruments(params?: { owner_id?: string }) {
   return useQuery({
     queryKey: ["instruments", params],
-    queryFn: () => InstrumentApi.list(params),
+    queryFn: async () => {
+      try {
+        return await InstrumentApi.list(params);
+      } catch (err) {
+        // lmo/gatc users are not authorized to list all instruments (403).
+        // In those views we don't need the full instrument list, so treat
+        // 403 as an empty result to avoid noisy errors in the officer UI.
+        // Re-throw other errors to surface real failures.
+        const statusError = err as { status?: number };
+        if (err instanceof Error && statusError.status === 403) return [];
+        throw err;
+      }
+    },
   });
 }
 
@@ -53,10 +65,12 @@ export function useCreateInstrument() {
 }
 
 // ---- Applications ----
-export function useApplications(params?: { mine?: boolean; status?: string }) {
+export function useApplications(params?: { mine?: boolean; status?: string; pollInterval?: number }) {
   return useQuery({
-    queryKey: ["applications", params],
+    queryKey: ["applications", { mine: params?.mine, status: params?.status }],
     queryFn: () => ApplicationApi.list(params),
+    // Optional polling for views that want near-real-time updates (officer queue)
+    refetchInterval: params?.pollInterval ?? false,
   });
 }
 

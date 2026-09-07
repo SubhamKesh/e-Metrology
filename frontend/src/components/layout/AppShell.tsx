@@ -15,7 +15,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-paper">
-      {/* Desktop nav rail */}
       <aside className="hidden w-60 flex-col border-r border-line bg-white md:flex">
         <div className="flex h-16 items-center gap-2 border-b border-line px-5">
           <span className="font-display text-lg text-ink">MaapSetu</span>
@@ -45,7 +44,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
-        {/* Topbar */}
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-white/90 px-4 backdrop-blur md:px-6">
           <button className="text-lg md:hidden" onClick={() => setMenuOpen(true)} aria-label="Open menu">
             ☰
@@ -69,7 +67,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-8">{children}</main>
       </div>
 
-      {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-white md:hidden">
         {nav.items.map((item) => (
           <NavLink
@@ -88,7 +85,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         ))}
       </nav>
 
-      {/* Mobile menu drawer */}
       {menuOpen && (
         <div className="fixed inset-0 z-30 md:hidden">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setMenuOpen(false)} />

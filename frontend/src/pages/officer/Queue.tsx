@@ -4,7 +4,7 @@ import { useApplications } from "@/hooks/useData";
 import type { Role } from "@/lib/types";
 
 export function OfficerQueue({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
-  const { data, isLoading, isError, error, refetch } = useApplications();
+  const { data, isLoading, isError, error, refetch } = useApplications({ pollInterval: 5000 });
   return (
     <div>
       <PageHeader title="Verification queue" description="Unassigned applications waiting to be claimed." />
@@ -22,7 +22,7 @@ export function OfficerQueue({ role }: { role: Extract<Role, "lmo" | "gatc"> }) 
 }
 
 export function OfficerAssignments({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
-  const { data, isLoading, isError, error, refetch } = useApplications({ mine: true });
+  const { data, isLoading, isError, error, refetch } = useApplications({ mine: true, pollInterval: 5000 });
   return (
     <div>
       <PageHeader title="My assignments" description="Applications currently assigned to you." />

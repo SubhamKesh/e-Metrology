@@ -1,120 +1,41 @@
-from typing import Optional
-from bson import ObjectId
-from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pymongo.errors import DuplicateKeyError
+from typing import Literal, Optional
+from pydantic import BaseModel
 
-from app.config.db import instruments_col
-from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut
-from app.middleware.auth import get_current_user, role_required
-from app.services.uiid_generator import generate_uiid
+# Instrument types recognized by the platform. Extend this list (and the
+# Literal below) together whenever a new instrument category is supported —
+# they're kept in sync deliberately so mismatches fail loudly at import time
+# instead of silently accepting bad data.
+ALLOWED_INSTRUMENT_TYPES = [
+    "Electronic Weighing Machine",
+    "Fuel Dispensing Unit",
+    "Platform Scale",
+]
 
-router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
-
-
-def to_instrument_out(doc: dict) -> InstrumentOut:
-    return InstrumentOut(
-        id=str(doc["_id"]),
-        owner_id=str(doc["owner_id"]),
-        uiid=doc["uiid"],
-        type=doc["type"],
-        manufacturer=doc["manufacturer"],
-        model=doc["model"],
-        capacity=doc["capacity"],
-        serial_no=doc["serial_no"],
-        location=doc.get("location"),
-    )
+InstrumentType = Literal[
+    "Electronic Weighing Machine",
+    "Fuel Dispensing Unit",
+    "Platform Scale",
+]
 
 
-@router.post("", response_model=InstrumentOut, status_code=201)
-def register_instrument(
-    payload: InstrumentCreate,
-    current_user: dict = Depends(role_required("owner")),
-):
-    # Belt-and-suspenders on top of the Pydantic Literal check on
-    # InstrumentCreate.type: guards against the type being widened later
-    # (e.g. someone loosens the model back to `str`) without this check
-    # being updated in step.
-    if payload.type not in ALLOWED_INSTRUMENT_TYPES:
-        raise HTTPException(status_code=400, detail="Invalid instrument type")
-
-    doc = {
-        "owner_id": current_user["_id"],
-        "uiid": generate_uiid(),
-        "type": payload.type,
-        "manufacturer": payload.manufacturer,
-        "model": payload.model,
-        "capacity": payload.capacity,
-        "serial_no": payload.serial_no,
-        "location": payload.location,
-    }
-
-    try:
-        result = instruments_col.insert_one(doc)
-    except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail="An instrument with this serial number already exists")
-
-    doc["_id"] = result.inserted_id
-    return to_instrument_out(doc)
+class InstrumentCreate(BaseModel):
+    type: InstrumentType
+    manufacturer: str
+    model: str
+    capacity: str  # e.g. "30 kg" — kept as string since units vary by instrument type
+    serial_no: str  # manufacturer-assigned serial number, used for duplicate detection
+    location: Optional[str] = None  # shop/business address
+    # uiid is deliberately NOT here — it's backend-generated (see
+    # app/services/uiid_generator.py), never supplied by the client.
 
 
-@router.get("", response_model=list[InstrumentOut])
-def list_instruments(
-    owner_id: Optional[str] = Query(default=None),
-    current_user: dict = Depends(get_current_user),
-):
-    # Owners only ever see their own instruments, regardless of query param.
-    # Admins can see all, or filter down to a specific owner via ?owner_id=
-    if current_user["role"] == "owner":
-        query = {"owner_id": current_user["_id"]}
-    elif current_user["role"] == "admin":
-        query = {}
-        if owner_id:
-            try:
-                query["owner_id"] = ObjectId(owner_id)
-            except InvalidId:
-                raise HTTPException(status_code=400, detail="Invalid owner_id")
-    else:
-        # lmo/gatc don't browse the full instrument list directly —
-        # they reach instruments via their assigned applications instead.
-        raise HTTPException(status_code=403, detail="Not authorized for this action")
-
-    docs = instruments_col.find(query)
-    return [to_instrument_out(doc) for doc in docs]
-
-
-@router.get("/{instrument_id}", response_model=InstrumentOut)
-def get_instrument(
-    instrument_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    try:
-        doc = instruments_col.find_one({"_id": ObjectId(instrument_id)})
-    except InvalidId:
-        raise HTTPException(status_code=400, detail="Invalid instrument id")
-
-    if not doc:
-        raise HTTPException(status_code=404, detail="Instrument not found")
-
-    is_owner = current_user["role"] == "owner" and doc["owner_id"] == current_user["_id"]
-    is_admin = current_user["role"] == "admin"
-    if not (is_owner or is_admin):
-        raise HTTPException(status_code=403, detail="Not authorized to view this instrument")
-
-    return to_instrument_out(doc)
-
-
-@router.get("/by-uiid/{uiid}", response_model=InstrumentOut)
-def get_instrument_by_uiid(
-    uiid: str,
-    current_user: dict = Depends(role_required("lmo", "gatc", "admin")),
-):
-    """
-    Lookup by UIID instead of Mongo _id — this is what an officer's QR
-    scan resolves to in the field-verification flow (scan -> get UIID ->
-    fetch the registered instrument -> compare serial number physically).
-    """
-    doc = instruments_col.find_one({"uiid": uiid})
-    if not doc:
-        raise HTTPException(status_code=404, detail="No instrument registered with this UIID")
-    return to_instrument_out(doc)
+class InstrumentOut(BaseModel):
+    id: str
+    owner_id: str
+    type: InstrumentType
+    manufacturer: str
+    model: str
+    capacity: str
+    serial_no: str
+    uiid: str  # government-issued unique instrument ID, e.g. "LM-000001"
+    location: Optional[str] = None

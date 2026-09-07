@@ -7,12 +7,19 @@ import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
 import { roleHome } from "@/lib/roleHome";
 import type { Role } from "@/lib/types";
+import { isValidName, isValidEmail, isValidPhone } from "@/lib/validation";
 
 const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "owner", label: "Business / User — I own instruments" },
   { value: "lmo", label: "Legal Metrology Officer" },
   { value: "gatc", label: "GATC" },
 ];
+
+type FieldErrors = {
+  name?: string;
+  email?: string;
+  contact?: string;
+};
 
 export default function Register() {
   const { register } = useAuth();
@@ -25,6 +32,7 @@ export default function Register() {
     org_name: "",
     contact: "",
   });
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -34,9 +42,59 @@ export default function Register() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  function validateName(value: string): string | undefined {
+    if (!value) return undefined;
+    if (!isValidName(value)) return "Only letters and spaces are allowed.";
+    return undefined;
+  }
+
+  function validateEmail(value: string): string | undefined {
+    if (!value) return undefined;
+    if (!isValidEmail(value)) return "Enter a valid email address.";
+    return undefined;
+  }
+
+  function handleNameChange(value: string) {
+    set("name", value);
+    setFieldErrors((f) => ({ ...f, name: validateName(value) }));
+  }
+
+  function handleEmailChange(value: string) {
+    set("email", value);
+    setFieldErrors((f) => ({ ...f, email: validateEmail(value) }));
+  }
+
+  function handleContactChange(value: string) {
+    const digitsOnly = value.replace(/\D/g, "").slice(0, 10);
+    set("contact", digitsOnly);
+    setFieldErrors((f) => ({
+      ...f,
+      contact: digitsOnly.length > 0 && digitsOnly.length < 10 ? "Enter a valid 10-digit mobile number." : undefined,
+    }));
+  }
+
+  function validateAllOnSubmit(): boolean {
+    const nameError = !isValidName(form.name) ? "Only letters and spaces are allowed." : undefined;
+    const emailError = !isValidEmail(form.email) ? "Enter a valid email address." : undefined;
+    const contactError =
+      form.contact.length > 0 && !isValidPhone(form.contact)
+        ? "Enter a valid 10-digit mobile number."
+        : undefined;
+
+    const errors: FieldErrors = { name: nameError, email: emailError, contact: contactError };
+    setFieldErrors(errors);
+
+    return !nameError && !emailError && !contactError;
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!validateAllOnSubmit()) {
+      return;
+    }
+
     setLoading(true);
     try {
       const user = await register({
@@ -66,14 +124,21 @@ export default function Register() {
           onChange={(e) => set("role", e.target.value as Role)}
           options={ROLE_OPTIONS}
         />
-        <TextInput label="Full name" required value={form.name} onChange={(e) => set("name", e.target.value)} />
+        <TextInput
+          label="Full name"
+          required
+          value={form.name}
+          onChange={(e) => handleNameChange(e.target.value)}
+          error={fieldErrors.name}
+        />
         <TextInput
           label="Email"
           type="email"
           autoComplete="email"
           required
           value={form.email}
-          onChange={(e) => set("email", e.target.value)}
+          onChange={(e) => handleEmailChange(e.target.value)}
+          error={fieldErrors.email}
         />
         <TextInput
           label="Password"
@@ -86,14 +151,17 @@ export default function Register() {
         />
         <TextInput
           label={form.role === "owner" ? "Business name" : "Organisation name"}
+          required
           value={form.org_name}
           onChange={(e) => set("org_name", e.target.value)}
         />
         <TextInput
           label="Contact number"
           type="tel"
+          inputMode="numeric"
           value={form.contact}
-          onChange={(e) => set("contact", e.target.value)}
+          onChange={(e) => handleContactChange(e.target.value)}
+          error={fieldErrors.contact}
         />
         {error && <p className="text-sm text-danger">{error}</p>}
         <Button type="submit" loading={loading} className="mt-2 w-full">
