@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
 from app.config.db import instruments_col
-from app.models.instrument import InstrumentCreate, InstrumentOut
+from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut
 from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
 
@@ -21,6 +21,7 @@ def to_instrument_out(doc: dict) -> InstrumentOut:
         manufacturer=doc["manufacturer"],
         model=doc["model"],
         capacity=doc["capacity"],
+        serial_no=doc["serial_no"],
         location=doc.get("location"),
     )
 
@@ -30,6 +31,13 @@ def register_instrument(
     payload: InstrumentCreate,
     current_user: dict = Depends(role_required("owner")),
 ):
+    # Belt-and-suspenders on top of the Pydantic Literal check on
+    # InstrumentCreate.type: guards against the type being widened later
+    # (e.g. someone loosens the model back to `str`) without this check
+    # being updated in step.
+    if payload.type not in ALLOWED_INSTRUMENT_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid instrument type")
+
     doc = {
         "owner_id": current_user["_id"],
         "uiid": generate_uiid(),
@@ -37,15 +45,14 @@ def register_instrument(
         "manufacturer": payload.manufacturer,
         "model": payload.model,
         "capacity": payload.capacity,
+        "serial_no": payload.serial_no,
         "location": payload.location,
     }
 
     try:
         result = instruments_col.insert_one(doc)
     except DuplicateKeyError:
-        # Practically unreachable — generate_uiid() is atomic — but kept as
-        # a safety net in case the uiid index is ever violated some other way.
-        raise HTTPException(status_code=409, detail="Could not register this instrument, please try again")
+        raise HTTPException(status_code=409, detail="An instrument with this serial number already exists")
 
     doc["_id"] = result.inserted_id
     return to_instrument_out(doc)

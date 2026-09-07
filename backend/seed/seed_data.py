@@ -77,7 +77,7 @@ INSTRUMENTS = [
     {
         "id": "inst_001",
         "owner_id": "usr_owner_001",
-        "type": "Electronic Weighing Machine",
+        "type": "non-automatic weighing instruments",
         "manufacturer": "Avery",
         "model": "AWS-200",
         "capacity": "30 kg",
@@ -87,7 +87,7 @@ INSTRUMENTS = [
     {
         "id": "inst_002",
         "owner_id": "usr_owner_001",
-        "type": "Electronic Weighing Machine",
+        "type": "non-automatic weighing instruments",
         "manufacturer": "Avery",
         "model": "AWS-100",
         "capacity": "10 kg",
@@ -97,7 +97,7 @@ INSTRUMENTS = [
     {
         "id": "inst_003",
         "owner_id": "usr_owner_002",
-        "type": "Fuel Dispensing Unit",
+        "type": "flow meters",
         "manufacturer": "Gilbarco",
         "model": "GX-500",
         "capacity": "N/A",
@@ -107,7 +107,7 @@ INSTRUMENTS = [
     {
         "id": "inst_004",
         "owner_id": "usr_owner_003",
-        "type": "Platform Scale",
+        "type": "non-automatic weighing instruments",
         "manufacturer": "Essae",
         "model": "PS-500",
         "capacity": "500 kg",
