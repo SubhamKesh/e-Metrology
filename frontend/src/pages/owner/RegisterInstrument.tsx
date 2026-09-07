@@ -7,7 +7,7 @@ import { Panel } from "@/components/ui/Card";
 import { useCreateInstrument } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 
-const EMPTY = { type: "", manufacturer: "", model: "", capacity: "", serial_no: "", location: "" };
+const EMPTY = { type: "", manufacturer: "", model: "", capacity: "", location: "" };
 
 export default function RegisterInstrument() {
   const navigate = useNavigate();
@@ -27,7 +27,7 @@ export default function RegisterInstrument() {
       navigate(`/app/owner/instruments/${instrument.id}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError("An instrument with this serial number is already registered in the system.");
+        setError("This instrument couldn't be registered — please try again.");
       } else {
         setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
       }
@@ -52,7 +52,6 @@ export default function RegisterInstrument() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <TextInput label="Capacity" required placeholder="e.g. 30 kg" value={form.capacity} onChange={(e) => set("capacity", e.target.value)} />
-            <TextInput label="Serial number" required value={form.serial_no} onChange={(e) => set("serial_no", e.target.value)} />
           </div>
           <TextInput
             label="Location"

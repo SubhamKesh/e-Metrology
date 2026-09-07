@@ -14,7 +14,7 @@ export default function AdminInstruments() {
   const columns: Column<Instrument>[] = [
     { header: "Type", cell: (i) => i.type },
     { header: "Manufacturer / Model", cell: (i) => `${i.manufacturer} · ${i.model}` },
-    { header: "Serial no.", cell: (i) => <span className="font-mono text-xs">{i.serial_no}</span> },
+    { header: "Serial no.", cell: (i) => <span className="font-mono text-xs">{i.uiid}</span> },
     { header: "Location", cell: (i) => i.location },
     { header: "Owner ID", cell: (i) => <span className="font-mono text-xs text-slate-400">{i.owner_id.slice(0, 10)}…</span> },
   ];

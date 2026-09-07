@@ -7,11 +7,11 @@ import {
   InstrumentApi,
   UploadApi,
 } from "@/lib/endpoints";
-import type { Role } from "@/lib/types";
+import type { AdminDashboard, OfficerDashboard, OwnerDashboard, Role } from "@/lib/types";
 
 // ---- Dashboards ----
 export function useDashboard(role: Role) {
-  return useQuery({
+  return useQuery<OwnerDashboard | OfficerDashboard | AdminDashboard>({
     queryKey: ["dashboard", role],
     queryFn: () => {
       switch (role) {

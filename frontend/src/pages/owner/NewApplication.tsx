@@ -58,7 +58,7 @@ export default function NewApplication() {
             onChange={(e) => setInstrumentId(e.target.value)}
             options={(instruments ?? []).map((i) => ({
               value: i.id,
-              label: `${i.type} · ${i.serial_no}`,
+              label: `${i.type} · ${i.uiid}`,
             }))}
           />
           {error && <p className="text-sm text-danger">{error}</p>}

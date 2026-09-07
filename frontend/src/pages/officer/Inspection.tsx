@@ -39,7 +39,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
     );
   }
 
-  const serialMatches = instrument ? enteredSerial.trim() === instrument.serial_no : false;
+  const serialMatches = instrument ? enteredSerial.trim() === instrument.uiid : false;
   const identityBlocked = enteredSerial.length > 0 && !serialMatches;
 
   async function onSubmit(finalResult: InspectionResult) {
@@ -65,11 +65,11 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-md border border-line bg-paper2/40 p-4">
             <p className="text-xs uppercase tracking-wide text-slate-400">Registered</p>
-            <p className="mt-1 font-mono text-sm text-ink">{instrument?.serial_no ?? "—"}</p>
+            <p className="mt-1 font-mono text-sm text-ink">{instrument?.uiid ?? "—"}</p>
           </div>
           <div>
             <label htmlFor="entered-serial" className="text-sm font-medium text-ink">
-              Serial number on the instrument
+              UIID on the instrument's sticker/QR
             </label>
             <input
               id="entered-serial"

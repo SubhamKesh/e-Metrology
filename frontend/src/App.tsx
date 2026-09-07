@@ -25,7 +25,7 @@ import { InspectionWorkflow } from "@/pages/officer/Inspection";
 import { OfficerCertificates, OfficerCertificateDetail } from "@/pages/officer/Certificates";
 
 import AdminDashboardPage from "@/pages/admin/Dashboard";
-import AdminInstruments from "@/pages/admin/Instruments";
+import AdminInstruments from "@/pages/admin/AdminInstruments";
 import AdminApplications from "@/pages/admin/Applications";
 import AdminApplicationDetail from "@/pages/admin/ApplicationDetail";
 import { AdminCertificates, AdminCertificateDetail } from "@/pages/admin/Certificates";

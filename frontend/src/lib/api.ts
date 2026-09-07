@@ -36,6 +36,34 @@ const STATUS_FALLBACK: Record<number, string> = {
   500: "Something went wrong on our end. Please try again shortly.",
 };
 
+// FastAPI sends `detail` in two different shapes depending on the failure:
+//   - a plain string, for HTTPException(status_code=..., detail="...")
+//   - an array of {loc, msg, type} objects, for pydantic request-validation errors (422)
+// Naively String()-ing the array shape produces "[object Object]" per element,
+// since that's Object.prototype.toString()'s default — this extracts the
+// actual per-field messages instead.
+function extractDetailMessage(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (item && typeof item === "object" && "msg" in item) {
+          const loc = "loc" in item && Array.isArray((item as { loc?: unknown[] }).loc)
+            ? (item as { loc: unknown[] }).loc.filter((p) => p !== "body").join(".")
+            : undefined;
+          const msg = String((item as { msg: unknown }).msg);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return undefined;
+      })
+      .filter((m): m is string => Boolean(m));
+    return messages.length ? messages.join("; ") : undefined;
+  }
+
+  return undefined;
+}
+
 interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
@@ -86,7 +114,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   if (!res.ok) {
     const serverMessage =
       data && typeof data === "object" && "detail" in (data as Record<string, unknown>)
-        ? String((data as Record<string, unknown>).detail)
+        ? extractDetailMessage((data as Record<string, unknown>).detail)
         : undefined;
     throw new ApiError(
       res.status,

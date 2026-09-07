@@ -48,7 +48,7 @@ export function ApplicationsTable({
       header: "Instrument",
       cell: (a) => {
         const i = instrumentMap.get(a.instrument_id);
-        return i ? `${i.type} · ${i.serial_no}` : <span className="text-slate-400">{a.instrument_id.slice(0, 10)}…</span>;
+        return i ? `${i.type} · ${i.uiid}` : <span className="text-slate-400">{a.instrument_id.slice(0, 10)}…</span>;
       },
     },
     { header: "Status", cell: (a) => <ApplicationStatusBadge status={a.status} /> },

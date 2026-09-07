@@ -41,7 +41,7 @@ export default function InstrumentDetail() {
 
       <Panel className="p-5">
         <dl className="grid grid-cols-2 gap-y-4 text-sm">
-          <Field label="Serial number" value={instrument.serial_no} mono />
+          <Field label="UIID" value={instrument.uiid} mono />
           <Field label="Capacity" value={instrument.capacity} />
           <Field label="Location" value={instrument.location} />
           <Field label="Instrument ID" value={instrument.id} mono />

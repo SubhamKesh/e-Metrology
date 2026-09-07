@@ -31,7 +31,7 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, valid_until) -> bytes:
     y = height - 140
     for line in [
         f"Certificate No: {cert_no}",
-        f"Instrument: {instrument['type']} (Serial: {instrument['serial_no']})",
+        f"Instrument: {instrument['type']} (UIID: {instrument['uiid']})",
         f"Inspected on: {inspection['inspected_at']}",
         f"Result: {inspection['result']}",
         f"Valid Until: {valid_until.strftime('%d %b %Y')}",

@@ -87,7 +87,7 @@ export default function VerifyCertificate() {
         <Row label="Instrument" value={instrument?.type} />
         <Row label="Manufacturer" value={instrument?.manufacturer} />
         <Row label="Model" value={instrument?.model} />
-        <Row label="Serial number" value={instrument?.serial_no} className="font-mono" />
+        <Row label="UIID" value={instrument?.uiid} className="font-mono" />
         <Row label="Owner" value={owner?.org_name} />
         <Row label="Location" value={owner?.location} />
         <Row

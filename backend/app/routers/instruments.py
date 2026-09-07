@@ -21,7 +21,6 @@ def to_instrument_out(doc: dict) -> InstrumentOut:
         manufacturer=doc["manufacturer"],
         model=doc["model"],
         capacity=doc["capacity"],
-        serial_no=doc["serial_no"],
         location=doc.get("location"),
     )
 
@@ -38,14 +37,15 @@ def register_instrument(
         "manufacturer": payload.manufacturer,
         "model": payload.model,
         "capacity": payload.capacity,
-        "serial_no": payload.serial_no,
         "location": payload.location,
     }
 
     try:
         result = instruments_col.insert_one(doc)
     except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail="An instrument with this serial number already exists")
+        # Practically unreachable — generate_uiid() is atomic — but kept as
+        # a safety net in case the uiid index is ever violated some other way.
+        raise HTTPException(status_code=409, detail="Could not register this instrument, please try again")
 
     doc["_id"] = result.inserted_id
     return to_instrument_out(doc)

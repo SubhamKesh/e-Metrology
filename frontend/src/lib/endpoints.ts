@@ -36,7 +36,7 @@ export const AuthApi = {
 
 // ---- Instruments ----
 export const InstrumentApi = {
-  create: (body: Omit<Instrument, "id" | "owner_id">) => api.post<Instrument>("/instruments", body),
+  create: (body: Omit<Instrument, "id" | "owner_id" | "uiid">) => api.post<Instrument>("/instruments", body),
   list: (params?: { owner_id?: string }) => {
     const qs = params?.owner_id ? `?owner_id=${encodeURIComponent(params.owner_id)}` : "";
     return api.get<Instrument[]>(`/instruments${qs}`);

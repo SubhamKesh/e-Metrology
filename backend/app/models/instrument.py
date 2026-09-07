@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class InstrumentCreate(BaseModel):
@@ -7,8 +7,9 @@ class InstrumentCreate(BaseModel):
     manufacturer: str
     model: str
     capacity: str  # e.g. "30 kg" — kept as string since units vary by instrument type
-    uiid: str = Field(min_length=1)
     location: Optional[str] = None  # shop/business address
+    # uiid is deliberately NOT here — it's backend-generated (see
+    # app/services/uiid_generator.py), never supplied by the client.
 
 
 class InstrumentOut(BaseModel):
@@ -18,6 +19,5 @@ class InstrumentOut(BaseModel):
     manufacturer: str
     model: str
     capacity: str
-    serial_no: str
-    uiid: str
+    uiid: str  # government-issued unique instrument ID, e.g. "LM-000001"
     location: Optional[str] = None

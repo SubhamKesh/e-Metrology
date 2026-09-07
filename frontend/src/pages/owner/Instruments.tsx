@@ -14,7 +14,7 @@ export default function OwnerInstruments() {
   const columns: Column<Instrument>[] = [
     { header: "Type", cell: (i) => i.type },
     { header: "Manufacturer / Model", cell: (i) => `${i.manufacturer} · ${i.model}` },
-    { header: "Serial no.", cell: (i) => <span className="font-mono text-xs">{i.serial_no}</span> },
+    { header: "UIID", cell: (i) => <span className="font-mono text-xs">{i.uiid}</span> },
     { header: "Capacity", cell: (i) => i.capacity },
     { header: "Location", cell: (i) => i.location },
   ];

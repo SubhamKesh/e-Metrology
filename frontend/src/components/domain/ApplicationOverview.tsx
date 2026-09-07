@@ -35,7 +35,7 @@ export function ApplicationOverview({ application, actions }: { application: App
         ) : instrument ? (
           <dl className="grid grid-cols-2 gap-y-3 text-sm">
             <Field label="Manufacturer / Model" value={`${instrument.manufacturer} · ${instrument.model}`} />
-            <Field label="Serial number" value={instrument.serial_no} mono />
+            <Field label="UIID" value={instrument.uiid} mono />
             <Field label="Capacity" value={instrument.capacity} />
             <Field label="Location" value={instrument.location} />
           </dl>

@@ -45,7 +45,7 @@ export default function OwnerDashboardPage() {
         <div className="mt-6 rounded-lg border border-warning-50 bg-warning-50/50 p-5">
           <p className="text-sm font-medium text-warning">Upcoming renewal</p>
           <p className="mt-1 text-sm text-ink">
-            {d.next_expiry.instrument_type} · Serial {d.next_expiry.serial_no} expires on{" "}
+            {d.next_expiry.instrument_type} · Serial {d.next_expiry.uiid} expires on{" "}
             {new Date(d.next_expiry.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" })} —{" "}
             {d.next_expiry.days_remaining} day{d.next_expiry.days_remaining === 1 ? "" : "s"} remaining.
           </p>
