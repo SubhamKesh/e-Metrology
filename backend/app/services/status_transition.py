@@ -8,7 +8,7 @@ directly. Everything goes through transition_status() so:
   2. every change is recorded in the application's history[] for audit
   3. there's exactly one place to debug if statuses ever look wrong
 """
-
+from __future__ import annotations
 from datetime import datetime, timezone
 from bson import ObjectId
 from app.config.db import applications_col

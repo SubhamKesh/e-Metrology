@@ -50,6 +50,7 @@ export const TextInput = forwardRef<HTMLInputElement, InputProps>(
         <input
           id={inputId}
           ref={ref}
+          required={required}
           className={cn(controlClasses, error ? "border-danger" : "border-line", className)}
           {...rest}
         />
@@ -75,6 +76,7 @@ export const SelectInput = forwardRef<HTMLSelectElement, SelectProps>(
         <select
           id={inputId}
           ref={ref}
+          required={required}
           className={cn(controlClasses, "appearance-none bg-no-repeat", error ? "border-danger" : "border-line", className)}
           {...rest}
         >
@@ -109,6 +111,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
           id={inputId}
           ref={ref}
+          required={required}
           rows={4}
           className={cn(controlClasses, "h-auto py-2 resize-y", error ? "border-danger" : "border-line", className)}
           {...rest}
