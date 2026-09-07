@@ -1,7 +1,21 @@
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+# Prefer an explicit .env file if present (searches parent directories),
+# so running uvicorn from the repository root still picks up backend/.env.
+# Prefer an explicit backend/.env file when present (handles running
+# `uvicorn` from the repository root). Otherwise fall back to the usual
+# dotenv discovery logic.
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+backend_env = os.path.join(base_dir, ".env")
+if os.path.exists(backend_env):
+    load_dotenv(backend_env)
+else:
+    env_path = find_dotenv()
+    if env_path:
+        load_dotenv(env_path)
+    else:
+        load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "maapsetu")

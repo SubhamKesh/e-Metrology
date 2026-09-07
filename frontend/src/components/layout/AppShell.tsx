@@ -1,17 +1,126 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { ROLE_NAV } from "@/lib/nav";
 import { ROLE_LABEL } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
+import { useApplications } from "@/hooks/useData";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [newIndicator, setNewIndicator] = useState(false);
+  const prevQueueRef = useRef<number | null>(null);
   if (!user) return null;
   const nav = ROLE_NAV[user.role];
+
+  // Only officers need the global verification queue count (unassigned submitted apps).
+  const isOfficer = user.role === "lmo" || user.role === "gatc";
+  const { data: queueData } = useApplications(isOfficer ? { status: "submitted", pollInterval: 5000 } : undefined);
+  const queueCount = Array.isArray(queueData) ? queueData.length : 0;
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!isOfficer) return;
+    const prev = prevQueueRef.current;
+    if (prev !== null && queueCount > prev) {
+      setNewIndicator(true);
+      // play a short beep via Web Audio API
+      try {
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = "sine";
+        o.frequency.value = 880;
+        o.connect(g);
+        g.connect(ctx.destination);
+        g.gain.value = 0.05;
+        o.start();
+        setTimeout(() => {
+          o.stop();
+          ctx.close();
+        }, 180);
+      } catch (_) {
+        // ignore audio errors
+      }
+
+      // show toast with newest application id if available
+      const newestId = Array.isArray(queueData) && queueData.length ? queueData[0].id : null;
+      if (newestId) setToast({ id: newestId, text: `New application ${newestId}` });
+
+      const t = setTimeout(() => setNewIndicator(false), 3000);
+      return () => clearTimeout(t);
+    }
+    prevQueueRef.current = queueCount;
+  }, [queueCount, isOfficer]);
+
+  const [toast, setToast] = useState<{ id: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // WebSocket real-time notifications (officers only)
+  useEffect(() => {
+    if (!isOfficer) return;
+    const token = localStorage.getItem("maapsetu_token");
+    if (!token) return;
+    const loc = window.location;
+    const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${loc.host}/ws/notifications?token=${encodeURIComponent(token)}`;
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (e) {
+      return;
+    }
+
+    ws.onmessage = (ev) => {
+      try {
+        const payload = JSON.parse(ev.data);
+        if (payload?.type === "application_submitted") {
+          const app = payload.application;
+          setToast({ id: app.id, text: `New application ${app.id}` });
+          setNewIndicator(true);
+          setTimeout(() => setNewIndicator(false), 3000);
+          // Ensure queries refresh immediately
+          try {
+            qc.invalidateQueries({ queryKey: ["applications"] });
+          } catch (_e) {}
+          // play a short beep
+          try {
+            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const o = ctx.createOscillator();
+            const g = ctx.createGain();
+            o.type = "sine";
+            o.frequency.value = 880;
+            o.connect(g);
+            g.connect(ctx.destination);
+            g.gain.value = 0.05;
+            o.start();
+            setTimeout(() => {
+              o.stop();
+              ctx.close();
+            }, 180);
+          } catch (_) {}
+        }
+      } catch (err) {
+        // ignore malformed messages
+      }
+    };
+
+    ws.onclose = () => {
+      ws = null;
+    };
+
+    return () => {
+      if (ws) ws.close();
+    };
+  }, [isOfficer, qc]);
 
   return (
     <div className="flex min-h-screen bg-paper">
@@ -59,12 +168,41 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-3">
             <Button size="sm" onClick={() => navigate(nav.primaryCta.to)} className="hidden sm:inline-flex">
               {nav.primaryCta.label}
+              {isOfficer && (
+                <span
+                  className={`ml-3 inline-flex items-center rounded-full bg-teal-600 px-2 py-0.5 text-xs font-semibold text-white ${
+                    newIndicator ? "animate-pulse ring-2 ring-emerald-200" : ""
+                  }`}
+                >
+                  {queueCount}
+                </span>
+              )}
+              {newIndicator && (
+                <span className="ml-2 inline-block rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">New</span>
+              )}
             </Button>
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 text-sm font-medium text-teal-700">
               {user.name.slice(0, 1).toUpperCase()}
             </div>
           </div>
         </header>
+
+        {/* Toast container */}
+        {toast && (
+          <div className="fixed right-4 top-20 z-50 max-w-sm animate-slide-in">
+            <div className="rounded-md border border-line bg-white p-3 shadow-lg">
+              <p className="text-sm font-medium text-ink">{toast.text}</p>
+              <div className="mt-2 flex justify-end">
+                <button
+                  className="text-xs text-slate-500 hover:text-slate-700"
+                  onClick={() => setToast(null)}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-8">{children}</main>
       </div>
