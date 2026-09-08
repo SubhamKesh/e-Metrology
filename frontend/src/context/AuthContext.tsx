@@ -44,9 +44,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function register(payload: RegisterPayload) {
     const res = await AuthApi.register(payload);
-    setToken(res.token);
-    setUser(res.user);
-    setStatus("authed");
+    // If the backend returned a token, the account is active and we
+    // treat the user as authenticated. If the token is empty (officer
+    // accounts created in "pending" status), don't persist a token
+    // and keep the app in the guest state — the UI will navigate to
+    // a pending-approval page after register.
+    if (res.token) {
+      setToken(res.token);
+      setUser(res.user);
+      setStatus("authed");
+    } else {
+      // pending registration: keep the user information locally so
+      // the UI can show the pending page, but do not treat them as
+      // authenticated for protected routes.
+      setUser(res.user);
+      setStatus("guest");
+    }
     return res.user;
   }
 

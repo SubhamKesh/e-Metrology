@@ -46,13 +46,13 @@ def _can_view_instrument_for_assigned_application(doc: dict, current_user: dict)
 def to_instrument_out(doc: dict) -> InstrumentOut:
     return InstrumentOut(
         id=str(doc["_id"]),
-        owner_id=str(doc["owner_id"]),
-        uiid=doc["uiid"],
-        type=doc["type"],
-        manufacturer=doc["manufacturer"],
-        model=doc["model"],
-        capacity=doc["capacity"],
-        serial_no=doc["serial_no"],
+        owner_id=str(doc.get("owner_id") or ""),
+        uiid=doc.get("uiid", ""),
+        type=doc.get("type", ""),
+        manufacturer=doc.get("manufacturer", ""),
+        model=doc.get("model", ""),
+        capacity=doc.get("capacity", ""),
+        serial_no=doc.get("serial_no", ""),
         location=doc.get("location"),
     )
 

@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
+import PendingApproval from "@/pages/auth/PendingApproval";
 import VerifyCertificate from "@/pages/public/VerifyCertificate";
 import { Unauthorized, NotFound } from "@/pages/Misc";
 
@@ -58,6 +59,7 @@ export default function App() {
       <Route path="/" element={<RootRedirect />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/pending" element={<PendingApproval />} />
       <Route path="/verify" element={<VerifyCertificate />} />
       <Route path="/verify/:certId" element={<VerifyCertificate />} />
       <Route path="/unauthorized" element={<Unauthorized />} />

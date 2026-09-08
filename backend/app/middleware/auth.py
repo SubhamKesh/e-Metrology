@@ -34,13 +34,25 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
     return user
 
 
-def role_required(*allowed_roles: str):
+def role_required(*allowed_roles: str, allow_admin_view: bool = False):
     """FastAPI dependency factory for RBAC.
     Use like: def route(current_user: dict = Depends(role_required("owner")))
+
+    allow_admin_view=False (default): exact role match only, admin included
+    unless explicitly listed. Nothing changes for existing routes.
+
+    allow_admin_view=True: opt a route in to also letting an "admin" user
+    through, in ADDITION to allowed_roles, even if "admin" isn't listed.
+    Reserve this for read-only "look at this role's world" endpoints
+    (e.g. dashboards) — never for owner/officer write actions like
+    submitting applications or claiming inspections, where letting admin
+    through would blur who actually performed the action.
     """
 
     def checker(current_user: dict = Depends(get_current_user)) -> dict:
-        if current_user["role"] not in allowed_roles:
+        role = current_user["role"]
+        is_allowed = role in allowed_roles or (allow_admin_view and role == "admin")
+        if not is_allowed:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized for this action",

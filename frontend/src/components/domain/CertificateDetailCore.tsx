@@ -40,7 +40,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
           </div>
         </div>
         <div className="flex flex-wrap gap-3 border-t border-line px-6 py-4">
-          <a href={certificate.pdf_url} download={`certificate-${certificate.id}.pdf`} target="_blank" rel="noreferrer">
+          <a href={certificate.pdf_url} target="_blank" rel="noreferrer">
             <Button size="sm">Download PDF</Button>
           </a>
           <a href={verifyUrl} target="_blank" rel="noreferrer">

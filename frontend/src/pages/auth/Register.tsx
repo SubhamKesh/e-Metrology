@@ -106,7 +106,11 @@ export default function Register() {
         org_name: form.org_name || undefined,
         contact: form.contact || undefined,
       });
-      navigate(roleHome(user.role), { replace: true });
+      if ((user as any).status === "pending") {
+        navigate("/pending", { replace: true });
+      } else {
+        navigate(roleHome(user.role), { replace: true });
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
     } finally {

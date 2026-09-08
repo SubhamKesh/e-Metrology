@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
 from app.config.db import init_indexes, client
-from app.routers import auth, instruments, applications, inspections, dashboard, certificates, uploads, ws
+from app.routers import auth, instruments, applications, inspections, dashboard, certificates, uploads, ws, admin_users
 from app.services.expiry_cron import start_expiry_scheduler
 import os
 from urllib.parse import urlparse
@@ -14,9 +14,10 @@ app = FastAPI(title="MaapSetu API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten this before final deployment
+    allow_origins=["http://localhost:5173"],  # tighten this before final deployment
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 
@@ -58,6 +59,7 @@ app.include_router(dashboard.router)
 app.include_router(certificates.router)
 app.include_router(uploads.router)
 app.include_router(ws.router)
+app.include_router(admin_users.router)
 
 
 # Dev helper: expose whether MONGO_URI was loaded and the resolved host.

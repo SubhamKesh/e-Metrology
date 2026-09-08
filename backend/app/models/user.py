@@ -11,6 +11,8 @@ class UserRegister(BaseModel):
     org_type: Optional[str] = None  # "LMO" or "GATC", only relevant for those roles
     org_name: Optional[str] = None
     contact: Optional[str] = None
+    # Deliberately NO status field here — a registering user can never set
+    # their own approval status. The router decides it based on role.
 
 
 class UserLogin(BaseModel):
@@ -23,6 +25,7 @@ class UserOut(BaseModel):
     name: str
     email: EmailStr
     role: str
+    status: str
     org_type: Optional[str] = None
     org_name: Optional[str] = None
     contact: Optional[str] = None
