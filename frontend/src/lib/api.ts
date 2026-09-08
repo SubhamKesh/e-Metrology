@@ -70,10 +70,44 @@ interface RequestOptions {
   isForm?: boolean;
   // Set true for the couple of endpoints documented as public (no auth header sent).
   public?: boolean;
+  // Internal: set on the retry after a refresh, so a failed retry doesn't
+  // trigger a second refresh attempt and loop.
+  _isRetry?: boolean;
+}
+
+// The backend now issues short-lived (15 min) access tokens plus a
+// long-lived refresh token in an httpOnly cookie (see backend
+// docs/security-hardening-status.md). A single access token would have
+// previously stayed valid for 7 days; to avoid every user getting silently
+// logged out every 15 minutes, a 401 triggers one transparent refresh
+// attempt before falling back to the old "clear token, bounce to /login"
+// behavior. `credentials: "include"` is required on every request (not
+// just /refresh) for the browser to send/receive that cookie at all.
+let refreshInFlight: Promise<boolean> | null = null;
+
+async function tryRefresh(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${BASE_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then(async (res) => {
+        if (!res.ok) return false;
+        const data = (await res.json()) as { token?: string };
+        if (!data.token) return false;
+        setToken(data.token);
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, isForm = false, public: isPublic = false } = opts;
+  const { method = "GET", body, isForm = false, public: isPublic = false, _isRetry = false } = opts;
 
   const headers: Record<string, string> = {};
   if (!isForm) headers["Content-Type"] = "application/json";
@@ -87,6 +121,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     res = await fetch(`${BASE_URL}${path}`, {
       method,
       headers,
+      credentials: "include", // send/receive the httpOnly refresh cookie
       body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
     });
   } catch {
@@ -94,6 +129,18 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   }
 
   if (res.status === 204) return undefined as T;
+
+  // A 401 on an authenticated request might just mean the 15-min access
+  // token expired, not that the session is actually over — try one silent
+  // refresh-and-retry before giving up. Skipped for /auth/* calls
+  // themselves (login/register/refresh/me on initial load) so a genuinely
+  // wrong password or a dead refresh cookie doesn't retry pointlessly.
+  if (res.status === 401 && !isPublic && !_isRetry && !path.startsWith("/auth/")) {
+    const refreshed = await tryRefresh();
+    if (refreshed) {
+      return request<T>(path, { ...opts, _isRetry: true });
+    }
+  }
 
   let data: unknown = null;
   const text = await res.text();

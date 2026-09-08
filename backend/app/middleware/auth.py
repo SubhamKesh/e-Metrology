@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config.db import users_col
-from app.utils.security import decode_token
+from app.utils.security import decode_access_token
 
 bearer_scheme = HTTPBearer()
 
@@ -16,12 +16,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
     """
     token = credentials.credentials
     try:
-        user_id = decode_token(token)
+        payload = decode_access_token(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+    user_id = payload["sub"]
     try:
         user = users_col.find_one({"_id": ObjectId(user_id)})
     except InvalidId:
@@ -29,6 +30,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
 
     if not user:
         raise HTTPException(status_code=401, detail="User no longer exists")
+
+    # Instant revocation without Redis: if the user's token_version has been
+    # bumped (logout-all, password change, admin-forced revoke) since this
+    # access token was issued, the token is dead even though it hasn't
+    # expired yet.
+    current_tv = user.get("token_version", 0)
+    if payload.get("tv", 0) != current_tv:
+        raise HTTPException(status_code=401, detail="Token has been revoked")
 
     user["id"] = str(user["_id"])
     return user

@@ -1,4 +1,4 @@
-from typing import Optional, Literal
+from typing import Literal
 from datetime import datetime
 from pydantic import BaseModel
 

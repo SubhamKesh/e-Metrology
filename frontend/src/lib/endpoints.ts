@@ -32,6 +32,7 @@ export const AuthApi = {
   login: (body: { email: string; password: string }) =>
     api.post<AuthResponse>("/auth/login", body, { public: true }),
   me: () => api.get<{ user: User }>("/auth/me"),
+  logout: () => api.post<void>("/auth/logout"),
 };
 
 // ---- Instruments ----

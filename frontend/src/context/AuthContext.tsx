@@ -64,6 +64,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   function logout() {
+    // Best-effort: revoke the refresh-token cookie server-side. Fire and
+    // forget — local logout must not hang or fail just because the
+    // network call did, since the whole point of logging out is to get
+    // the user back to /login immediately.
+    AuthApi.logout().catch(() => {});
     clearToken();
     setUser(null);
     setStatus("guest");

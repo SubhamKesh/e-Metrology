@@ -106,7 +106,7 @@ export default function Register() {
         org_name: form.org_name || undefined,
         contact: form.contact || undefined,
       });
-      if ((user as any).status === "pending") {
+      if (user.status === "pending") {
         navigate("/pending", { replace: true });
       } else {
         navigate(roleHome(user.role), { replace: true });

@@ -1,0 +1,28 @@
+# Local dev convenience only — NOT the production deployment shape.
+# Runs the backend + a local Mongo so nobody needs Atlas creds just to
+# poke at the API. Production still targets Atlas + Render/Railway per
+# the existing team plan (see docs/).
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      DB_NAME: maapsetu
+      JWT_SECRET: dev_secret_change_me
+      COOKIE_SECURE: "false" # set true once served over HTTPS
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:

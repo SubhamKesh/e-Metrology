@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 120
+exclude = ["backend.zip", "frontend.zip"]
+
+[tool.ruff.lint]
+# Scoped deliberately to catch real bugs (undefined names, unused imports,
+# syntax issues) rather than opinionated style (import ordering, line
+# wrapping) — the team's existing code has its own established style
+# across several contributors, and CI shouldn't fail a PR over that.
+select = ["E9", "F"]
