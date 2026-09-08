@@ -8,7 +8,7 @@ passlib==1.7.4
 bcrypt==4.0.1
 python-multipart==0.0.9
 cloudinary==1.41.0
-requests==2.32.3
+requests==2.34.2
 qrcode[pil]==7.4.2
 reportlab==4.2.5
 apscheduler==3.10.4
