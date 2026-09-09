@@ -8,3 +8,14 @@ exclude = ["backend.zip", "frontend.zip"]
 # wrapping) — the team's existing code has its own established style
 # across several contributors, and CI shouldn't fail a PR over that.
 select = ["E9", "F"]
+
+[tool.pytest.ini_options]
+# tests/test_application_id_matching.py does `from app.routers... import`
+# at module level (not inside a fixture/test function like the other test
+# files do), so it needs the `app` package importable at collection time.
+# pytest only auto-adds a test file's own directory (tests/) to sys.path,
+# not its parent — this ini option explicitly adds the project root
+# (backend/, where pyproject.toml lives) so `import app...` resolves the
+# same way it does when running the app itself with `uvicorn app.main:app`
+# from this same directory.
+pythonpath = ["."]
