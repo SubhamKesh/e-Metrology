@@ -14,3 +14,7 @@ reportlab==4.2.5
 apscheduler==3.10.4
 pydantic[email]==2.9.2
 slowapi==0.1.9
+# Optional: only needed if REDIS_URL is set (shared DDoS-protection state
+# across uvicorn --workers / multiple containers). App runs fine without it
+# using per-worker in-memory state -- see app/middleware/ddos_store.py.
+redis==5.0.8

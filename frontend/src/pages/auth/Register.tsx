@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthLayout } from "./AuthLayout";
-import { TextInput, SelectInput } from "@/components/ui/Field";
+import { TextInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
@@ -9,11 +9,12 @@ import { roleHome } from "@/lib/roleHome";
 import type { Role } from "@/lib/types";
 import { isValidName, isValidEmail, isValidPhone } from "@/lib/validation";
 
-const ROLE_OPTIONS: { value: Role; label: string }[] = [
-  { value: "owner", label: "Business / User — I own instruments" },
-  { value: "lmo", label: "Legal Metrology Officer" },
-  { value: "gatc", label: "GATC" },
-];
+// Self-registration is for owner (business/user) accounts only. lmo/gatc
+// are real government officer roles and are invite-only — an admin
+// creates those accounts directly (see AdminUsers.tsx / POST
+// /admin/users/create-officer). There is deliberately no role picker
+// here anymore.
+const OWNER_ROLE: Role = "owner";
 
 type FieldErrors = {
   name?: string;
@@ -28,15 +29,12 @@ export default function Register() {
     name: "",
     email: "",
     password: "",
-    role: "owner" as Role,
     org_name: "",
     contact: "",
   });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const needsOrgType = form.role === "lmo" || form.role === "gatc";
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -101,16 +99,12 @@ export default function Register() {
         name: form.name,
         email: form.email,
         password: form.password,
-        role: form.role,
-        org_type: needsOrgType ? (form.role === "lmo" ? "LMO" : "GATC") : null,
+        role: OWNER_ROLE,
+        org_type: null,
         org_name: form.org_name || undefined,
         contact: form.contact || undefined,
       });
-      if (user.status === "pending") {
-        navigate("/pending", { replace: true });
-      } else {
-        navigate(roleHome(user.role), { replace: true });
-      }
+      navigate(roleHome(user.role), { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
     } finally {
@@ -120,14 +114,11 @@ export default function Register() {
 
   return (
     <AuthLayout title="Create your account" subtitle="Register instruments, track applications, and manage verifications.">
+      <p className="mb-4 text-sm text-slate-500">
+        This form is for business/owner accounts. Legal Metrology Officer and GATC accounts are created by an
+        administrator and are not open for self-registration.
+      </p>
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
-        <SelectInput
-          label="I am"
-          required
-          value={form.role}
-          onChange={(e) => set("role", e.target.value as Role)}
-          options={ROLE_OPTIONS}
-        />
         <TextInput
           label="Full name"
           required
@@ -154,7 +145,7 @@ export default function Register() {
           onChange={(e) => set("password", e.target.value)}
         />
         <TextInput
-          label={form.role === "owner" ? "Business name" : "Organisation name"}
+          label="Business name"
           required
           value={form.org_name}
           onChange={(e) => set("org_name", e.target.value)}

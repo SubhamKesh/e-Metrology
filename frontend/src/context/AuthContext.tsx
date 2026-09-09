@@ -8,6 +8,7 @@ interface AuthState {
   status: "loading" | "authed" | "guest";
   login: (email: string, password: string) => Promise<User>;
   register: (payload: RegisterPayload) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<User>;
   logout: () => void;
 }
 
@@ -63,6 +64,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.user;
   }
 
+  async function changePassword(currentPassword: string, newPassword: string) {
+    const updated = await AuthApi.changePassword({
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    setUser(updated);
+    return updated;
+  }
+
   function logout() {
     // Best-effort: revoke the refresh-token cookie server-side. Fire and
     // forget — local logout must not hang or fail just because the
@@ -75,7 +85,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, status, login, register, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, status, login, register, changePassword, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

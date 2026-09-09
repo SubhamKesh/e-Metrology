@@ -23,5 +23,11 @@ export function ProtectedRoute({ roles, children }: { roles?: Role[]; children: 
     return <Navigate to="/unauthorized" replace />;
   }
 
+  // Admin-created officer accounts start on a one-time temp password and
+  // must set their own before touching anything else in the app.
+  if (user.must_change_password && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
+  }
+
   return <>{children}</>;
 }

@@ -33,6 +33,31 @@ export const AuthApi = {
     api.post<AuthResponse>("/auth/login", body, { public: true }),
   me: () => api.get<{ user: User }>("/auth/me"),
   logout: () => api.post<void>("/auth/logout"),
+  changePassword: (body: { current_password: string; new_password: string }) =>
+    api.post<User>("/auth/change-password", body),
+};
+
+// ---- Admin: officer accounts (invite-only lmo/gatc) ----
+export interface CreateOfficerPayload {
+  name: string;
+  email: string;
+  role: "lmo" | "gatc";
+  org_name?: string;
+  contact?: string;
+}
+export interface CreateOfficerResponse {
+  user: User;
+  temp_password: string;
+  emailed: boolean;
+}
+
+export const AdminUsersApi = {
+  listOfficers: () => api.get<User[]>("/admin/users"),
+  listPending: () => api.get<User[]>("/admin/users/pending"),
+  createOfficer: (body: CreateOfficerPayload) =>
+    api.post<CreateOfficerResponse>("/admin/users/create-officer", body),
+  approve: (id: string) => api.post<User>(`/admin/users/${id}/approve`),
+  reject: (id: string) => api.post<User>(`/admin/users/${id}/reject`),
 };
 
 // ---- Instruments ----

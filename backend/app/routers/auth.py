@@ -13,7 +13,7 @@ from app.config.settings import (
     LOGIN_MAX_ATTEMPTS,
     LOGIN_LOCKOUT_BASE_MINUTES,
 )
-from app.models.user import UserRegister, UserLogin, UserOut, TokenResponse
+from app.models.user import UserRegister, UserLogin, UserOut, TokenResponse, ChangePasswordRequest
 from app.utils.security import (
     hash_password,
     verify_password,
@@ -46,6 +46,7 @@ def to_user_out(user_doc: dict) -> UserOut:
         org_type=user_doc.get("org_type"),
         org_name=user_doc.get("org_name"),
         contact=user_doc.get("contact"),
+        must_change_password=user_doc.get("must_change_password", False),
     )
 
 
@@ -109,27 +110,30 @@ def register(payload: UserRegister, request: Request, response: Response):
     if payload.role not in ROLES:
         raise HTTPException(status_code=400, detail=f"role must be one of {ROLES}")
 
-    if payload.role == "admin":
-        # The minister / department-head account is provisioned exclusively
-        # by seed_super_admin.py, never through open self-registration.
-        raise HTTPException(status_code=403, detail="This role cannot self-register")
-
-    # Owners can use their account right away. lmo/gatc accounts represent
-    # real government officers, so they sit in "pending" until the admin
-    # (minister) approves them — see /admin/users/{id}/approve below.
-    status = "active" if payload.role == "owner" else "pending"
+    if payload.role != "owner":
+        # Open self-registration only exists for owner (business/user)
+        # accounts. lmo/gatc are real government officer roles and are
+        # invite-only: an admin creates them directly via
+        # POST /admin/users/create-officer, with a temp password the admin
+        # shares out of band. admin itself is seed-only. Either way, this
+        # endpoint has nothing to offer a non-owner role.
+        raise HTTPException(
+            status_code=403,
+            detail="Officer accounts are created by an administrator, not self-registered",
+        )
 
     doc = {
         "name": payload.name,
         "email": payload.email.lower(),
         "password": hash_password(payload.password),
-        "role": payload.role,
-        "status": status,
+        "role": "owner",
+        "status": "active",
         "org_type": payload.org_type,
         "org_name": payload.org_name,
         "contact": payload.contact,
         "token_version": 0,
         "failed_login_attempts": 0,
+        "must_change_password": False,
     }
 
     try:
@@ -138,12 +142,6 @@ def register(payload: UserRegister, request: Request, response: Response):
         raise HTTPException(status_code=409, detail="Email already registered")
 
     doc["_id"] = result.inserted_id
-
-    if status == "pending":
-        # No token for a pending account — they can't do anything yet.
-        # The frontend should show "awaiting admin approval" rather than
-        # logging them straight in.
-        return TokenResponse(user=to_user_out(doc), token="")
 
     token = _issue_tokens(response, doc)
     return TokenResponse(user=to_user_out(doc), token=token)
@@ -246,4 +244,26 @@ def logout_all(response: Response, current_user: dict = Depends(get_current_user
 
 @router.get("/me", response_model=UserOut)
 def me(current_user: dict = Depends(get_current_user)):
+    return to_user_out(current_user)
+
+
+@router.post("/change-password", response_model=UserOut)
+def change_password(payload: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+    """Used both for a voluntary password change and for the forced
+    change an admin-created officer must do on first login (see
+    must_change_password on UserOut)."""
+    if not verify_password(payload.current_password, current_user["password"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    users_col.update_one(
+        {"_id": current_user["_id"]},
+        {
+            "$set": {
+                "password": hash_password(payload.new_password),
+                "must_change_password": False,
+            }
+        },
+    )
+    current_user["password"] = hash_password(payload.new_password)
+    current_user["must_change_password"] = False
     return to_user_out(current_user)

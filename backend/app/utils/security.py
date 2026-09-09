@@ -19,6 +19,13 @@ def hash_password(plain_password: str) -> str:
     return pwd_context.hash(plain_password)
 
 
+def generate_temp_password() -> str:
+    """Random, URL-safe temp password for admin-provisioned officer accounts.
+    Shown to the admin exactly once at creation time; only its bcrypt hash
+    is ever stored. The officer is forced to change it on first login."""
+    return secrets.token_urlsafe(9)  # ~12 chars, enough entropy for a one-time credential
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 

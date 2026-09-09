@@ -20,6 +20,10 @@ export interface User {
   org_type: "LMO" | "GATC" | null;
   org_name: string | null;
   contact: string | null;
+  // True for an admin-created officer account that's still on its
+  // one-time temp password — the UI should route them to change it
+  // before anything else.
+  must_change_password: boolean;
 }
 
 export interface Instrument {

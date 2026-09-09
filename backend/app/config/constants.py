@@ -3,12 +3,20 @@
 
 ROLES = ["owner", "lmo", "gatc", "admin"]
 
-# owner accounts are usable immediately on registration. lmo/gatc accounts
-# start "pending" and can't log in until an admin (the department head /
-# minister account) approves them — see routers/auth.py login() and the
-# new routers/admin_users.py approve/reject endpoints. admin accounts are
-# only ever created via the seed_super_admin.py script, never through
-# self-registration, so they're always "active".
+# owner accounts are open self-registration and usable immediately.
+# lmo/gatc ("officer") accounts are invite-only: there is no public
+# registration path for these roles at all. Only an admin can create one
+# (routers/admin_users.py: POST /admin/users/create-officer), and the
+# account is active the moment the admin creates it — the admin creating
+# it *is* the approval. A generated temp password is shown to the admin
+# once; the officer must change it on first login (see
+# app/models/user.py: must_change_password).
+#
+# "pending"/"rejected" are kept in the enum for two reasons: (1) backward
+# compatibility with any accounts created before this change, and (2) the
+# admin can still use approve/reject on an existing officer account as a
+# generic reactivate/suspend toggle (routers/admin_users.py). admin
+# accounts are only ever created via the seed_super_admin.py script.
 USER_STATUS = ["pending", "active", "rejected"]
 
 APPLICATION_STATUS = [

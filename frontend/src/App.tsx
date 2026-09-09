@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
 import PendingApproval from "@/pages/auth/PendingApproval";
+import ChangePassword from "@/pages/auth/ChangePassword";
 import VerifyCertificate from "@/pages/public/VerifyCertificate";
 import { Unauthorized, NotFound } from "@/pages/Misc";
 
@@ -30,6 +31,7 @@ import AdminInstruments from "@/pages/admin/AdminInstruments";
 import AdminApplications from "@/pages/admin/Applications";
 import AdminApplicationDetail from "@/pages/admin/ApplicationDetail";
 import { AdminCertificates, AdminCertificateDetail } from "@/pages/admin/Certificates";
+import AdminUsers from "@/pages/admin/Users";
 
 function RootRedirect() {
   const { user, status } = useAuth();
@@ -60,6 +62,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/pending" element={<PendingApproval />} />
+      <Route path="/change-password" element={<ChangePassword />} />
       <Route path="/verify" element={<VerifyCertificate />} />
       <Route path="/verify/:certId" element={<VerifyCertificate />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
@@ -115,6 +118,7 @@ export default function App() {
             <AppShell>
               <Routes>
                 <Route index element={<AdminDashboardPage />} />
+                <Route path="users" element={<AdminUsers />} />
                 <Route path="instruments" element={<AdminInstruments />} />
                 <Route path="applications" element={<AdminApplications />} />
                 <Route path="applications/:id" element={<AdminApplicationDetail />} />

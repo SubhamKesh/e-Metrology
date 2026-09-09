@@ -5,11 +5,15 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import PyMongoError
 
 from app.config.db import init_indexes, client
-from app.config.settings import MAX_REQUEST_BODY_BYTES
+from app.config.settings import MAX_REQUEST_BODY_BYTES, CORS_ALLOWED_ORIGINS, ENVIRONMENT, IS_PRODUCTION, REDIS_URL
+from app.middleware.ddos_protection import ddos_protection_middleware
 from app.routers import auth, instruments, applications, inspections, dashboard, certificates, uploads, ws, admin_users
 from app.services.expiry_cron import start_expiry_scheduler
+import logging
 import os
 from urllib.parse import urlparse
+
+logger = logging.getLogger("maapsetu")
 
 try:
     from slowapi import _rate_limit_exceeded_handler
@@ -27,7 +31,11 @@ if _SLOWAPI_AVAILABLE:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # tighten this before final deployment
+    # Driven by CORS_ALLOWED_ORIGINS (comma-separated env var). Defaults to
+    # the Vite dev server origin so local dev is unaffected; production
+    # startup fails fast (see config/settings.py) if this hasn't been set
+    # to the real deployed frontend origin(s).
+    allow_origins=CORS_ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
     allow_credentials=True,
@@ -66,8 +74,29 @@ async def request_size_limit_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def _ddos_protection(request: Request, call_next):
+    """Registered last so Starlette makes it the outermost middleware —
+    it runs before CORS/security-headers/body-size-limit, so a blocked
+    IP is rejected as cheaply as possible instead of doing unnecessary
+    work first."""
+    return await ddos_protection_middleware(request, call_next)
+
+
 @app.on_event("startup")
 def on_startup():
+    if IS_PRODUCTION and not REDIS_URL:
+        # Not fatal on its own (the Dockerfile's --workers 2 still works,
+        # just with each worker enforcing its own independent threshold —
+        # see middleware/ddos_protection.py), but this should never be
+        # silent in production.
+        logger.warning(
+            "ENVIRONMENT=production but REDIS_URL is not set: the DDoS "
+            "protection middleware is using per-worker in-memory state, so "
+            "with --workers N an IP effectively gets ~N x the configured "
+            "request threshold. Set REDIS_URL to share state across workers."
+        )
+
     # Attempt to initialise DB indexes and background jobs, but don't crash
     # the application if MongoDB isn't available (useful for local dev without
     # a running Mongo instance). Endpoints will still return 503 if DB is
@@ -108,9 +137,17 @@ app.include_router(admin_users.router)
 
 
 # Dev helper: expose whether MONGO_URI was loaded and the resolved host.
-@app.get("/__dev/db-info")
-def dev_db_info():
-    uri = os.getenv("MONGO_URI", "")
-    parsed = urlparse(uri) if uri else None
-    host = parsed.hostname if parsed else None
-    return {"mongo_uri_present": bool(uri), "mongo_host": host}
+#
+# Only registered when ENVIRONMENT != production, so in a real deployment
+# this route doesn't exist at all — not "exists but denies", genuinely
+# absent from the app's routes (won't show up in OpenAPI, can't be hit no
+# matter what headers/auth are sent). This was previously always mounted
+# and unauthenticated, leaking the Mongo host to anyone who requested it.
+if not IS_PRODUCTION:
+
+    @app.get("/__dev/db-info")
+    def dev_db_info():
+        uri = os.getenv("MONGO_URI", "")
+        parsed = urlparse(uri) if uri else None
+        host = parsed.hostname if parsed else None
+        return {"mongo_uri_present": bool(uri), "mongo_host": host}

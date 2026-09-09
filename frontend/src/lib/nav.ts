@@ -48,6 +48,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
     primaryCta: { label: "All applications", to: "/app/admin/applications" },
     items: [
       { label: "Overview", to: "/app/admin", end: true },
+      { label: "Officer accounts", to: "/app/admin/users" },
       { label: "Instruments", to: "/app/admin/instruments" },
       { label: "Applications", to: "/app/admin/applications" },
       { label: "Certificates", to: "/app/admin/certificates" },
