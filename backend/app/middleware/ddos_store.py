@@ -16,7 +16,6 @@ Two implementations of the same small interface:
 Both expose the same async interface so `ddos_protection.py` doesn't need
 to know which one it's talking to.
 """
-import time
 import uuid
 from collections import defaultdict, deque
 from typing import Optional, Tuple
