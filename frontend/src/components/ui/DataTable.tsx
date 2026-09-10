@@ -63,11 +63,24 @@ export function DataTable<T>({
 
       <div className="flex flex-col gap-3 md:hidden">
         {rows.map((row) => (
-          <button
+          <div
             key={rowKey(row)}
-            onClick={() => onRowClick?.(row)}
-            disabled={!onRowClick}
-            className="rounded-lg border border-line bg-white p-4 text-left shadow-panel disabled:cursor-default"
+            role={onRowClick ? "button" : undefined}
+            tabIndex={onRowClick ? 0 : undefined}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+            onKeyDown={
+              onRowClick
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onRowClick(row);
+                    }
+                  }
+                : undefined
+            }
+            className={`rounded-lg border border-line bg-white p-4 text-left shadow-panel ${
+              onRowClick ? "cursor-pointer" : ""
+            }`}
           >
             {columns.map((c, i) => (
               <div key={i} className="flex items-center justify-between gap-3 py-1 text-sm first:pt-0 last:pb-0">
@@ -75,7 +88,7 @@ export function DataTable<T>({
                 <span className="text-right text-ink">{c.cell(row)}</span>
               </div>
             ))}
-          </button>
+          </div>
         ))}
       </div>
     </>

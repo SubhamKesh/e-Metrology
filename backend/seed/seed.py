@@ -60,6 +60,7 @@ def seed_users() -> dict:
             "email": u["email"],
             "password": hash_password(u["password"]),
             "role": u["role"],
+            "status": "active",
             "org_type": u["org_type"],
             "org_name": u["org_name"],
             "contact": u["contact"],
