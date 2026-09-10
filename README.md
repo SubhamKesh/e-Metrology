@@ -385,10 +385,10 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 
 ## 👥 Team
 
-Built by Team Tech Realist for **Sit 2026 Hackathon**.
+Built by Team Tech Realist for **SIH 2026 Hackathon**.
 Members:
 1. Anushka Saha
-2. Souradeep Tarafder
+2. Souradeep Tarafdar
 3. Subham Kesh
 4. Kiran Kundu
 5. Subhasis Pal
