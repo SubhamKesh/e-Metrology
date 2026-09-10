@@ -398,4 +398,4 @@ Members:
 
 ## 📄 License
 
-No license file is currently included in this repository — add one (e.g. MIT) before public distribution.
+No license file is currently included in this repository.
