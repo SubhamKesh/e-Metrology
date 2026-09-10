@@ -4,7 +4,7 @@
 
 **Digital Legal Metrology Verification & Certification Platform for India**
 
-Built for **Sit 2026 Hackathon**
+Built for **Sih 2026 Hackathon**
 
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-blue?logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)](backend)
@@ -392,7 +392,7 @@ Members:
 3. Subham Kesh
 4. Kiran Kundu
 5. Subhasis Pal
-6. Atritra Sutradhar
+6. Aritra Sutradhar
 
 ---
 
