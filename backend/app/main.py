@@ -7,7 +7,7 @@ from pymongo.errors import PyMongoError
 from app.config.db import init_indexes, client
 from app.config.settings import MAX_REQUEST_BODY_BYTES, CORS_ALLOWED_ORIGINS, IS_PRODUCTION, REDIS_URL
 from app.middleware.ddos_protection import ddos_protection_middleware
-from app.routers import auth, instruments, applications, inspections, dashboard, certificates, uploads, ws, admin_users
+from app.routers import auth, instruments, applications, inspections, dashboard, certificates, uploads, ws, admin_users, geo
 from app.services.expiry_cron import start_expiry_scheduler
 import logging
 import os
@@ -134,6 +134,7 @@ app.include_router(certificates.router)
 app.include_router(uploads.router)
 app.include_router(ws.router)
 app.include_router(admin_users.router)
+app.include_router(geo.router)
 
 
 # Dev helper: expose whether MONGO_URI was loaded and the resolved host.

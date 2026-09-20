@@ -1,38 +1,22 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { TextInput, SelectInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Card";
-import { useCreateInstrument } from "@/hooks/useData";
+import { useCreateInstrument, useGeoDistricts, useGeoStates, useInstrumentTypeSpecs } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 
-// Kept in sync with ALLOWED_INSTRUMENT_TYPES in the backend
-// (app/models/instrument.py) — the backend rejects anything outside this
-// exact set, so the dropdown here must offer only these values, spelled
-// exactly the same way.
-const INSTRUMENT_TYPE_OPTIONS = [
-  { value: "Electronic Weighing Machine", label: "Electronic Weighing Machine" },
-  { value: "Fuel Dispensing Unit", label: "Fuel Dispensing Unit" },
-  { value: "Platform Scale", label: "Platform Scale" },
-  { value: "Water Meter", label: "Water Meter" },
-  { value: "Clinical Thermometer", label: "Clinical Thermometer" },
-  { value: "Automatic Rail Weighbridge", label: "Automatic Rail Weighbridge" },
-  { value: "Tape Measure", label: "Tape Measure" },
-  { value: "Non-Automatic Weighing Instrument", label: "Non-Automatic Weighing Instrument" },
-  { value: "Load Cell", label: "Load Cell" },
-  { value: "Beam Scale", label: "Beam Scale" },
-  { value: "Counter Machine", label: "Counter Machine" },
-  { value: "Weights", label: "Weights" },
-  { value: "Gas Meter", label: "Gas Meter" },
-  { value: "Energy Meter", label: "Energy Meter" },
-  { value: "Moisture Meter", label: "Moisture Meter" },
-  { value: "Speed Meter", label: "Speed Meter" },
-  { value: "Breath Analyser", label: "Breath Analyser" },
-  { value: "Flow Meter", label: "Flow Meter" },
-];
-
-const EMPTY = { type: "", manufacturer: "", model: "", capacity: "", serial_no: "", location: "" };
+const EMPTY = {
+  type: "",
+  manufacturer: "",
+  model: "",
+  capacityValue: "",
+  serial_no: "",
+  state_code: "",
+  district_code: "",
+  address_line: "",
+};
 
 export default function RegisterInstrument() {
   const navigate = useNavigate();
@@ -40,15 +24,62 @@ export default function RegisterInstrument() {
   const [form, setForm] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
 
+  // Type list + capacity unit/input widget both come from the backend
+  // (app/config/instrument_specs.py via GET /instruments/meta/types) —
+  // no separate hardcoded list to keep in sync here.
+  const { data: typeSpecs, isLoading: typesLoading } = useInstrumentTypeSpecs();
+  const { data: states, isLoading: statesLoading } = useGeoStates();
+  const { data: districts, isLoading: districtsLoading } = useGeoDistricts(form.state_code || undefined);
+
+  const typeOptions = useMemo(
+    () => (typeSpecs ?? []).map((s) => ({ value: s.type, label: s.type })),
+    [typeSpecs],
+  );
+  const stateOptions = useMemo(
+    () => (states ?? []).map((s) => ({ value: s.code, label: s.name })),
+    [states],
+  );
+  const districtOptions = useMemo(
+    () => (districts ?? []).map((d) => ({ value: d.code, label: d.name })),
+    [districts],
+  );
+
+  const selectedSpec = typeSpecs?.find((s) => s.type === form.type);
+
   function set<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
   }
+
+  // Changing the state clears any previously-selected district — it
+  // belonged to a different state's list and is no longer valid.
+  function setState(stateCode: string) {
+    setForm((f) => ({ ...f, state_code: stateCode, district_code: "" }));
+  }
+
+  // If the instrument type changes, the old numeric value was in a
+  // different unit (e.g. switching from Energy Meter/kWh to Water
+  // Meter/m³) — clear it rather than silently keep a now-meaningless
+  // number under the new unit.
+  useEffect(() => {
+    setForm((f) => ({ ...f, capacityValue: "" }));
+  }, [form.type]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      const instrument = await create.mutateAsync(form);
+      const instrument = await create.mutateAsync({
+        type: form.type,
+        manufacturer: form.manufacturer,
+        model: form.model,
+        capacity: selectedSpec ? `${form.capacityValue} ${selectedSpec.unit}` : form.capacityValue,
+        serial_no: form.serial_no,
+        location: {
+          state_code: form.state_code,
+          district_code: form.district_code,
+          address_line: form.address_line,
+        },
+      });
       navigate(`/app/owner/instruments/${instrument.id}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -67,8 +98,8 @@ export default function RegisterInstrument() {
           <SelectInput
             label="Instrument type"
             required
-            placeholder="Select an instrument type"
-            options={INSTRUMENT_TYPE_OPTIONS}
+            placeholder={typesLoading ? "Loading instrument types…" : "Select an instrument type"}
+            options={typeOptions}
             value={form.type}
             onChange={(e) => set("type", e.target.value)}
           />
@@ -77,16 +108,49 @@ export default function RegisterInstrument() {
             <TextInput label="Model" required value={form.model} onChange={(e) => set("model", e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <TextInput label="Capacity" required placeholder="e.g. 30 kg" value={form.capacity} onChange={(e) => set("capacity", e.target.value)} />
+            <TextInput
+              label={selectedSpec ? `Capacity (${selectedSpec.unit})` : "Capacity"}
+              required
+              type={selectedSpec?.input_type ?? "text"}
+              step={selectedSpec?.step}
+              min="0"
+              disabled={!form.type}
+              placeholder={selectedSpec?.placeholder ?? "Select a type first"}
+              value={form.capacityValue}
+              onChange={(e) => set("capacityValue", e.target.value)}
+            />
             <TextInput label="Serial number" required value={form.serial_no} onChange={(e) => set("serial_no", e.target.value)} />
           </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <SelectInput
+              label="State / UT"
+              required
+              placeholder={statesLoading ? "Loading states…" : "Select a state or UT"}
+              options={stateOptions}
+              value={form.state_code}
+              onChange={(e) => setState(e.target.value)}
+            />
+            <SelectInput
+              label="District"
+              required
+              disabled={!form.state_code}
+              placeholder={
+                !form.state_code ? "Select a state first" : districtsLoading ? "Loading districts…" : "Select a district"
+              }
+              options={districtOptions}
+              value={form.district_code}
+              onChange={(e) => set("district_code", e.target.value)}
+            />
+          </div>
           <TextInput
-            label="Location"
+            label="Address"
             required
-            placeholder="e.g. Baharampur, West Bengal"
-            value={form.location}
-            onChange={(e) => set("location", e.target.value)}
+            placeholder="e.g. 12 Market Road"
+            value={form.address_line}
+            onChange={(e) => set("address_line", e.target.value)}
           />
+
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="mt-2 flex gap-3">
             <Button type="submit" loading={create.isPending}>

@@ -10,7 +10,7 @@ from app.config.db import applications_col, instruments_col
 import asyncio
 from app.services.notifications import broadcast
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
-from app.middleware.auth import get_current_user, role_required
+from app.middleware.auth import get_current_user, role_required, jurisdiction_filter
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 
@@ -45,6 +45,8 @@ def to_application_out(doc: dict) -> ApplicationOut:
         assigned_officer_id=str(doc["assigned_officer_id"]) if doc.get("assigned_officer_id") else None,
         created_at=doc["submitted_at"],
         history=history,
+        state_code=doc.get("state_code", "unknown"),
+        district_code=doc.get("district_code", "unknown"),
     )
 
 
@@ -65,12 +67,27 @@ def submit_application(
     if instrument["owner_id"] != current_user["_id"]:
         raise HTTPException(status_code=403, detail="You can only apply for your own instruments")
 
+    location = instrument.get("location") or {}
+    if not location.get("state_code") or not location.get("district_code"):
+        # Legacy instrument registered before structured location existed —
+        # can't route it to a jurisdiction. Surface this loudly instead of
+        # silently writing a broken application that no officer queue will
+        # ever match.
+        raise HTTPException(
+            status_code=422,
+            detail="Instrument is missing state_code/district_code — update its location before applying",
+        )
+
     doc = {
         "instrument_id": instrument_oid,
         "owner_id": current_user["_id"],
         "status": "submitted",
         "assigned_officer_id": None,
         "submitted_at": datetime.now(timezone.utc),
+        # Denormalized from the instrument so every downstream jurisdiction
+        # filter (officer queue, dashboards) is a plain indexed match.
+        "state_code": location["state_code"],
+        "district_code": location["district_code"],
         "history": [
             {"from": None, "to": "submitted", "at": datetime.now(timezone.utc)}
         ],
@@ -104,12 +121,19 @@ def list_applications(
         query["owner_id"] = {"$in": [user_id, user_id_str]}
     elif current_user["role"] in ("lmo", "gatc"):
         if mine:
-            # "my assigned applications"
+            # "my assigned applications" — already scoped by assignment,
+            # no need to also filter by jurisdiction (an officer can only
+            # ever be assigned something inside their own scope anyway,
+            # since claim_application enforces that — see below).
             query["assigned_officer_id"] = {"$in": [user_id, user_id_str]}
         else:
-            # the claimable queue — unassigned, still submitted
+            # The claimable queue — unassigned, still submitted, AND inside
+            # this officer's jurisdiction. Without the jurisdiction filter
+            # here, an LMO in one district would see (and be able to claim)
+            # applications meant for a completely different state.
             query["status"] = "submitted"
             query["assigned_officer_id"] = None
+            query.update(jurisdiction_filter(current_user))
     # admin sees everything by default, optionally filtered by status below
 
     if status:
@@ -138,10 +162,12 @@ def get_application(
     # Unassigned, still-submitted applications sit in the shared claim queue and must
     # stay visible to any lmo/gatc officer so they can open the detail page and claim
     # it — mirrors the queue query in list_applications() above.
+    jf = jurisdiction_filter(current_user)
     is_claimable_by_officer = (
         role in ("lmo", "gatc")
         and doc.get("assigned_officer_id") is None
         and doc.get("status") == "submitted"
+        and all(doc.get(k) == v for k, v in jf.items())
     )
     is_admin = role == "admin"
 
@@ -162,8 +188,18 @@ def claim_application(
         raise HTTPException(status_code=400, detail="Invalid application id")
 
     now = datetime.now(timezone.utc)
+    # Jurisdiction check baked into the same atomic filter as the claim
+    # itself — an officer can't claim outside their scope even by guessing
+    # an application_id directly (defense in depth beyond the queue filter
+    # in list_applications above).
+    claim_filter = {
+        "_id": oid,
+        "status": "submitted",
+        "assigned_officer_id": None,
+        **jurisdiction_filter(current_user),
+    }
     updated = applications_col.find_one_and_update(
-        {"_id": oid, "status": "submitted", "assigned_officer_id": None},
+        claim_filter,
         {
             "$set": {
                 "assigned_officer_id": current_user["_id"],
@@ -189,6 +225,9 @@ def claim_application(
             raise HTTPException(status_code=409, detail="Application already claimed by another officer")
         if doc.get("status") != "submitted":
             raise HTTPException(status_code=409, detail=f"Application is not claimable in status '{doc.get('status')}'")
+        jf = jurisdiction_filter(current_user)
+        if jf and any(doc.get(k) != v for k, v in jf.items()):
+            raise HTTPException(status_code=403, detail="Application is outside your jurisdiction")
         raise HTTPException(status_code=409, detail="Application is no longer claimable")
 
     return to_application_out(updated)

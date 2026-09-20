@@ -4,6 +4,7 @@ import { ApplicationStatusBadge } from "@/components/ui/StatusBadge";
 import { LifecycleTimeline } from "./LifecycleTimeline";
 import { useInstrument } from "@/hooks/useData";
 import { Skeleton } from "@/components/ui/States";
+import { LocationText } from "@/components/ui/LocationText";
 import type { Application } from "@/lib/types";
 
 export function ApplicationOverview({ application, actions }: { application: Application; actions?: ReactNode }) {
@@ -37,7 +38,7 @@ export function ApplicationOverview({ application, actions }: { application: App
             <Field label="Manufacturer / Model" value={`${instrument.manufacturer} · ${instrument.model}`} />
             <Field label="UIID" value={instrument.uiid ?? instrument.serial_no} mono />
             <Field label="Capacity" value={instrument.capacity} />
-            <Field label="Location" value={instrument.location} />
+            <Field label="Location" value={<LocationText location={instrument.location} />} />
           </dl>
         ) : (
           <p className="text-sm text-slate-400">Instrument details unavailable.</p>
@@ -47,7 +48,7 @@ export function ApplicationOverview({ application, actions }: { application: App
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>

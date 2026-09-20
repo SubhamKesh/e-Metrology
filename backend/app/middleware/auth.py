@@ -69,3 +69,22 @@ def role_required(*allowed_roles: str, allow_admin_view: bool = False):
         return current_user
 
     return checker
+
+
+def jurisdiction_filter(current_user: dict) -> dict:
+    """Mongo filter fragment scoping a query to an lmo/gatc officer's
+    jurisdiction. Returns {} for admin (national scope) or any role with
+    no jurisdiction set — callers combine this with **filter into their
+    query dict. This is the single place jurisdiction scoping is decided,
+    so every router that filters applications/instruments by officer goes
+    through it instead of re-deriving the logic per-route.
+    """
+    jurisdiction = current_user.get("jurisdiction")
+    if not jurisdiction:
+        return {}
+
+    filt = {"state_code": jurisdiction["state_code"]}
+    district_code = jurisdiction.get("district_code")
+    if district_code:
+        filt["district_code"] = district_code
+    return filt

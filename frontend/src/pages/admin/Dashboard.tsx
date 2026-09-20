@@ -78,16 +78,16 @@ export default function AdminDashboardPage() {
                 {d.by_location.length > 0 && (
                   <Panel className="mt-6 p-6">
                     <div className="mb-4 flex items-baseline justify-between">
-                      <h2 className="font-display text-lg text-ink">Instruments by location</h2>
-                      <span className="text-xs text-slate-400">Grouped on the instrument's free-text location field</span>
+                      <h2 className="font-display text-lg text-ink">Instruments by state/UT</h2>
+                      <span className="text-xs text-slate-400">Grouped by the instrument's registered state</span>
                     </div>
                     <div className="flex flex-col gap-3">
                       {d.by_location
                         .slice()
                         .sort((a, b) => b.count - a.count)
                         .map((row) => (
-                          <div key={row.location} className="flex items-center gap-3">
-                            <span className="w-32 shrink-0 truncate text-sm text-slate-600">{row.location}</span>
+                          <div key={row.state_code} className="flex items-center gap-3">
+                            <span className="w-32 shrink-0 truncate text-sm text-slate-600">{row.state_name}</span>
                             <div className="h-2.5 flex-1 rounded-full bg-paper2">
                               <div
                                 className="h-2.5 rounded-full bg-teal"

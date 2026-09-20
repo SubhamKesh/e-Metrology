@@ -1,6 +1,8 @@
 from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
 
+from app.models.geo import JurisdictionIn, JurisdictionOut
+
 
 class UserRegister(BaseModel):
     name: str
@@ -28,6 +30,7 @@ class UserOut(BaseModel):
     org_type: Optional[str] = None
     org_name: Optional[str] = None
     contact: Optional[str] = None
+    jurisdiction: Optional[JurisdictionOut] = None  # set for lmo/gatc, None for owner/admin
     # True right after an admin creates an officer account with a temp
     # password; the frontend uses this to force a change-password screen
     # before letting the officer into the rest of the app.
@@ -49,6 +52,11 @@ class OfficerCreate(BaseModel):
     org_type: Optional[str] = None  # "LMO" or "GATC"
     org_name: Optional[str] = None
     contact: Optional[str] = None
+    # Required for both roles: district_code set -> LMO scoped to that
+    # district; district_code omitted -> state-level scope, the normal
+    # shape for a GATC/state-controller account. Validated + enforced in
+    # routers/admin_users.py and middleware/auth.py.
+    jurisdiction: JurisdictionIn
 
 
 class OfficerCreatedOut(BaseModel):

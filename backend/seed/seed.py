@@ -64,15 +64,21 @@ def seed_users() -> dict:
             "org_type": u["org_type"],
             "org_name": u["org_name"],
             "contact": u["contact"],
+            "jurisdiction": u.get("jurisdiction"),
         })
     return id_map
 
 
-def seed_instruments(user_ids: dict) -> dict:
+def seed_instruments(user_ids: dict) -> tuple[dict, dict]:
+    """Returns (readable_id -> ObjectId, readable_id -> location dict) —
+    the second map lets seed_applications() denormalize state_code/
+    district_code the same way the real submit_application flow does."""
     id_map = {}
+    location_map = {}
     for i in INSTRUMENTS:
         oid = ObjectId()
         id_map[i["id"]] = oid
+        location_map[i["id"]] = i["location"]
         instruments_col.insert_one({
             "_id": oid,
             "owner_id": user_ids[i["owner_id"]],
@@ -83,10 +89,10 @@ def seed_instruments(user_ids: dict) -> dict:
             "uiid": i["uiid"],
             "location": i["location"],
         })
-    return id_map
+    return id_map, location_map
 
 
-def seed_applications(user_ids: dict, instrument_ids: dict) -> dict:
+def seed_applications(user_ids: dict, instrument_ids: dict, instrument_locations: dict) -> dict:
     id_map = {}
     for a in APPLICATIONS:
         oid = ObjectId()
@@ -102,6 +108,10 @@ def seed_applications(user_ids: dict, instrument_ids: dict) -> dict:
             "at": submitted_at,
             "reason": "seeded directly at this status for demo purposes",
         }]
+        # Denormalized from the instrument, same as the real
+        # submit_application flow does — without these, list/get
+        # applications would KeyError on state_code/district_code.
+        location = instrument_locations[a["instrument_id"]]
         applications_col.insert_one({
             "_id": oid,
             "instrument_id": instrument_ids[a["instrument_id"]],
@@ -109,6 +119,8 @@ def seed_applications(user_ids: dict, instrument_ids: dict) -> dict:
             "status": a["status"],
             "assigned_officer_id": user_ids[a["assigned_officer_id"]] if a["assigned_officer_id"] else None,
             "submitted_at": submitted_at,
+            "state_code": location["state_code"],
+            "district_code": location["district_code"],
             "history": history,
         })
     return id_map
@@ -177,10 +189,10 @@ def run():
     user_ids = seed_users()
 
     print("Seeding instruments...")
-    instrument_ids = seed_instruments(user_ids)
+    instrument_ids, instrument_locations = seed_instruments(user_ids)
 
     print("Seeding applications...")
-    application_ids = seed_applications(user_ids, instrument_ids)
+    application_ids = seed_applications(user_ids, instrument_ids, instrument_locations)
 
     print("Seeding inspections...")
     inspection_ids = seed_inspections(user_ids, application_ids)

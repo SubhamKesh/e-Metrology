@@ -5,10 +5,24 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
-from app.config.db import instruments_col, applications_col
-from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut
+from app.config.db import instruments_col, applications_col, states_col, districts_col
+from app.config.instrument_specs import INSTRUMENT_SPECS
+from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut, InstrumentTypeSpec
 from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
+
+
+def _validate_location(state_code: str, district_code: str) -> None:
+    """Reject unknown state/district codes at write time — the reference
+    collections (seeded by seed_geo.py) are the source of truth, not the
+    client. Without this, a typo'd code would silently break jurisdiction
+    routing for that instrument's whole application lifecycle."""
+    if not states_col.find_one({"code": state_code}):
+        raise HTTPException(status_code=400, detail=f"Unknown state_code '{state_code}'")
+    if not districts_col.find_one({"code": district_code, "state_code": state_code}):
+        raise HTTPException(
+            status_code=400, detail=f"Unknown district_code '{district_code}' for state '{state_code}'"
+        )
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -57,6 +71,18 @@ def to_instrument_out(doc: dict) -> InstrumentOut:
     )
 
 
+@router.get("/meta/types", response_model=list[InstrumentTypeSpec])
+def list_instrument_type_specs(current_user: dict = Depends(get_current_user)):
+    """Feeds the instrument-registration form's type dropdown and the
+    capacity field's unit/input widget — single source of truth so the
+    frontend doesn't hardcode a second copy of ALLOWED_INSTRUMENT_TYPES
+    plus units that could silently drift out of sync."""
+    return [
+        InstrumentTypeSpec(type=t, unit=spec["unit"], input_type=spec["input_type"], step=spec["step"], placeholder=spec["placeholder"])
+        for t, spec in INSTRUMENT_SPECS.items()
+    ]
+
+
 @router.post("", response_model=InstrumentOut, status_code=201)
 def register_instrument(
     payload: InstrumentCreate,
@@ -69,6 +95,8 @@ def register_instrument(
     if payload.type not in ALLOWED_INSTRUMENT_TYPES:
         raise HTTPException(status_code=400, detail="Invalid instrument type")
 
+    _validate_location(payload.location.state_code, payload.location.district_code)
+
     doc = {
         "owner_id": current_user["_id"],
         "uiid": generate_uiid(),
@@ -77,7 +105,7 @@ def register_instrument(
         "model": payload.model,
         "capacity": payload.capacity,
         "serial_no": payload.serial_no,
-        "location": payload.location,
+        "location": payload.location.dict(),
     }
 
     try:

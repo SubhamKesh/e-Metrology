@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/ui/States";
+import { LocationText } from "@/components/ui/LocationText";
 import { useInstruments } from "@/hooks/useData";
 import type { Instrument } from "@/lib/types";
 import { ApiError } from "@/lib/api";
@@ -16,7 +17,7 @@ export default function OwnerInstruments() {
     { header: "Manufacturer / Model", cell: (i) => `${i.manufacturer} · ${i.model}` },
     { header: "UIID", cell: (i) => <span className="font-mono text-xs">{i.uiid}</span> },
     { header: "Capacity", cell: (i) => i.capacity },
-    { header: "Location", cell: (i) => i.location },
+    { header: "Location", cell: (i) => <LocationText location={i.location} /> },
   ];
 
   return (

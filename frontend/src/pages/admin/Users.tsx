@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminUsersApi, type CreateOfficerPayload } from "@/lib/endpoints";
 import { ApiError } from "@/lib/api";
@@ -9,6 +9,8 @@ import { TextInput, SelectInput } from "@/components/ui/Field";
 import { DataTable } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/ui/States";
 import { Badge } from "@/components/ui/StatusBadge";
+import { JurisdictionText } from "@/components/ui/JurisdictionText";
+import { useGeoDistricts, useGeoStates } from "@/hooks/useData";
 
 const USER_STATUS_TONE = {
   active: "success",
@@ -32,23 +34,37 @@ export default function AdminUsers() {
     queryFn: () => AdminUsersApi.listOfficers(),
   });
 
-  const [form, setForm] = useState<CreateOfficerPayload>({
+  const [form, setForm] = useState({
     name: "",
     email: "",
-    role: "lmo",
+    role: "lmo" as CreateOfficerPayload["role"],
     org_name: "",
     contact: "",
+    state_code: "",
+    district_code: "",
   });
+  // Separate from district_code="" (nothing picked yet) — this is an
+  // intentional choice to scope the officer to the whole state, matching
+  // jurisdiction.district_code=null on the backend (the shape a
+  // GATC/state-controller account uses; see middleware/auth.py's
+  // jurisdiction_filter()).
+  const [stateLevelOnly, setStateLevelOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; temp_password: string; emailed: boolean } | null>(
     null,
   );
 
+  const { data: states, isLoading: statesLoading } = useGeoStates();
+  const { data: districts, isLoading: districtsLoading } = useGeoDistricts(form.state_code || undefined);
+  const stateOptions = useMemo(() => (states ?? []).map((s) => ({ value: s.code, label: s.name })), [states]);
+  const districtOptions = useMemo(() => (districts ?? []).map((d) => ({ value: d.code, label: d.name })), [districts]);
+
   const createOfficer = useMutation({
     mutationFn: (body: CreateOfficerPayload) => AdminUsersApi.createOfficer(body),
     onSuccess: (res) => {
       setCreated({ email: res.user.email, temp_password: res.temp_password, emailed: res.emailed });
-      setForm({ name: "", email: "", role: "lmo", org_name: "", contact: "" });
+      setForm({ name: "", email: "", role: "lmo", org_name: "", contact: "", state_code: "", district_code: "" });
+      setStateLevelOnly(false);
       qc.invalidateQueries({ queryKey: ["admin", "officers"] });
     },
     onError: (err) => {
@@ -62,15 +78,29 @@ export default function AdminUsers() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "officers"] }),
   });
 
-  function set<K extends keyof CreateOfficerPayload>(key: K, value: CreateOfficerPayload[K]) {
+  function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  // Changing the state clears any previously-selected district — it
+  // belonged to a different state's list and is no longer valid.
+  function setStateCode(stateCode: string) {
+    setForm((f) => ({ ...f, state_code: stateCode, district_code: "" }));
   }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
     setCreated(null);
-    createOfficer.mutate(form);
+    if (!stateLevelOnly && !form.district_code) {
+      setFormError("Pick a district, or check \"state-level officer\" if this account isn't scoped to one.");
+      return;
+    }
+    const { state_code, district_code, ...rest } = form;
+    createOfficer.mutate({
+      ...rest,
+      jurisdiction: { state_code, district_code: stateLevelOnly ? null : district_code },
+    });
   }
 
   return (
@@ -113,7 +143,36 @@ export default function AdminUsers() {
             value={form.contact}
             onChange={(e) => set("contact", e.target.value)}
           />
-          <div className="flex items-end">
+          <SelectInput
+            label="State / UT"
+            required
+            placeholder={statesLoading ? "Loading states…" : "Select a state or UT"}
+            options={stateOptions}
+            value={form.state_code}
+            onChange={(e) => setStateCode(e.target.value)}
+          />
+          <div>
+            <SelectInput
+              label="District"
+              required={!stateLevelOnly}
+              disabled={stateLevelOnly || !form.state_code}
+              placeholder={
+                !form.state_code ? "Select a state first" : districtsLoading ? "Loading districts…" : "Select a district"
+              }
+              options={districtOptions}
+              value={form.district_code}
+              onChange={(e) => set("district_code", e.target.value)}
+            />
+            <label className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+              <input
+                type="checkbox"
+                checked={stateLevelOnly}
+                onChange={(e) => setStateLevelOnly(e.target.checked)}
+              />
+              State-level officer (e.g. GATC) — not scoped to one district
+            </label>
+          </div>
+          <div className="flex items-end sm:col-span-2">
             <Button type="submit" loading={createOfficer.isPending} className="w-full sm:w-auto">
               Create account
             </Button>
@@ -157,6 +216,7 @@ export default function AdminUsers() {
                 { header: "Email", cell: (u: User) => u.email },
                 { header: "Role", cell: (u: User) => u.role.toUpperCase() },
                 { header: "Organisation", cell: (u: User) => u.org_name ?? "—" },
+                { header: "Jurisdiction", cell: (u: User) => <JurisdictionText jurisdiction={u.jurisdiction} /> },
                 { header: "Status", cell: (u: User) => <UserStatusBadge status={u.status} /> },
                 {
                   header: "",

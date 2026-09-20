@@ -27,3 +27,8 @@ class ApplicationOut(BaseModel):
     assigned_officer_id: Optional[str] = None
     created_at: datetime
     history: list[HistoryEntry] = []
+    # Denormalized from the instrument at submission time (see
+    # routers/applications.py: submit_application) so jurisdiction
+    # filtering/routing is a plain indexed match, not a join per query.
+    state_code: str
+    district_code: str

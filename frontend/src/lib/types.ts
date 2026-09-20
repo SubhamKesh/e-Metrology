@@ -11,6 +11,11 @@ export const ROLE_LABEL: Record<Role, string> = {
   admin: "Super Admin",
 };
 
+export interface Jurisdiction {
+  state_code: string;
+  district_code: string | null;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -20,10 +25,17 @@ export interface User {
   org_type: "LMO" | "GATC" | null;
   org_name: string | null;
   contact: string | null;
+  jurisdiction: Jurisdiction | null;
   // True for an admin-created officer account that's still on its
   // one-time temp password — the UI should route them to change it
   // before anything else.
   must_change_password: boolean;
+}
+
+export interface Location {
+  state_code: string;
+  district_code: string;
+  address_line: string;
 }
 
 export interface Instrument {
@@ -35,7 +47,27 @@ export interface Instrument {
   capacity: string;
   serial_no: string;
   uiid: string;
-  location: string;
+  location: Location;
+}
+
+export interface StateOption {
+  code: string;
+  name: string;
+  type: "state" | "ut";
+}
+
+export interface DistrictOption {
+  code: string;
+  name: string;
+  state_code: string;
+}
+
+export interface InstrumentTypeSpec {
+  type: string;
+  unit: string;
+  input_type: string;
+  step: string;
+  placeholder: string;
 }
 
 // The full lifecycle as enforced by app/services/status_transition.py.
@@ -125,5 +157,5 @@ export interface AdminDashboard {
   verified: number;
   pending: number;
   expired: number;
-  by_location: { location: string; count: number }[];
+  by_location: { state_code: string; state_name: string; count: number }[];
 }

@@ -1,9 +1,11 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
+import type { ReactNode } from "react";
 import { PageHeader } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Card";
 import { ErrorState, Skeleton } from "@/components/ui/States";
 import { ApplicationStatusBadge } from "@/components/ui/StatusBadge";
+import { LocationText } from "@/components/ui/LocationText";
 import { useApplications, useInstrument } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 
@@ -43,7 +45,7 @@ export default function InstrumentDetail() {
         <dl className="grid grid-cols-2 gap-y-4 text-sm">
           <Field label="UIID" value={instrument.uiid ?? instrument.serial_no} mono />
           <Field label="Capacity" value={instrument.capacity} />
-          <Field label="Location" value={instrument.location} />
+          <Field label="Location" value={<LocationText location={instrument.location} />} />
           <Field label="Instrument ID" value={instrument.id} mono />
         </dl>
       </Panel>
@@ -69,7 +71,7 @@ export default function InstrumentDetail() {
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>

@@ -3,7 +3,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
 
-from app.config.db import users_col
+from app.config.db import users_col, states_col, districts_col
 from app.middleware.auth import role_required
 from app.models.user import UserOut, OfficerCreate, OfficerCreatedOut
 from app.utils.security import hash_password, generate_temp_password
@@ -22,6 +22,7 @@ def _to_user_out(doc: dict) -> UserOut:
         org_type=doc.get("org_type"),
         org_name=doc.get("org_name"),
         contact=doc.get("contact"),
+        jurisdiction=doc.get("jurisdiction"),
         must_change_password=doc.get("must_change_password", False),
     )
 
@@ -37,6 +38,13 @@ def create_officer(payload: OfficerCreate, current_user: dict = Depends(role_req
     if payload.role not in ("lmo", "gatc"):
         raise HTTPException(status_code=400, detail="role must be 'lmo' or 'gatc'")
 
+    if not states_col.find_one({"code": payload.jurisdiction.state_code}):
+        raise HTTPException(status_code=400, detail=f"Unknown state_code '{payload.jurisdiction.state_code}'")
+    if payload.jurisdiction.district_code and not districts_col.find_one(
+        {"code": payload.jurisdiction.district_code, "state_code": payload.jurisdiction.state_code}
+    ):
+        raise HTTPException(status_code=400, detail=f"Unknown district_code '{payload.jurisdiction.district_code}'")
+
     temp_password = generate_temp_password()
 
     doc = {
@@ -48,6 +56,7 @@ def create_officer(payload: OfficerCreate, current_user: dict = Depends(role_req
         "org_type": payload.org_type or ("LMO" if payload.role == "lmo" else "GATC"),
         "org_name": payload.org_name,
         "contact": payload.contact,
+        "jurisdiction": payload.jurisdiction.dict(),
         "token_version": 0,
         "failed_login_attempts": 0,
         "must_change_password": True,

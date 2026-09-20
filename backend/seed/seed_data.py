@@ -50,6 +50,10 @@ USERS = [
         "org_type": "LMO",
         "org_name": "West Bengal Legal Metrology Office",
         "contact": "9830045678",
+        # District-scoped, matching where inst_001/002/003 (Baharampur/
+        # Murshidabad) sit, so this officer can actually claim the seeded
+        # applications assigned to them below.
+        "jurisdiction": {"state_code": "WB", "district_code": "319"},
     },
     {
         "id": "usr_gatc_001",
@@ -60,6 +64,10 @@ USERS = [
         "org_type": "GATC",
         "org_name": "Kolkata Government Approved Test Centre",
         "contact": "9830056789",
+        # State-level scope (district_code omitted) — the other valid
+        # jurisdiction shape, demonstrated deliberately alongside the
+        # district-scoped LMO above.
+        "jurisdiction": {"state_code": "WB", "district_code": None},
     },
     {
         "id": "usr_admin_001",
@@ -70,6 +78,7 @@ USERS = [
         "org_type": None,
         "org_name": "Directorate of Legal Metrology",
         "contact": "9830067890",
+        "jurisdiction": None,
     },
 ]
 
@@ -82,7 +91,7 @@ INSTRUMENTS = [
         "model": "AWS-200",
         "capacity": "30 kg",
         "uiid": "AWS200-2024-0001",
-        "location": "Baharampur, West Bengal",
+        "location": {"state_code": "WB", "district_code": "319", "address_line": "Baharampur, West Bengal"},
     },
     {
         "id": "inst_002",
@@ -92,7 +101,7 @@ INSTRUMENTS = [
         "model": "AWS-100",
         "capacity": "10 kg",
         "uiid": "AWS100-2024-0002",
-        "location": "Baharampur, West Bengal",
+        "location": {"state_code": "WB", "district_code": "319", "address_line": "Baharampur, West Bengal"},
     },
     {
         "id": "inst_003",
@@ -102,7 +111,7 @@ INSTRUMENTS = [
         "model": "GX-500",
         "capacity": "N/A",
         "uiid": "GX500-2023-0451",
-        "location": "Murshidabad, West Bengal",
+        "location": {"state_code": "WB", "district_code": "319", "address_line": "Murshidabad, West Bengal"},
     },
     {
         "id": "inst_004",
@@ -112,7 +121,7 @@ INSTRUMENTS = [
         "model": "PS-500",
         "capacity": "500 kg",
         "uiid": "PS500-2022-0812",
-        "location": "Kolkata, West Bengal",
+        "location": {"state_code": "WB", "district_code": "315", "address_line": "Kolkata, West Bengal"},
     },
 ]
 

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/layout/AppShell";
 import { TextInput } from "@/components/ui/Field";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/ui/States";
+import { LocationText } from "@/components/ui/LocationText";
 import { useInstruments } from "@/hooks/useData";
 import type { Instrument } from "@/lib/types";
 import { ApiError } from "@/lib/api";
@@ -15,7 +16,7 @@ export default function AdminInstruments() {
     { header: "Type", cell: (i) => i.type },
     { header: "Manufacturer / Model", cell: (i) => `${i.manufacturer} · ${i.model}` },
     { header: "Serial no.", cell: (i) => <span className="font-mono text-xs">{i.uiid}</span> },
-    { header: "Location", cell: (i) => i.location },
+    { header: "Location", cell: (i) => <LocationText location={i.location} /> },
     { header: "Owner ID", cell: (i) => <span className="font-mono text-xs text-slate-400">{i.owner_id.slice(0, 10)}…</span> },
   ];
 

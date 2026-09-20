@@ -3,6 +3,7 @@ import {
   ApplicationApi,
   CertificateApi,
   DashboardApi,
+  GeoApi,
   InspectionApi,
   InstrumentApi,
   UploadApi,
@@ -67,6 +68,34 @@ export function useCreateInstrument() {
   return useMutation({
     mutationFn: InstrumentApi.create,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instruments"] }),
+  });
+}
+
+// Static reference data — types rarely change, so a long staleTime avoids
+// re-fetching on every form mount.
+export function useInstrumentTypeSpecs() {
+  return useQuery({
+    queryKey: ["instrument-type-specs"],
+    queryFn: InstrumentApi.typeSpecs,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+// ---- Geography (states/districts) ----
+export function useGeoStates() {
+  return useQuery({
+    queryKey: ["geo-states"],
+    queryFn: GeoApi.states,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+export function useGeoDistricts(stateCode?: string) {
+  return useQuery({
+    queryKey: ["geo-districts", stateCode],
+    queryFn: () => GeoApi.districts(stateCode as string),
+    enabled: !!stateCode,
+    staleTime: 60 * 60 * 1000,
   });
 }
 

@@ -25,7 +25,8 @@ class OfficerDashboard(BaseModel):
 
 
 class StateBreakdown(BaseModel):
-    location: str
+    state_code: str
+    state_name: str
     count: int
 
 

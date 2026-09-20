@@ -4,11 +4,14 @@ import type {
   Application,
   Certificate,
   CertificateVerifyResponse,
+  DistrictOption,
   Inspection,
   Instrument,
+  InstrumentTypeSpec,
   OfficerDashboard,
   OwnerDashboard,
   Role,
+  StateOption,
   User,
 } from "./types";
 
@@ -44,6 +47,7 @@ export interface CreateOfficerPayload {
   role: "lmo" | "gatc";
   org_name?: string;
   contact?: string;
+  jurisdiction: { state_code: string; district_code: string | null };
 }
 export interface CreateOfficerResponse {
   user: User;
@@ -68,6 +72,13 @@ export const InstrumentApi = {
     return api.get<Instrument[]>(`/instruments${qs}`);
   },
   get: (id: string) => api.get<Instrument>(`/instruments/${id}`),
+  typeSpecs: () => api.get<InstrumentTypeSpec[]>("/instruments/meta/types"),
+};
+
+// ---- Geography (states/districts reference data) ----
+export const GeoApi = {
+  states: () => api.get<StateOption[]>("/geo/states"),
+  districts: (stateCode: string) => api.get<DistrictOption[]>(`/geo/states/${encodeURIComponent(stateCode)}/districts`),
 };
 
 // ---- Applications ----

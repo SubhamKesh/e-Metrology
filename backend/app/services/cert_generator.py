@@ -17,6 +17,7 @@ from app.config.db import (
 )
 from app.services.qr_generator import generate_qr
 from app.utils.upload_to_cloudinary import upload_bytes
+from app.utils.location_format import format_location
 
 INK = (0.11, 0.15, 0.22)          # near-black navy for body text/borders
 ACCENT = (0.05, 0.35, 0.25)       # deep green for the seal/header rule, evokes an official emblem
@@ -94,7 +95,7 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, val
         ("Manufacturer", instrument.get("manufacturer")),
         ("Model", instrument.get("model")),
         ("Owner", owner.get("org_name") if owner else None),
-        ("Location", instrument.get("location")),
+        ("Location", format_location(instrument.get("location"))),
         ("Inspected On", inspection["inspected_at"].strftime("%d %b %Y") if hasattr(inspection["inspected_at"], "strftime") else inspection["inspected_at"]),
         ("Result", str(inspection.get("result", "")).upper()),
         ("Issued On", issued_at.strftime("%d %b %Y")),

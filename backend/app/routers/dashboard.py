@@ -1,7 +1,14 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 
-from app.config.db import instruments_col, applications_col, certificates_col, inspections_col, users_col
+from app.config.db import (
+    instruments_col,
+    applications_col,
+    certificates_col,
+    inspections_col,
+    users_col,
+    states_col,
+)
 from app.models.dashboard import OwnerDashboard, OfficerDashboard, AdminDashboard, NextExpiry, StateBreakdown
 from app.middleware.auth import role_required
 
@@ -115,12 +122,21 @@ def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
     pending = applications_col.count_documents({"status": {"$in": PENDING_STATUSES}})
     expired = applications_col.count_documents({"status": "expired"})
 
+    # Grouping on the canonical state_code (not the old free-text location
+    # string) means this no longer fragments on typos/capitalization —
+    # every instrument's state_code was validated against `states` at
+    # write time (see routers/instruments.py: _validate_location).
     pipeline = [
-        {"$group": {"_id": "$location", "count": {"$sum": 1}}},
+        {"$group": {"_id": "$location.state_code", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
+    state_names = {s["code"]: s["name"] for s in states_col.find()}
     by_location = [
-        StateBreakdown(location=row["_id"] or "Unspecified", count=row["count"])
+        StateBreakdown(
+            state_code=row["_id"] or "unknown",
+            state_name=state_names.get(row["_id"], "Unspecified"),
+            count=row["count"],
+        )
         for row in instruments_col.aggregate(pipeline)
     ]
 

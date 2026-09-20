@@ -4,6 +4,7 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 from app.config.db import certificates_col, applications_col, instruments_col, users_col, inspections_col
+from app.utils.location_format import format_location
 from app.middleware.auth import get_current_user, role_required
 from app.services.cert_generator import issue_certificate
 
@@ -66,7 +67,7 @@ def verify_certificate(cert_id: str):
         },
         "owner": {
             "org_name": owner["org_name"] if owner else None,
-            "location": instrument["location"] if instrument else None,
+            "location": format_location(instrument["location"]) if instrument else None,
         },
     }
 
