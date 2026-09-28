@@ -1,11 +1,13 @@
 from typing import Literal
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.utils.validators import MAX_NOTE_TEXT
 
 
 class InspectionCreate(BaseModel):
     application_id: str
-    observations: str
+    observations: str = Field(max_length=MAX_NOTE_TEXT)
     result: Literal["pass", "fail"]
     photos: list[str] = []  # Cloudinary URLs, uploaded separately via Kiran's /uploads/photo first
 

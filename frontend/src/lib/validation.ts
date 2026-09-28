@@ -8,12 +8,15 @@ export const isValidEmail = (email: string): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 };
 
+// India: 10 digits, starting with 6-9 (Indian mobile numbers are never
+// issued starting with 0-5) — must stay in sync with PHONE_REGEX in
+// backend/app/utils/validators.py.
 export const isValidPhone = (phone: string): boolean => {
-  return /^\d{10}$/.test(phone.trim());
+  return /^[6-9]\d{9}$/.test(phone.trim());
 };
 
 // Optional: partial validator for onChange feedback (allow typing without
 // erroring out on incomplete input)
 export const isValidPhonePartial = (phone: string): boolean => {
-  return /^\d{0,10}$/.test(phone.trim());
+  return /^[6-9]?\d{0,9}$/.test(phone.trim());
 };

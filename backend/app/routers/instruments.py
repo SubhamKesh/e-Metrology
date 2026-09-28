@@ -5,24 +5,12 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
-from app.config.db import instruments_col, applications_col, states_col, districts_col
+from app.config.db import instruments_col, applications_col
 from app.config.instrument_specs import INSTRUMENT_SPECS
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut, InstrumentTypeSpec
 from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
-
-
-def _validate_location(state_code: str, district_code: str) -> None:
-    """Reject unknown state/district codes at write time — the reference
-    collections (seeded by seed_geo.py) are the source of truth, not the
-    client. Without this, a typo'd code would silently break jurisdiction
-    routing for that instrument's whole application lifecycle."""
-    if not states_col.find_one({"code": state_code}):
-        raise HTTPException(status_code=400, detail=f"Unknown state_code '{state_code}'")
-    if not districts_col.find_one({"code": district_code, "state_code": state_code}):
-        raise HTTPException(
-            status_code=400, detail=f"Unknown district_code '{district_code}' for state '{state_code}'"
-        )
+from app.utils.geo_validation import validate_state_district
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -95,7 +83,14 @@ def register_instrument(
     if payload.type not in ALLOWED_INSTRUMENT_TYPES:
         raise HTTPException(status_code=400, detail="Invalid instrument type")
 
-    _validate_location(payload.location.state_code, payload.location.district_code)
+    validate_state_district(payload.location.state_code, payload.location.district_code)
+
+    # InstrumentCreate.capacity is just the bare number at this point
+    # (validated by validate_capacity_number) — append the unit for this
+    # instrument type here so the stored value still reads "30 kg", same
+    # as before, without the client having to know/guess the unit string.
+    spec = INSTRUMENT_SPECS.get(payload.type)
+    capacity_with_unit = f"{payload.capacity} {spec['unit']}" if spec else payload.capacity
 
     doc = {
         "owner_id": current_user["_id"],
@@ -103,7 +98,7 @@ def register_instrument(
         "type": payload.type,
         "manufacturer": payload.manufacturer,
         "model": payload.model,
-        "capacity": payload.capacity,
+        "capacity": capacity_with_unit,
         "serial_no": payload.serial_no,
         "location": payload.location.dict(),
     }

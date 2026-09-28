@@ -1,6 +1,8 @@
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from app.config.settings import MONGO_URI, DB_NAME
+from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
+from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
 
 # maxPoolSize caps concurrent connections this process can open to Atlas —
 # without a limit, a traffic spike (or a leak) can exhaust the cluster's
@@ -72,16 +74,41 @@ def init_indexes():
 # may not be allowed to run collMod) doesn't crash startup — see
 # app/main.py's already-existing "don't crash if DB setup fails" pattern.
 def _apply_schema_validation():
+    # Bounds/patterns mirrored from app/utils/validators.py (MAX_SHORT_TEXT,
+    # MAX_LONG_TEXT, MAX_CODE_LENGTH, PHONE_REGEX) so this DB-level backstop
+    # actually matches what the Pydantic models enforce, rather than being
+    # looser than the API boundary it's meant to back up. Kept as literal
+    # values here (not importing PHONE_REGEX.pattern directly) since Mongo's
+    # $jsonSchema pattern uses PCRE-ish syntax via a plain string, not a
+    # compiled Python regex object.
+    PHONE_PATTERN = "^[6-9]\\d{9}$"
+    LOCATION_SCHEMA = {
+        "bsonType": "object",
+        "required": ["state_code", "district_code", "address_line"],
+        "properties": {
+            "state_code": {"bsonType": "string", "maxLength": MAX_CODE_LENGTH},
+            "district_code": {"bsonType": "string", "maxLength": MAX_CODE_LENGTH},
+            "address_line": {"bsonType": "string", "maxLength": MAX_LONG_TEXT},
+        },
+    }
+
     validators = {
         "users": {
             "$jsonSchema": {
                 "bsonType": "object",
                 "required": ["name", "email", "password", "role", "status"],
                 "properties": {
+                    "name": {"bsonType": "string", "maxLength": MAX_SHORT_TEXT},
                     "email": {"bsonType": "string"},
                     "password": {"bsonType": "string"},
                     "role": {"enum": ["owner", "lmo", "gatc", "admin"]},
                     "status": {"enum": ["pending", "active", "rejected"]},
+                    "org_name": {"bsonType": ["string", "null"], "maxLength": MAX_LONG_TEXT},
+                    # contact is optional (validate_phone treats "" the same
+                    # as not provided, normalized to None) — so null/absent
+                    # must stay allowed here too, only a non-null value gets
+                    # pattern-checked.
+                    "contact": {"bsonType": ["string", "null"], "pattern": PHONE_PATTERN},
                     # jurisdiction.district_code is intentionally not
                     # required here — omitted means state-level scope
                     # (GATC); Pydantic (OfficerCreate) is what actually
@@ -89,12 +116,34 @@ def _apply_schema_validation():
                     "jurisdiction": {
                         "bsonType": ["object", "null"],
                         "properties": {
-                            "state_code": {"bsonType": "string"},
-                            "district_code": {"bsonType": ["string", "null"]},
+                            "state_code": {"bsonType": "string", "maxLength": MAX_CODE_LENGTH},
+                            "district_code": {"bsonType": ["string", "null"], "maxLength": MAX_CODE_LENGTH},
                         },
                     },
                     "token_version": {"bsonType": ["int", "long"]},
                     "failed_login_attempts": {"bsonType": ["int", "long"]},
+                },
+            }
+        },
+        # Added alongside the Pydantic-level validation on InstrumentCreate
+        # (app/models/instrument.py) — instruments previously had no DB-level
+        # backstop at all, unlike users/applications below.
+        "instruments": {
+            "$jsonSchema": {
+                "bsonType": "object",
+                "required": ["owner_id", "uiid", "type", "manufacturer", "model", "capacity", "serial_no", "location"],
+                "properties": {
+                    "type": {"enum": ALLOWED_INSTRUMENT_TYPES},
+                    "manufacturer": {"bsonType": "string", "maxLength": MAX_SHORT_TEXT},
+                    "model": {"bsonType": "string", "maxLength": MAX_SHORT_TEXT},
+                    # No maxLength/pattern tied to CAPACITY_NUMBER_REGEX here
+                    # on purpose: what's actually stored is the number *plus*
+                    # its unit (e.g. "30 kg"), appended server-side in
+                    # routers/instruments.py — the bare-number check only
+                    # applies to what the client submits, not what's stored.
+                    "capacity": {"bsonType": "string"},
+                    "serial_no": {"bsonType": "string", "maxLength": MAX_SHORT_TEXT},
+                    "location": LOCATION_SCHEMA,
                 },
             }
         },
@@ -106,8 +155,8 @@ def _apply_schema_validation():
                     # Denormalized from the instrument at submission time
                     # (see routers/applications.py) so jurisdiction filtering
                     # is a plain indexed match, not a join on every query.
-                    "state_code": {"bsonType": "string"},
-                    "district_code": {"bsonType": "string"},
+                    "state_code": {"bsonType": "string", "maxLength": MAX_CODE_LENGTH},
+                    "district_code": {"bsonType": "string", "maxLength": MAX_CODE_LENGTH},
                     "status": {
                         "enum": [
                             "submitted",
