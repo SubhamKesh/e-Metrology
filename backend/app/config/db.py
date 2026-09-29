@@ -2,6 +2,7 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from app.config.settings import MONGO_URI, DB_NAME
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
+from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
 
 # maxPoolSize caps concurrent connections this process can open to Atlas —
 # without a limit, a traffic spike (or a leak) can exhaust the cluster's
@@ -22,6 +23,11 @@ alerts_col = db["alerts"]
 # Refresh tokens live in their own collection so they can be listed/revoked
 # per-user (e.g. "log out of all devices") without touching users_col at all.
 refresh_tokens_col = db["refresh_tokens"]
+# OTP codes for email/phone verification — one doc per (identifier, purpose)
+# pair, hashed code + expiry + attempt count. TTL index below cleans up
+# abandoned codes; verify_otp()/consume_verification_proof() in
+# app/services/otp.py manage success/expiry/consumption during normal use.
+otp_verifications_col = db["otp_verifications"]
 
 # Reference data (seeded by scripts/seed_geo.py) — states/UTs and their
 # districts. Kept as data, not code, so a boundary change doesn't need a
@@ -56,6 +62,13 @@ def init_indexes():
     refresh_tokens_col.create_index("token_hash", unique=True)
     refresh_tokens_col.create_index("user_id")
     refresh_tokens_col.create_index("expires_at", expireAfterSeconds=0)
+
+    # OTP lookups are always by (identifier, purpose) — unique so a new
+    # send overwrites (upserts) any still-pending code for the same
+    # identifier+purpose rather than accumulating stale ones. TTL index is
+    # a backstop for codes nobody came back to verify or consume.
+    otp_verifications_col.create_index([("identifier", 1), ("purpose", 1)], unique=True)
+    otp_verifications_col.create_index("expires_at", expireAfterSeconds=0)
 
     _apply_schema_validation()
 
@@ -176,30 +189,13 @@ def _apply_schema_validation():
                 "required": ["token_hash", "user_id", "expires_at", "revoked"],
             }
         },
-        "instruments": {
+        "otp_verifications": {
             "$jsonSchema": {
                 "bsonType": "object",
-                "required": ["owner_id", "uiid", "type", "manufacturer", "model", "serial_no", "location"],
+                "required": ["identifier", "purpose", "code_hash", "expires_at", "attempts"],
                 "properties": {
-                    # Enum sourced directly from ALLOWED_INSTRUMENT_TYPES
-                    # (imported above) rather than a second hardcoded copy
-                    # here — this collection previously had a stale,
-                    # independently-drifted validator left over from an
-                    # earlier version of the project (mismatched casing,
-                    # e.g. "LoadCell" vs. "Load Cell", and a missing
-                    # serial_no requirement it never even enforced
-                    # correctly) that nothing in this file was managing or
-                    # overwriting. Deriving it from the model's own list
-                    # means collMod below re-asserts a validator that's
-                    # always in sync with app/models/instrument.py,
-                    # instead of silently drifting again.
-                    "type": {"enum": ALLOWED_INSTRUMENT_TYPES},
-                    "uiid": {"bsonType": "string"},
-                    "serial_no": {"bsonType": "string"},
-                    "location": {
-                        "bsonType": "object",
-                        "required": ["state_code", "district_code", "address_line"],
-                    },
+                    "purpose": {"enum": ["email_verify", "phone_verify"]},
+                    "attempts": {"bsonType": ["int", "long"]},
                 },
             }
         },

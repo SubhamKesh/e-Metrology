@@ -4,7 +4,7 @@ import { AuthLayout } from "./AuthLayout";
 import { TextInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
-import { ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { roleHome } from "@/lib/roleHome";
 import type { Role } from "@/lib/types";
 import { isValidName, isValidEmail, isValidPhone } from "@/lib/validation";
@@ -22,6 +22,24 @@ type FieldErrors = {
   contact?: string;
 };
 
+type OtpState = {
+  sent: boolean;
+  code: string;
+  verified: boolean;
+  sending: boolean;
+  verifying: boolean;
+  error: string | null;
+};
+
+const EMPTY_OTP_STATE: OtpState = {
+  sent: false,
+  code: "",
+  verified: false,
+  sending: false,
+  verifying: false,
+  error: null,
+};
+
 export default function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
@@ -35,6 +53,16 @@ export default function Register() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Email OTP is the only verification. POST /auth/register enforces it
+  // server-side too; this just lets the "Create account" button reflect
+  // it before submitting.
+  const [otp, setOtp] = useState<OtpState>({ ...EMPTY_OTP_STATE });
+  const canCreateAccount = otp.verified;
+
+  function updateOtp(patch: Partial<OtpState>) {
+    setOtp((s) => ({ ...s, ...patch }));
+  }
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -60,6 +88,11 @@ export default function Register() {
   function handleEmailChange(value: string) {
     set("email", value);
     setFieldErrors((f) => ({ ...f, email: validateEmail(value) }));
+    // Changing the email after a code was sent/verified invalidates that
+    // progress — the code was sent to the old address.
+    if (otp.sent || otp.verified) {
+      updateOtp({ ...EMPTY_OTP_STATE });
+    }
   }
 
   function handleContactChange(value: string) {
@@ -67,7 +100,7 @@ export default function Register() {
     set("contact", digitsOnly);
     setFieldErrors((f) => ({
       ...f,
-      contact: digitsOnly.length > 0 && digitsOnly.length < 10 ? "Enter a valid 10-digit mobile number." : undefined,
+      contact: digitsOnly.length > 0 && !isValidPhone(digitsOnly) ? "Invalid contact number." : undefined,
     }));
   }
 
@@ -75,9 +108,7 @@ export default function Register() {
     const nameError = !isValidName(form.name) ? "Only letters and spaces are allowed." : undefined;
     const emailError = !isValidEmail(form.email) ? "Enter a valid email address." : undefined;
     const contactError =
-      form.contact.length > 0 && !isValidPhone(form.contact)
-        ? "Enter a valid 10-digit mobile number."
-        : undefined;
+      form.contact.length > 0 && !isValidPhone(form.contact) ? "Invalid contact number." : undefined;
 
     const errors: FieldErrors = { name: nameError, email: emailError, contact: contactError };
     setFieldErrors(errors);
@@ -85,11 +116,53 @@ export default function Register() {
     return !nameError && !emailError && !contactError;
   }
 
+  async function sendCode() {
+    if (!isValidEmail(form.email)) {
+      updateOtp({ error: "Enter a valid email address first." });
+      return;
+    }
+    updateOtp({ sending: true, error: null });
+    try {
+      await api.post("/otp/send", { channel: "email", identifier: form.email }, { public: true });
+      updateOtp({ sending: false, sent: true, code: "" });
+    } catch (err) {
+      updateOtp({
+        sending: false,
+        error: err instanceof ApiError ? err.message : "Couldn't send the code. Try again.",
+      });
+    }
+  }
+
+  async function verifyCode() {
+    if (otp.code.length !== 6) {
+      updateOtp({ error: "Enter the 6-digit code." });
+      return;
+    }
+    updateOtp({ verifying: true, error: null });
+    try {
+      await api.post(
+        "/otp/verify",
+        { channel: "email", identifier: form.email, code: otp.code },
+        { public: true },
+      );
+      updateOtp({ verifying: false, verified: true, error: null });
+    } catch (err) {
+      updateOtp({
+        verifying: false,
+        error: err instanceof ApiError ? err.message : "Couldn't verify that code.",
+      });
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
     if (!validateAllOnSubmit()) {
+      return;
+    }
+    if (!canCreateAccount) {
+      setError("Please verify your email before creating an account.");
       return;
     }
 
@@ -158,8 +231,49 @@ export default function Register() {
           onChange={(e) => handleContactChange(e.target.value)}
           error={fieldErrors.contact}
         />
+
+        <div className="rounded-md border border-line bg-paper2/40 p-4">
+          <p className="text-sm font-medium text-ink">Verify your email</p>
+          <p className="mt-1 text-xs text-slate-500">
+            We'll send a 6-digit code to your email to confirm it's yours before creating your account.
+          </p>
+
+          <div className="mt-3">
+            {otp.verified ? (
+              <p className="text-sm text-teal">✓ Email verified.</p>
+            ) : !otp.sent ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                loading={otp.sending}
+                disabled={!isValidEmail(form.email)}
+                onClick={sendCode}
+              >
+                Send code to email
+              </Button>
+            ) : (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <TextInput
+                  label="6-digit code"
+                  inputMode="numeric"
+                  value={otp.code}
+                  onChange={(e) => updateOtp({ code: e.target.value.replace(/\D/g, "").slice(0, 6) })}
+                />
+                <Button type="button" size="sm" loading={otp.verifying} onClick={verifyCode}>
+                  Verify
+                </Button>
+                <Button type="button" size="sm" variant="secondary" loading={otp.sending} onClick={sendCode}>
+                  Resend code
+                </Button>
+              </div>
+            )}
+            {otp.error && <p className="mt-2 text-sm text-danger">{otp.error}</p>}
+          </div>
+        </div>
+
         {error && <p className="text-sm text-danger">{error}</p>}
-        <Button type="submit" loading={loading} className="mt-2 w-full">
+        <Button type="submit" loading={loading} disabled={!canCreateAccount} className="mt-2 w-full">
           Create account
         </Button>
       </form>
