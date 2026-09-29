@@ -5,6 +5,7 @@ from bson.errors import InvalidId
 
 from app.config.db import certificates_col, applications_col, instruments_col, users_col, inspections_col
 from app.utils.location_format import format_location
+from app.utils.cache import cache_get, cache_set
 from app.middleware.auth import get_current_user, role_required
 from app.services.cert_generator import issue_certificate
 
@@ -37,10 +38,30 @@ def verify_certificate(cert_id: str):
 
     Response shape below is the one confirmed with Aritra/Anushka's
     verify-page — this is the locked contract, not a proposal anymore.
+
+    Cached (see app/utils/cache.py) — this is a public, unauthenticated,
+    QR-code-driven endpoint that can get hit far more often than any
+    authenticated route, and a certificate's underlying data essentially
+    never changes once issued. `is_expired` is the one field that's
+    genuinely time-sensitive, so it's recomputed fresh on every call, cache
+    hit or not, rather than trusting whatever value happened to be cached.
     """
+    cache_key = f"cert-verify:{cert_id}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        if cached.get("valid") and cached.get("certificate"):
+            valid_until = datetime.fromisoformat(cached["certificate"]["valid_until"])
+            cached["certificate"]["is_expired"] = valid_until < datetime.now(timezone.utc)
+        return cached
+
     cert = certificates_col.find_one({"_id": cert_id})
     if not cert:
-        return {"valid": False, "reason": "not_found"}
+        result = {"valid": False, "reason": "not_found"}
+        # Short TTL — just enough to blunt someone hammering a bad/guessed
+        # ID, without permanently caching a false negative if this ID is
+        # about to exist (e.g. a request racing certificate issuance).
+        cache_set(cache_key, result, ttl_seconds=60)
+        return result
 
     application = applications_col.find_one({"_id": cert["application_id"]})
     instrument = instruments_col.find_one({"_id": cert["instrument_id"]})
@@ -51,7 +72,7 @@ def verify_certificate(cert_id: str):
         valid_until = valid_until.replace(tzinfo=timezone.utc)
     is_expired = valid_until < datetime.now(timezone.utc)
 
-    return {
+    result = {
         "valid": True,
         "certificate": {
             "id": cert["_id"],
@@ -70,6 +91,8 @@ def verify_certificate(cert_id: str):
             "location": format_location(instrument["location"]) if instrument else None,
         },
     }
+    cache_set(cache_key, result, ttl_seconds=300)
+    return result
 
 
 @router.get("/{cert_id}")

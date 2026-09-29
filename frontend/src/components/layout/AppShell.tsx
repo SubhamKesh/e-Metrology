@@ -109,7 +109,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [queueCount, isOfficer, queueData]);
 
   useEffect(() => {
-    if (!isOfficer || !user) return;
+    // Was officer-only before; certificate_ready notifications are
+    // aimed at owners first (see app/services/jobs.py's audience), so
+    // owners need a live connection too, not just officers.
+    if (!user) return;
     const token = localStorage.getItem("maapsetu_token");
     if (!token) return;
     const loc = window.location;
@@ -157,6 +160,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           } catch {
             // ignore audio errors
           }
+        } else if (payload?.type === "certificate_ready") {
+          const cert = payload.certificate;
+          setToast({ id: cert.id, text: `Certificate ${cert.cert_no} is ready` });
+          try {
+            qc.invalidateQueries({ queryKey: ["certificates"] });
+            qc.invalidateQueries({ queryKey: ["applications"] });
+          } catch {
+            // ignore invalidation issues
+          }
         }
       } catch {
         // ignore malformed messages
@@ -170,7 +182,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => {
       if (ws) ws.close();
     };
-  }, [isOfficer, qc, user]);
+  }, [qc, user]);
 
   if (!user) return null;
   const nav = ROLE_NAV[user.role];

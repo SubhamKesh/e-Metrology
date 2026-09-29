@@ -2,7 +2,6 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from app.config.settings import MONGO_URI, DB_NAME
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
-from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
 
 # maxPoolSize caps concurrent connections this process can open to Atlas —
 # without a limit, a traffic spike (or a leak) can exhaust the cluster's
@@ -175,6 +174,33 @@ def _apply_schema_validation():
             "$jsonSchema": {
                 "bsonType": "object",
                 "required": ["token_hash", "user_id", "expires_at", "revoked"],
+            }
+        },
+        "instruments": {
+            "$jsonSchema": {
+                "bsonType": "object",
+                "required": ["owner_id", "uiid", "type", "manufacturer", "model", "serial_no", "location"],
+                "properties": {
+                    # Enum sourced directly from ALLOWED_INSTRUMENT_TYPES
+                    # (imported above) rather than a second hardcoded copy
+                    # here — this collection previously had a stale,
+                    # independently-drifted validator left over from an
+                    # earlier version of the project (mismatched casing,
+                    # e.g. "LoadCell" vs. "Load Cell", and a missing
+                    # serial_no requirement it never even enforced
+                    # correctly) that nothing in this file was managing or
+                    # overwriting. Deriving it from the model's own list
+                    # means collMod below re-asserts a validator that's
+                    # always in sync with app/models/instrument.py,
+                    # instead of silently drifting again.
+                    "type": {"enum": ALLOWED_INSTRUMENT_TYPES},
+                    "uiid": {"bsonType": "string"},
+                    "serial_no": {"bsonType": "string"},
+                    "location": {
+                        "bsonType": "object",
+                        "required": ["state_code", "district_code", "address_line"],
+                    },
+                },
             }
         },
     }

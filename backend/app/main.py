@@ -1,3 +1,14 @@
+import logging
+
+# Configured before any other import — several modules (e.g.
+# middleware/ddos_protection.py) log an informational message at import
+# time about which backing store they picked (Redis vs. in-memory), and
+# without this, Python's logging defaults to only showing WARNING and
+# above, silently swallowing that confirmation either way. This is what
+# makes "DDoS protection: using Redis-backed shared state" (or its
+# in-memory-fallback counterpart) actually visible in the startup logs.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,7 +20,9 @@ from app.config.settings import MAX_REQUEST_BODY_BYTES, CORS_ALLOWED_ORIGINS, IS
 from app.middleware.ddos_protection import ddos_protection_middleware
 from app.routers import auth, instruments, applications, inspections, dashboard, certificates, uploads, ws, admin_users, geo
 from app.services.expiry_cron import start_expiry_scheduler
-import logging
+from app.services.ws_pubsub import run_ws_subscriber
+from app.services.notifications import set_event_loop
+import asyncio
 import os
 from urllib.parse import urlparse
 
@@ -84,7 +97,7 @@ async def _ddos_protection(request: Request, call_next):
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     if IS_PRODUCTION and not REDIS_URL:
         # Not fatal on its own (the Dockerfile's --workers 2 still works,
         # just with each worker enforcing its own independent threshold —
@@ -94,7 +107,9 @@ def on_startup():
             "ENVIRONMENT=production but REDIS_URL is not set: the DDoS "
             "protection middleware is using per-worker in-memory state, so "
             "with --workers N an IP effectively gets ~N x the configured "
-            "request threshold. Set REDIS_URL to share state across workers."
+            "request threshold. Set REDIS_URL to share state across workers. "
+            "The same gap applies to WebSocket notifications — see "
+            "services/notifications.py."
         )
 
     # Attempt to initialise DB indexes and background jobs, but don't crash
@@ -113,6 +128,30 @@ def on_startup():
     except Exception:
         # Keep the error short here; details are logged by the exception.
         app.state.db_ok = False
+
+    # Cross-instance WebSocket fan-out (see services/ws_pubsub.py). Only
+    # starts when REDIS_URL is set; otherwise notifications.broadcast()
+    # already falls back to local-only delivery on its own, so there's
+    # nothing to start here in that case.
+    app.state.ws_subscriber_task = asyncio.create_task(run_ws_subscriber())
+
+    # Captured so plain `def` (threadpool) routes can schedule a broadcast
+    # from a worker thread via notifications.broadcast_threadsafe() --
+    # asyncio.create_task() only works from a thread that already has a
+    # running loop, which a threadpool worker doesn't. See
+    # services/notifications.py's module docstring for the full story.
+    set_event_loop(asyncio.get_running_loop())
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    task = getattr(app.state, "ws_subscriber_task", None)
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @app.exception_handler(PyMongoError)

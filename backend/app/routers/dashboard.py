@@ -11,6 +11,7 @@ from app.config.db import (
 )
 from app.models.dashboard import OwnerDashboard, OfficerDashboard, AdminDashboard, NextExpiry, StateBreakdown
 from app.middleware.auth import role_required
+from app.utils.cache import cache_get, cache_set
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -117,6 +118,17 @@ def gatc_dashboard(current_user: dict = Depends(role_required("gatc", allow_admi
 
 @router.get("/admin", response_model=AdminDashboard)
 def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
+    # Same national-scale data for every admin — one shared cache entry
+    # serves all of them, not one per admin account. Short TTL: this is a
+    # monitoring dashboard, not a workflow an admin acts through moment to
+    # moment, so a minute of staleness is an easy trade for skipping 6 DB
+    # round-trips (4 counts + 1 aggregation + 1 reference-data fetch) on
+    # every single admin page load.
+    cache_key = "dashboard:admin"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     total_instruments = instruments_col.count_documents({})
     verified = applications_col.count_documents({"status": {"$in": VERIFIED_STATUSES}})
     pending = applications_col.count_documents({"status": {"$in": PENDING_STATUSES}})
@@ -140,10 +152,12 @@ def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
         for row in instruments_col.aggregate(pipeline)
     ]
 
-    return AdminDashboard(
+    result = AdminDashboard(
         total_instruments=total_instruments,
         verified=verified,
         pending=pending,
         expired=expired,
         by_location=by_location,
     )
+    cache_set(cache_key, result.dict(), ttl_seconds=60)
+    return result

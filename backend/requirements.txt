@@ -22,3 +22,8 @@ httpx==0.27.2
 # across uvicorn --workers / multiple containers). App runs fine without it
 # using per-worker in-memory state -- see app/middleware/ddos_store.py.
 redis==5.0.8
+# Background job queue for certificate generation (PDF render, QR code,
+# Cloudinary upload) -- see app/services/jobs.py and run_worker.py.
+# Requires REDIS_URL to actually be used; without it, certificate
+# generation falls back to running inline, same as before this was added.
+rq==1.16.2
