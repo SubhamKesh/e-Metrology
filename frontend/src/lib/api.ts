@@ -42,6 +42,14 @@ const STATUS_FALLBACK: Record<number, string> = {
 // Naively String()-ing the array shape produces "[object Object]" per element,
 // since that's Object.prototype.toString()'s default — this extracts the
 // actual per-field messages instead.
+//
+// Two bits of Pydantic/FastAPI noise get stripped rather than shown as-is:
+//   - the `loc` path (e.g. "body.location.address_line") — not meaningful
+//     to an end user filling out a form, only to someone reading the API
+//     response directly.
+//   - the literal "Value error, " prefix Pydantic v1 adds automatically
+//     whenever a @validator raises a plain ValueError — the message after
+//     it is already the human-readable string the validator wrote.
 function extractDetailMessage(detail: unknown): string | undefined {
   if (typeof detail === "string") return detail;
 
@@ -49,11 +57,7 @@ function extractDetailMessage(detail: unknown): string | undefined {
     const messages = detail
       .map((item) => {
         if (item && typeof item === "object" && "msg" in item) {
-          const loc = "loc" in item && Array.isArray((item as { loc?: unknown[] }).loc)
-            ? (item as { loc: unknown[] }).loc.filter((p) => p !== "body").join(".")
-            : undefined;
-          const msg = String((item as { msg: unknown }).msg);
-          return loc ? `${loc}: ${msg}` : msg;
+          return String((item as { msg: unknown }).msg).replace(/^Value error,\s*/i, "");
         }
         return undefined;
       })

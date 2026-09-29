@@ -72,7 +72,11 @@ export default function RegisterInstrument() {
         type: form.type,
         manufacturer: form.manufacturer,
         model: form.model,
-        capacity: selectedSpec ? `${form.capacityValue} ${selectedSpec.unit}` : form.capacityValue,
+        // Backend now expects just the bare number and appends the unit
+        // itself (see app/routers/instruments.py: register_instrument /
+        // app/config/instrument_specs.py) — don't concatenate the unit
+        // here, or every value fails validate_capacity_number's regex.
+        capacity: form.capacityValue,
         serial_no: form.serial_no,
         location: {
           state_code: form.state_code,
