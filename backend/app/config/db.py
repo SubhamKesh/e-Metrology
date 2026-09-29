@@ -2,10 +2,6 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from app.config.settings import MONGO_URI, DB_NAME
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
-<<<<<<< HEAD
-=======
-from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
->>>>>>> 12856a0aa20345682d3918b152942aa77bc2a6c5
 
 # maxPoolSize caps concurrent connections this process can open to Atlas —
 # without a limit, a traffic spike (or a leak) can exhaust the cluster's
