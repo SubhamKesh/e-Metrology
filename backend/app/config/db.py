@@ -2,7 +2,11 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from app.config.settings import MONGO_URI, DB_NAME
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
+<<<<<<< HEAD
 from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
+=======
+from app.utils.validators import MAX_CODE_LENGTH, MAX_SHORT_TEXT, MAX_LONG_TEXT
+>>>>>>> 7d632940d899f30408ea8729c174591522f3d5ee
 
 # maxPoolSize caps concurrent connections this process can open to Atlas —
 # without a limit, a traffic spike (or a leak) can exhaust the cluster's
@@ -137,15 +141,27 @@ def _apply_schema_validation():
                 },
             }
         },
-        # Added alongside the Pydantic-level validation on InstrumentCreate
-        # (app/models/instrument.py) — instruments previously had no DB-level
-        # backstop at all, unlike users/applications below.
+        # Single source of truth for this collection's validator — this
+        # used to exist as two separate "instruments" entries in this same
+        # dict (a merge-conflict artifact), which Python dict literals
+        # silently resolve by keeping only the last one, discarding the
+        # other's rules with no error or warning. Consolidated back into
+        # one entry here, keeping the stricter maxLength/LOCATION_SCHEMA
+        # bounds from the original version, plus explicit uiid typing
+        # from the other. `type`'s enum is deliberately sourced from
+        # ALLOWED_INSTRUMENT_TYPES (imported above), not a second
+        # hardcoded list here — this collection previously had a stale,
+        # independently-drifted validator (mismatched casing, e.g.
+        # "LoadCell" vs. "Load Cell") that nothing was keeping in sync;
+        # deriving it from the model's own list means collMod below always
+        # re-asserts a validator that matches app/models/instrument.py.
         "instruments": {
             "$jsonSchema": {
                 "bsonType": "object",
                 "required": ["owner_id", "uiid", "type", "manufacturer", "model", "capacity", "serial_no", "location"],
                 "properties": {
                     "type": {"enum": ALLOWED_INSTRUMENT_TYPES},
+                    "uiid": {"bsonType": "string"},
                     "manufacturer": {"bsonType": "string", "maxLength": MAX_SHORT_TEXT},
                     "model": {"bsonType": "string", "maxLength": MAX_SHORT_TEXT},
                     # No maxLength/pattern tied to CAPACITY_NUMBER_REGEX here
@@ -189,6 +205,7 @@ def _apply_schema_validation():
                 "required": ["token_hash", "user_id", "expires_at", "revoked"],
             }
         },
+<<<<<<< HEAD
         "otp_verifications": {
             "$jsonSchema": {
                 "bsonType": "object",
@@ -199,6 +216,8 @@ def _apply_schema_validation():
                 },
             }
         },
+=======
+>>>>>>> 7d632940d899f30408ea8729c174591522f3d5ee
     }
 
     for name, validator in validators.items():
