@@ -2,11 +2,7 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from app.config.settings import MONGO_URI, DB_NAME
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
-<<<<<<< HEAD
 from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
-=======
-from app.utils.validators import MAX_CODE_LENGTH, MAX_SHORT_TEXT, MAX_LONG_TEXT
->>>>>>> 7d632940d899f30408ea8729c174591522f3d5ee
 
 # maxPoolSize caps concurrent connections this process can open to Atlas —
 # without a limit, a traffic spike (or a leak) can exhaust the cluster's
@@ -205,19 +201,16 @@ def _apply_schema_validation():
                 "required": ["token_hash", "user_id", "expires_at", "revoked"],
             }
         },
-<<<<<<< HEAD
         "otp_verifications": {
             "$jsonSchema": {
                 "bsonType": "object",
                 "required": ["identifier", "purpose", "code_hash", "expires_at", "attempts"],
                 "properties": {
-                    "purpose": {"enum": ["email_verify", "phone_verify"]},
+                    "purpose": {"enum": ["email_verify"]},
                     "attempts": {"bsonType": ["int", "long"]},
                 },
             }
         },
-=======
->>>>>>> 7d632940d899f30408ea8729c174591522f3d5ee
     }
 
     for name, validator in validators.items():
