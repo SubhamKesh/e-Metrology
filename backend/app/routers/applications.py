@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo import ReturnDocument
 
 from app.config.db import applications_col, instruments_col
-import asyncio
-from app.services.notifications import broadcast
+from app.services.notifications import broadcast_threadsafe
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
 from app.middleware.auth import get_current_user, role_required, jurisdiction_filter
 
@@ -96,9 +95,22 @@ def submit_application(
     result = applications_col.insert_one(doc)
     doc["_id"] = result.inserted_id
     # Broadcast a lightweight event to connected officers so UIs can react in real-time.
+    # This route is a plain `def` (FastAPI runs it in a threadpool, not on
+    # the event loop) -- broadcast_threadsafe(), not asyncio.create_task(),
+    # is what correctly schedules the coroutine from here. See
+    # services/notifications.py's module docstring for why the two aren't
+    # interchangeable (this used to silently no-op every single call).
     try:
         payload = {"type": "application_submitted", "application": to_application_out(doc).dict()}
-        asyncio.create_task(broadcast(payload))
+        # Only the owner it belongs to, officers whose jurisdiction covers
+        # this state/district, and admins should see this -- not every
+        # connected client (see _should_deliver in services/notifications.py).
+        audience = {
+            "owner_id": str(doc["owner_id"]),
+            "state_code": doc["state_code"],
+            "district_code": doc["district_code"],
+        }
+        broadcast_threadsafe(payload, audience)
     except Exception:
         # don't fail the request if broadcasting fails
         pass

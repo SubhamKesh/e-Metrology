@@ -12,6 +12,7 @@ from app.services.status_transition import (
     ApplicationNotFoundError,
 )
 from app.services.cert_generator import issue_certificate
+from app.services.jobs import get_queue, generate_certificate_job
 
 router = APIRouter(prefix="/api/v1/inspections", tags=["inspections"])
 
@@ -86,13 +87,28 @@ def submit_inspection(
     # generation fails for some reason (Cloudinary down, etc.), the
     # application stays correctly certified and this can be retried
     # manually, rather than the whole inspection call failing.
+    #
+    # With REDIS_URL configured, this is enqueued onto a background worker
+    # (see app/services/jobs.py, run_worker.py) instead of running here --
+    # PDF rendering + a QR image + two Cloudinary uploads is real,
+    # slow-ish work that shouldn't tie up a request thread. The owner
+    # finds out it's ready via the same WebSocket notification system used
+    # elsewhere (a "certificate_ready" event), not by this request waiting
+    # for it. Without Redis, falls back to the original inline behaviour.
     if final_status == "certified":
-        try:
-            issue_certificate(doc["_id"])
-        except Exception as e:
-            # Don't fail the inspection submission over this — log and
-            # move on. Surface it in your terminal so it isn't silently lost.
-            print(f"[WARN] Certificate generation failed for inspection {doc['_id']}: {e}")
+        queue = get_queue()
+        if queue is not None:
+            try:
+                queue.enqueue(generate_certificate_job, str(doc["_id"]))
+            except Exception as e:
+                print(f"[WARN] Failed to enqueue certificate generation for inspection {doc['_id']}: {e}")
+        else:
+            try:
+                issue_certificate(doc["_id"])
+            except Exception as e:
+                # Don't fail the inspection submission over this — log and
+                # move on. Surface it in your terminal so it isn't silently lost.
+                print(f"[WARN] Certificate generation failed for inspection {doc['_id']}: {e}")
 
     return to_inspection_out(doc)
 
