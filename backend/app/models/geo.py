@@ -1,7 +1,7 @@
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, validator
 
-from app.utils.validators import MAX_CODE_LENGTH, MAX_LONG_TEXT, validate_address
+from app.utils.validators import MAX_CODE_LENGTH, validate_address
 
 
 class StateOut(BaseModel):
