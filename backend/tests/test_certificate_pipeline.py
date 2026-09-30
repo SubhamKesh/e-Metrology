@@ -23,6 +23,9 @@ def world(monkeypatch):
     monkeypatch.setattr(certs, "users_col", db["users"])
     monkeypatch.setattr(certs, "inspections_col", db["inspections"])
     monkeypatch.setattr(certs, "format_location", lambda loc: "Main Rd, Baharampur")
+    # list_certificates() nudges the background reconciler; in tests that thread would
+    # talk to the real (unpatched) Mongo client and hold the reconcile lock for ages.
+    monkeypatch.setattr(certs, "start_reconcile", lambda *a, **k: False)
 
     now = datetime.now(timezone.utc)
     owner_a, owner_b = ObjectId(), ObjectId()
@@ -148,6 +151,7 @@ def stranded(monkeypatch):
         monkeypatch.setattr(jobs, name, db[name.replace("_col", "")])
     monkeypatch.setattr(jobs, "broadcast_threadsafe", lambda *a, **k: None)
     monkeypatch.setattr(jobs, "_certificate_ready_message", lambda cert: None)
+    monkeypatch.setattr(jobs, "_reconcile_lock", jobs.threading.Lock())
     old = datetime.now(timezone.utc) - timedelta(hours=1)
     owner = ObjectId()
     ids = {}
