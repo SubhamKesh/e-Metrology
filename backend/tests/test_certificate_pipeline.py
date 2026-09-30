@@ -211,3 +211,30 @@ def test_reconcile_records_failures_and_keeps_going(stranded, monkeypatch):
     assert "cloudinary exploded" in app_b["certificate_error"]
     # ...and it is still reported as pending (failed=True) so the UI can say so.
     assert jobs.find_applications_missing_certificate(stranded["owner"])[0]["certificate_error"]
+
+
+# ---- public verify (QR scan) ------------------------------------------------
+
+def test_scanning_the_same_qr_twice_does_not_crash(world, monkeypatch):
+    """The first scan reads Mongo (naive datetimes) and caches the result; the
+    second scan used to blow up comparing that cached naive timestamp with an
+    aware 'now' -> 500 -> 'couldn't check this certificate'."""
+    store = {}
+    monkeypatch.setattr(certs, "cache_get", lambda k: store.get(k))
+    monkeypatch.setattr(certs, "cache_set", lambda k, v, ttl_seconds=0: store.__setitem__(k, v))
+
+    first = certs.verify_certificate("cert-a")
+    second = certs.verify_certificate("cert-a")  # served from the cache
+
+    assert first["valid"] is True and second["valid"] is True
+    assert second["certificate"]["is_expired"] is False
+    assert second["certificate"]["valid_until"].endswith("+00:00")
+    assert first["certificate"]["valid_until"].endswith("+00:00")
+
+
+def test_cached_entry_with_a_naive_timestamp_still_verifies(world, monkeypatch):
+    # Entries cached by the previous (buggy) version are naive; they must not 500.
+    naive = (datetime.now(timezone.utc) + timedelta(days=30)).replace(tzinfo=None).isoformat()
+    cached = {"valid": True, "certificate": {"id": "cert-a", "verified_on": naive, "valid_until": naive, "is_expired": False}}
+    monkeypatch.setattr(certs, "cache_get", lambda k: cached)
+    assert certs.verify_certificate("cert-a")["certificate"]["is_expired"] is False

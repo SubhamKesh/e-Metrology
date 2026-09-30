@@ -108,7 +108,10 @@ def verify_certificate(cert_id: str):
     cached = cache_get(cache_key)
     if cached is not None:
         if cached.get("valid") and cached.get("certificate"):
-            valid_until = datetime.fromisoformat(cached["certificate"]["valid_until"])
+            # Entries cached before this fix hold naive timestamps; _as_utc makes
+            # them comparable instead of raising TypeError (a 500 on every rescan).
+            valid_until = _as_utc(datetime.fromisoformat(cached["certificate"]["valid_until"]))
+            cached["certificate"]["valid_until"] = valid_until.isoformat()
             cached["certificate"]["is_expired"] = valid_until < datetime.now(timezone.utc)
         return cached
 
@@ -125,17 +128,16 @@ def verify_certificate(cert_id: str):
     instrument = instruments_col.find_one({"_id": cert["instrument_id"]})
     owner = users_col.find_one({"_id": application["owner_id"]}) if application else None
 
-    valid_until = cert["valid_until"]
-    if valid_until.tzinfo is None:
-        valid_until = valid_until.replace(tzinfo=timezone.utc)
+    valid_until = _as_utc(cert["valid_until"])
+    issued_at = _as_utc(cert["issued_at"])
     is_expired = valid_until < datetime.now(timezone.utc)
 
     result = {
         "valid": True,
         "certificate": {
             "id": cert["_id"],
-            "verified_on": cert["issued_at"].isoformat(),
-            "valid_until": cert["valid_until"].isoformat(),
+            "verified_on": issued_at.isoformat(),
+            "valid_until": valid_until.isoformat(),
             "is_expired": is_expired,
         },
         "instrument": {
