@@ -52,6 +52,21 @@ export default {
       },
       maxWidth: {
         prose: "72ch",
+        page: "80rem",
+      },
+      keyframes: {
+        "slide-in": {
+          "0%": { opacity: "0", transform: "translateY(-6px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(8px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+      },
+      animation: {
+        "slide-in": "slide-in 0.2s ease-out",
+        "fade-up": "fade-up 0.4s ease-out both",
       },
     },
   },

@@ -5,6 +5,7 @@ import { TextInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/States";
 import { ApiError } from "@/lib/api";
+import { PublicLayout } from "@/components/layout/PublicLayout";
 
 export default function VerifyCertificate() {
   const { certId } = useParams();
@@ -15,8 +16,8 @@ export default function VerifyCertificate() {
   if (!certId) {
     return (
       <Shell>
-        <h1 className="font-display text-2xl text-ink">Verify a certificate</h1>
-        <p className="mt-2 text-sm text-slate-500">
+        <h1 className="font-display text-3xl text-ink">Verify a certificate</h1>
+        <p className="mt-2 text-sm text-slate-600">
           Scan the QR code on the instrument, or enter the certificate ID printed on it.
         </p>
         <form
@@ -33,7 +34,7 @@ export default function VerifyCertificate() {
             placeholder="e.g. LM-CERT-2026-91827"
             className="flex-1"
           />
-          <Button type="submit" className="sm:self-end">
+          <Button type="submit" size="lg" className="sm:self-end">
             Check certificate
           </Button>
         </form>
@@ -83,7 +84,7 @@ export default function VerifyCertificate() {
         tone={isExpired ? "warning" : "success"}
         title={isExpired ? "Certificate expired" : "Authentic certificate"}
       />
-      <div className="mt-6 divide-y divide-line rounded-lg border border-line bg-white">
+      <div className="mt-6 divide-y divide-line rounded-lg border border-line bg-paper/50">
         <Row label="Instrument" value={instrument?.type} />
         <Row label="Manufacturer" value={instrument?.manufacturer} />
         <Row label="Model" value={instrument?.model} />
@@ -100,7 +101,7 @@ export default function VerifyCertificate() {
         />
         <Row label="Certificate ID" value={certificate?.id} className="font-mono text-xs" />
       </div>
-      <p className="mt-6 text-xs text-slate-400">
+      <p className="mt-6 text-xs text-slate-500">
         This result is generated live from the MaapSetu verification registry.
       </p>
     </Shell>
@@ -109,15 +110,13 @@ export default function VerifyCertificate() {
 
 function Shell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen justify-center bg-paper2 px-4 py-10 sm:py-16">
-      <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <span className="font-display text-lg text-ink">MaapSetu</span>
-          <p className="text-xs uppercase tracking-wide text-slate-400">Legal Metrology Verification</p>
+    <PublicLayout>
+      <div className="container-page flex justify-center py-8 sm:py-14">
+        <div className="w-full max-w-xl">
+          <div className="rounded-xl border border-line bg-white p-5 shadow-raised sm:p-8">{children}</div>
         </div>
-        <div className="rounded-xl border border-line bg-paper p-6 shadow-raised sm:p-8">{children}</div>
       </div>
-    </div>
+    </PublicLayout>
   );
 }
 
@@ -130,17 +129,17 @@ function StatusHeader({ tone, title }: { tone: "success" | "warning" | "danger";
   const symbol = tone === "success" ? "✓" : tone === "warning" ? "!" : "✕";
   return (
     <div className="flex flex-col items-center gap-3 text-center">
-      <div className={`flex h-12 w-12 items-center justify-center rounded-full text-xl ${iconTone}`}>{symbol}</div>
-      <h1 className="font-display text-2xl text-ink">{title}</h1>
+      <div className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl ${iconTone}`} aria-hidden="true">{symbol}</div>
+      <h1 className="font-display text-2xl text-ink sm:text-3xl" role="status">{title}</h1>
     </div>
   );
 }
 
 function Row({ label, value, className }: { label: string; value?: string; className?: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-      <span className="text-slate-400">{label}</span>
-      <span className={`text-right text-ink ${className ?? ""}`}>{value ?? "—"}</span>
+    <div className="flex flex-col gap-0.5 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <span className="shrink-0 text-slate-500">{label}</span>
+      <span className={`min-w-0 break-words text-ink sm:text-right ${className ?? ""}`}>{value ?? "—"}</span>
     </div>
   );
 }

@@ -68,20 +68,24 @@ export default function Login() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        {error && <p className="text-sm text-danger">{error}</p>}
+        {error && (
+          <p role="alert" className="rounded-md bg-danger-50 px-3 py-2 text-sm text-danger">
+            {error}
+          </p>
+        )}
         <Button type="submit" loading={loading} className="mt-2 w-full">
           Sign in
         </Button>
       </form>
       <p className="mt-6 text-sm text-slate-500">
         New to MaapSetu?{" "}
-        <Link to="/register" className="font-medium text-teal">
+        <Link to="/register" className="font-medium text-teal underline underline-offset-2">
           Create an account
         </Link>
       </p>
-      <p className="mt-8 text-xs text-slate-400">
+      <p className="mt-8 border-t border-line pt-5 text-sm text-slate-600">
         Have a certificate to check instead?{" "}
-        <Link to="/verify" className="font-medium text-slate-500 underline">
+        <Link to="/verify" className="font-medium text-teal underline underline-offset-2">
           Verify a certificate
         </Link>
       </p>

@@ -40,7 +40,7 @@ export function CertificatesTable({
   ];
 
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-white">
+    <div className="md:overflow-hidden md:rounded-xl md:border md:border-line md:bg-white md:shadow-panel">
       <DataTable
         columns={columns}
         rows={certificates ?? []}

@@ -17,7 +17,7 @@ export default function AdminInstruments() {
     { header: "Manufacturer / Model", cell: (i) => `${i.manufacturer} · ${i.model}` },
     { header: "Serial no.", cell: (i) => <span className="font-mono text-xs">{i.uiid}</span> },
     { header: "Location", cell: (i) => <LocationText location={i.location} /> },
-    { header: "Owner ID", cell: (i) => <span className="font-mono text-xs text-slate-400">{i.owner_id.slice(0, 10)}…</span> },
+    { header: "Owner ID", cell: (i) => <span className="font-mono text-xs text-slate-500">{i.owner_id.slice(0, 10)}…</span> },
   ];
 
   return (

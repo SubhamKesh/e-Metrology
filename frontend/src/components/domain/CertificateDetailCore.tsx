@@ -13,7 +13,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
         <div className="border-b border-line bg-paper2/40 px-6 py-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-400">Certificate</p>
+              <p className="text-xs uppercase tracking-wide text-slate-500">Certificate</p>
               <p className="font-mono text-sm text-ink">{certificate.id}</p>
             </div>
             <Badge tone={certificate.is_expired ? "danger" : "success"}>
@@ -22,7 +22,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
           </div>
         </div>
         <div className="grid gap-6 p-6 sm:grid-cols-[1fr_auto]">
-          <dl className="grid grid-cols-2 gap-y-4 text-sm">
+          <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
             <Field
               label="Verified on"
               value={new Date(certificate.verified_on).toLocaleDateString("en-IN", { dateStyle: "long" })}
@@ -36,7 +36,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
             <div className="rounded-md border border-line bg-white p-3">
               <QRCodeSVG value={verifyUrl} size={112} />
             </div>
-            <p className="text-center text-xs text-slate-400">Scan to verify</p>
+            <p className="text-center text-xs text-slate-500">Scan to verify</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-3 border-t border-line px-6 py-4">
@@ -57,7 +57,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
       <dd className="mt-0.5 text-ink">{value}</dd>
     </div>
   );

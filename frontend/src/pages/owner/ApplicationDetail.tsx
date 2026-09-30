@@ -1,7 +1,7 @@
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { ApplicationOverview } from "@/components/domain/ApplicationOverview";
 import { ErrorState, Skeleton } from "@/components/ui/States";
-import { Button } from "@/components/ui/Button";
+import { ButtonLink } from "@/components/ui/Button";
 import { useApplication, useCertificates } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 
@@ -21,9 +21,9 @@ export default function OwnerApplicationDetail() {
       application={application}
       actions={
         application.status === "certified" || application.status === "expiring" ? (
-          <Link to={certificate ? `/app/owner/certificates/${certificate.id}` : "/app/owner/certificates"}>
-            <Button size="sm">View certificate</Button>
-          </Link>
+          <ButtonLink size="sm" to={certificate ? `/app/owner/certificates/${certificate.id}` : "/app/owner/certificates"}>
+            View certificate
+          </ButtonLink>
         ) : undefined
       }
     />

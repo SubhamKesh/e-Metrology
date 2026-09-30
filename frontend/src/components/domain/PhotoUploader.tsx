@@ -53,7 +53,7 @@ export function PhotoUploader({ photos, onChange }: Props) {
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={upload.isPending}
-          className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md border border-dashed border-line text-xs text-slate-400 hover:border-teal hover:text-teal disabled:opacity-50"
+          className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md border border-dashed border-line text-xs text-slate-500 hover:border-teal hover:text-teal disabled:opacity-50"
         >
           <span className="text-xl leading-none">+</span>
           {upload.isPending ? "Uploading…" : "Add photo"}

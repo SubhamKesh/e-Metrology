@@ -64,7 +64,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
         <h2 className="mb-3 text-sm font-medium text-ink">1. Confirm instrument identity</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-md border border-line bg-paper2/40 p-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Registered</p>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Registered</p>
             <p className="mt-1 font-mono text-sm text-ink">{instrument?.uiid ?? "—"}</p>
           </div>
           <div>
@@ -146,7 +146,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
             </Button>
           </div>
           {!canSubmit && (
-            <p className="mt-3 text-sm text-slate-400">
+            <p className="mt-3 text-sm text-slate-500">
               Confirm identity and add observations before submitting.
             </p>
           )}

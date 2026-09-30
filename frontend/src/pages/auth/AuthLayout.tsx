@@ -1,64 +1,44 @@
 import type { ReactNode } from "react";
-
-function BrandIdentity({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <svg
-        viewBox="0 0 100 100"
-        className={compact ? "h-8 w-8 shrink-0" : "h-10 w-10 shrink-0"}
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient id="auth-logo-ring" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="#0d3a59" />
-            <stop offset="100%" stopColor="#0d4d73" />
-          </linearGradient>
-        </defs>
-        <circle cx="50" cy="50" r="44" fill="#f7f1e6" stroke="url(#auth-logo-ring)" strokeWidth="7" />
-        <circle cx="50" cy="50" r="36" fill="none" stroke="#b88f4b" strokeWidth="3" opacity="0.9" />
-        <g stroke="#b88f4b" strokeLinecap="round" strokeWidth="2.5">
-          <path d="M25 36 L50 60 L75 36" fill="none" />
-          <path d="M50 60 L50 33" fill="none" />
-          <path d="M15 68 H85" stroke="#0d3a59" strokeWidth="4" />
-          <path d="M20 76 L33 68 H67 L80 76" fill="none" stroke="#0d3a59" strokeWidth="4" />
-        </g>
-        <g fill="#0d3a59">
-          <rect x="46" y="18" width="8" height="12" rx="2" />
-          <path d="M50 10 L54 18 H46 Z" />
-        </g>
-        <path d="M50 18 L50 82" stroke="#0d3a59" strokeWidth="2" opacity="0.7" />
-      </svg>
-      <span className={compact ? "font-display text-xl text-ink" : "font-display text-xl text-paper"}>
-        MaapSetu
-      </span>
-    </div>
-  );
-}
+import { Link } from "react-router-dom";
+import { Brand } from "@/components/ui/Brand";
 
 export function AuthLayout({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
-    <div className="grid min-h-screen md:grid-cols-2">
-      <div className="hidden flex-col justify-between bg-ink px-12 py-10 text-paper md:flex">
-        <BrandIdentity />
-        <div className="max-w-sm">
-          <p className="font-display text-3xl leading-snug">
+    <div className="grid min-h-screen lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      {/* Brand panel — desktop only */}
+      <div className="hidden flex-col justify-between bg-ink px-10 py-10 text-paper lg:flex xl:px-16">
+        <Link to="/" aria-label="MaapSetu home" className="w-fit rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper/60">
+          <Brand tone="light" />
+        </Link>
+        <div className="max-w-md">
+          <p className="font-display text-4xl leading-tight">
             Every weighing and measuring instrument, verified and traceable.
           </p>
-          <p className="mt-4 text-sm text-paper2/80">
-            Legal Metrology verification for weighing and measuring instruments —
-            from registration to certificate, in one system.
+          <p className="mt-5 text-base text-paper2/80">
+            Legal Metrology verification for weighing and measuring instruments — from registration to certificate, in
+            one system.
           </p>
         </div>
-        <p className="text-xs text-paper2/50">Government of India · Legal Metrology</p>
+        <div className="flex items-center justify-between text-xs text-paper2/60">
+          <span>Government of India · Legal Metrology</span>
+          <Link to="/verify" className="underline underline-offset-2 hover:text-paper">
+            Verify a certificate
+          </Link>
+        </div>
       </div>
-      <div className="flex flex-col justify-center px-6 py-12 sm:px-12 md:px-16">
-        <div className="mx-auto w-full max-w-sm">
-          <div className="md:hidden">
-            <BrandIdentity compact />
+
+      <div className="flex flex-col bg-paper px-5 py-6 sm:px-10 lg:px-16">
+        <div className="lg:hidden">
+          <Link to="/" aria-label="MaapSetu home" className="inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40">
+            <Brand />
+          </Link>
+        </div>
+        <div className="flex flex-1 items-start justify-center py-8 sm:items-center lg:py-12">
+          <div className="w-full max-w-md">
+            <h1 className="font-display text-3xl text-ink">{title}</h1>
+            <p className="mt-1.5 text-sm text-slate-600">{subtitle}</p>
+            <div className="mt-8">{children}</div>
           </div>
-          <h1 className="mt-6 font-display text-2xl text-ink md:mt-0">{title}</h1>
-          <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-          <div className="mt-8">{children}</div>
         </div>
       </div>
     </div>

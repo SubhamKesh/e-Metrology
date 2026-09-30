@@ -1,50 +1,49 @@
-import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/layout/AppShell";
-import { StatCard } from "@/components/ui/Card";
-import { Skeleton } from "@/components/ui/States";
-import { Button } from "@/components/ui/Button";
+import { ActionCard, DashboardHero, SectionTitle, StatCard } from "@/components/ui/Card";
+import { ButtonLink } from "@/components/ui/Button";
+import { ErrorState, Skeleton } from "@/components/ui/States";
 import { useDashboard } from "@/hooks/useData";
 import type { OwnerDashboard } from "@/lib/types";
+import { ROLE_LABEL } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 
 export default function OwnerDashboardPage() {
   const { user } = useAuth();
-  const { data, isLoading, isError } = useDashboard("owner");
+  const { data, isLoading, isError, refetch } = useDashboard("owner");
   const d = data as OwnerDashboard | undefined;
 
   return (
     <div>
-      <PageHeader
-        title={`Welcome back, ${user?.name.split(" ")[0]}`}
+      <DashboardHero
+        roleLabel={ROLE_LABEL.owner}
+        title={`Welcome back, ${user?.name.split(" ")[0] ?? ""}`}
         description="Here's where your instruments stand today."
-        action={
-          <Link to="/app/owner/instruments/new">
-            <Button>Register instrument</Button>
-          </Link>
-        }
+        action={<ButtonLink to="/app/owner/instruments/new">Register instrument</ButtonLink>}
       />
 
       {isLoading ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+            <Skeleton key={i} className="h-28 w-full" />
           ))}
         </div>
       ) : isError ? (
-        <p className="text-sm text-danger">Couldn't load your dashboard. Try refreshing.</p>
+        <ErrorState message="Couldn't load your dashboard." onRetry={() => refetch()} />
       ) : d ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <StatCard label="Total instruments" value={d.total_instruments} />
-          <StatCard label="Verified" value={d.verified} tone="success" />
-          <StatCard label="Pending" value={d.pending} tone="warning" />
-          <StatCard label="Expired" value={d.expired} tone="danger" />
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <StatCard label="Total instruments" value={d.total_instruments} to="/app/owner/instruments" />
+          <StatCard label="Verified" value={d.verified} tone="success" to="/app/owner/certificates" />
+          <StatCard label="Pending" value={d.pending} tone="warning" to="/app/owner/applications" />
+          <StatCard label="Expired" value={d.expired} tone="danger" to="/app/owner/certificates" />
         </div>
       ) : null}
 
       {d?.next_expiry && (
-        <div className="mt-6 rounded-lg border border-warning-50 bg-warning-50/50 p-5">
-          <p className="text-sm font-medium text-warning">Upcoming renewal</p>
-          <p className="mt-1 text-sm text-ink">
+        <div
+          role="status"
+          className="mt-6 flex flex-col gap-1 rounded-xl border border-warning/30 bg-warning-50 p-4 sm:p-5"
+        >
+          <p className="text-sm font-semibold text-warning">Upcoming renewal</p>
+          <p className="text-sm text-ink">
             {d.next_expiry.instrument_type} · Serial {d.next_expiry.uiid} expires on{" "}
             {new Date(d.next_expiry.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" })} —{" "}
             {d.next_expiry.days_remaining} day{d.next_expiry.days_remaining === 1 ? "" : "s"} remaining.
@@ -52,23 +51,12 @@ export default function OwnerDashboardPage() {
         </div>
       )}
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        <QuickAction to="/app/owner/instruments" title="View instruments" description="Review registered equipment and their current verification status." />
-        <QuickAction to="/app/owner/applications/new" title="Submit application" description="Create a new verification request for an existing instrument." />
-        <QuickAction to="/app/owner/certificates" title="Review certificates" description="Check issued certificates, validity windows, and renewal timing." />
+      <SectionTitle>Quick actions</SectionTitle>
+      <div className="grid gap-3 sm:grid-cols-3 sm:gap-4">
+        <ActionCard to="/app/owner/instruments" title="View instruments" description="Review registered equipment and their current verification status." />
+        <ActionCard to="/app/owner/applications/new" title="Submit application" description="Create a new verification request for an existing instrument." primary />
+        <ActionCard to="/app/owner/certificates" title="Review certificates" description="Check issued certificates, validity windows, and renewal timing." />
       </div>
     </div>
-  );
-}
-
-function QuickAction({ to, title, description }: { to: string; title: string; description: string }) {
-  return (
-    <Link
-      to={to}
-      className="rounded-lg border border-line bg-white p-5 shadow-panel transition-shadow hover:shadow-raised"
-    >
-      <p className="font-medium text-ink">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
-    </Link>
   );
 }

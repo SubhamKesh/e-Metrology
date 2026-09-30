@@ -32,7 +32,7 @@ export function LifecycleTimeline({ current }: { current: ApplicationStatus }) {
                     "flex h-7 w-7 items-center justify-center rounded-full border text-xs font-medium",
                     done && "border-teal bg-teal text-white",
                     isCurrent && "border-teal text-teal",
-                    !done && !isCurrent && "border-line text-slate-400",
+                    !done && !isCurrent && "border-line text-slate-500",
                   )}
                 >
                   {done ? "✓" : i + 1}
@@ -40,7 +40,7 @@ export function LifecycleTimeline({ current }: { current: ApplicationStatus }) {
                 <span
                   className={cn(
                     "whitespace-nowrap text-xs",
-                    isCurrent ? "font-medium text-ink" : "text-slate-400",
+                    isCurrent ? "font-medium text-ink" : "text-slate-500",
                   )}
                 >
                   {APPLICATION_STATUS_LABEL[step]}

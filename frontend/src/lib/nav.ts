@@ -2,6 +2,8 @@ import type { Role } from "./types";
 
 export interface NavItem {
   label: string;
+  /** Shorter label for the mobile bottom bar. */
+  short?: string;
   to: string;
   end?: boolean;
 }
@@ -18,7 +20,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
     primaryCta: { label: "Register instrument", to: "/app/owner/instruments/new" },
     items: [
       { label: "Overview", to: "/app/owner", end: true },
-      { label: "My instruments", to: "/app/owner/instruments" },
+      { label: "My instruments", short: "Instruments", to: "/app/owner/instruments" },
       { label: "Applications", to: "/app/owner/applications" },
       { label: "Certificates", to: "/app/owner/certificates" },
     ],
@@ -29,7 +31,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
     items: [
       { label: "Overview", to: "/app/gatc", end: true },
       { label: "Queue", to: "/app/gatc/queue" },
-      { label: "My assignments", to: "/app/gatc/assignments" },
+      { label: "My assignments", short: "Assigned", to: "/app/gatc/assignments" },
       { label: "Certificates", to: "/app/gatc/certificates" },
     ],
   },
@@ -39,7 +41,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
     items: [
       { label: "Overview", to: "/app/lmo", end: true },
       { label: "Queue", to: "/app/lmo/queue" },
-      { label: "My assignments", to: "/app/lmo/assignments" },
+      { label: "My assignments", short: "Assigned", to: "/app/lmo/assignments" },
       { label: "Certificates", to: "/app/lmo/certificates" },
     ],
   },
@@ -48,10 +50,10 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
     primaryCta: { label: "All applications", to: "/app/admin/applications" },
     items: [
       { label: "Overview", to: "/app/admin", end: true },
-      { label: "Officer accounts", to: "/app/admin/users" },
+      { label: "Officer accounts", short: "Officers", to: "/app/admin/users" },
       { label: "Instruments", to: "/app/admin/instruments" },
       { label: "Applications", to: "/app/admin/applications" },
-      { label: "Certificates", to: "/app/admin/certificates" },
+      { label: "Certificates", short: "Certs", to: "/app/admin/certificates" },
     ],
   },
 };

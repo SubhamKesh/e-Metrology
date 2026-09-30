@@ -14,11 +14,11 @@ export default function PendingApproval() {
           they can sign in. You will receive an email when your account is approved.
         </p>
         <p className="text-sm text-slate-500">If you need help, contact the department using your registered email.</p>
-        <div className="mt-6 flex gap-3">
-          <Button onClick={() => logout()} className="w-36">
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Button onClick={() => logout()} className="w-full sm:w-36">
             Sign out
           </Button>
-          <Link to="/login" className="inline-flex items-center rounded-md px-4 py-2 text-sm font-medium text-teal">
+          <Link to="/login" className="inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-medium text-teal hover:bg-teal-50">
             Return to sign in
           </Link>
         </div>

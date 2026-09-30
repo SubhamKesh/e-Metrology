@@ -42,7 +42,7 @@ export default function InstrumentDetail() {
       />
 
       <Panel className="p-5">
-        <dl className="grid grid-cols-2 gap-y-4 text-sm">
+        <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
           <Field label="UIID" value={instrument.uiid ?? instrument.serial_no} mono />
           <Field label="Capacity" value={instrument.capacity} />
           <Field label="Location" value={<LocationText location={instrument.location} />} />
@@ -52,7 +52,7 @@ export default function InstrumentDetail() {
 
       <h2 className="mb-3 mt-8 font-display text-lg text-ink">Verification history</h2>
       {related.length === 0 ? (
-        <p className="text-sm text-slate-400">No applications submitted for this instrument yet.</p>
+        <p className="text-sm text-slate-500">No applications submitted for this instrument yet.</p>
       ) : (
         <div className="divide-y divide-line rounded-lg border border-line bg-white">
           {related.map((a) => (
@@ -74,7 +74,7 @@ export default function InstrumentDetail() {
 function Field({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-400">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
       <dd className={`mt-0.5 text-ink ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
     </div>
   );

@@ -1,6 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext";
-import { roleHome } from "@/lib/roleHome";
+import { Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
 import { AppShell } from "@/components/layout/AppShell";
 
@@ -9,6 +7,7 @@ import Register from "@/pages/auth/Register";
 import PendingApproval from "@/pages/auth/PendingApproval";
 import ChangePassword from "@/pages/auth/ChangePassword";
 import VerifyCertificate from "@/pages/public/VerifyCertificate";
+import Landing from "@/pages/public/Landing";
 import { Unauthorized, NotFound } from "@/pages/Misc";
 
 import OwnerDashboardPage from "@/pages/owner/Dashboard";
@@ -33,12 +32,6 @@ import AdminApplicationDetail from "@/pages/admin/ApplicationDetail";
 import { AdminCertificates, AdminCertificateDetail } from "@/pages/admin/Certificates";
 import AdminUsers from "@/pages/admin/Users";
 
-function RootRedirect() {
-  const { user, status } = useAuth();
-  if (status === "loading") return null;
-  return <Navigate to={user ? roleHome(user.role) : "/login"} replace />;
-}
-
 function OfficerRoutes({ role }: { role: "lmo" | "gatc" }) {
   return (
     <Routes>
@@ -58,7 +51,7 @@ function OfficerRoutes({ role }: { role: "lmo" | "gatc" }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<RootRedirect />} />
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/pending" element={<PendingApproval />} />

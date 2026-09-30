@@ -2,12 +2,11 @@ import { type FormEvent, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { SelectInput } from "@/components/ui/Field";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Panel } from "@/components/ui/Card";
 import { useCreateApplication, useInstruments } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 import { EmptyState } from "@/components/ui/States";
-import { Link } from "react-router-dom";
 
 export default function NewApplication() {
   const navigate = useNavigate();
@@ -36,9 +35,7 @@ export default function NewApplication() {
           title="Register an instrument first"
           description="You need at least one registered instrument before you can submit a verification application."
           action={
-            <Link to="/app/owner/instruments/new">
-              <Button>Register instrument</Button>
-            </Link>
+            <ButtonLink to="/app/owner/instruments/new">Register instrument</ButtonLink>
           }
         />
       </div>
@@ -62,7 +59,7 @@ export default function NewApplication() {
             }))}
           />
           {error && <p className="text-sm text-danger">{error}</p>}
-          <div className="mt-2 flex gap-3">
+          <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row">
             <Button type="submit" loading={create.isPending} disabled={!instrumentId}>
               Submit application
             </Button>

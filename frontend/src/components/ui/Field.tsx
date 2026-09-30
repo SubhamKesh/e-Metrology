@@ -25,16 +25,16 @@ export function FieldWrapper({ label, hint, error, required, children, htmlFor }
       </label>
       {children}
       {error ? (
-        <p className="text-sm text-danger">{error}</p>
+        <p role="alert" className="text-sm text-danger">{error}</p>
       ) : hint ? (
-        <p className="text-sm text-slate-400">{hint}</p>
+        <p className="text-sm text-slate-500">{hint}</p>
       ) : null}
     </div>
   );
 }
 
 const controlClasses =
-  "h-10 w-full rounded-md border bg-white px-3 text-sm text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal/30 disabled:bg-paper2 disabled:text-slate-400";
+  "h-11 w-full rounded-md border bg-white px-3 text-sm sm:h-10 text-ink placeholder:text-slate-400 focus:border-teal focus:outline-none focus:ring-2 focus:ring-teal/30 disabled:bg-paper2 disabled:text-slate-500";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;

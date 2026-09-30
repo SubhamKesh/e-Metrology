@@ -36,7 +36,7 @@ export function DataTable<T>({
     <>
       <table className="hidden w-full text-left text-sm md:table">
         <thead>
-          <tr className="border-b border-line text-xs uppercase tracking-wide text-slate-400">
+          <tr className="border-b border-line bg-paper/60 text-xs uppercase tracking-wide text-slate-500">
             {columns.map((c, i) => (
               <th key={i} className={`px-4 py-2.5 font-medium ${c.className ?? ""}`}>
                 {c.header}
@@ -49,7 +49,7 @@ export function DataTable<T>({
             <tr
               key={rowKey(row)}
               onClick={() => onRowClick?.(row)}
-              className={onRowClick ? "cursor-pointer hover:bg-paper2/60" : ""}
+              className={onRowClick ? "cursor-pointer transition-colors hover:bg-teal-50/50" : ""}
             >
               {columns.map((c, i) => (
                 <td key={i} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>
@@ -78,14 +78,14 @@ export function DataTable<T>({
                   }
                 : undefined
             }
-            className={`rounded-lg border border-line bg-white p-4 text-left shadow-panel ${
-              onRowClick ? "cursor-pointer" : ""
+            className={`rounded-xl border border-line bg-white p-4 text-left shadow-panel ${
+              onRowClick ? "cursor-pointer active:bg-paper2/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40" : ""
             }`}
           >
             {columns.map((c, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 py-1 text-sm first:pt-0 last:pb-0">
-                <span className="text-xs uppercase tracking-wide text-slate-400">{c.header}</span>
-                <span className="text-right text-ink">{c.cell(row)}</span>
+              <div key={i} className="flex items-start justify-between gap-4 py-1.5 text-sm first:pt-0 last:pb-0">
+                <span className="shrink-0 pt-0.5 text-xs uppercase tracking-wide text-slate-500">{c.header}</span>
+                <span className="min-w-0 break-words text-right text-ink">{c.cell(row)}</span>
               </div>
             ))}
           </div>

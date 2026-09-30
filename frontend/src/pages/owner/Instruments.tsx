@@ -1,6 +1,6 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
+import { ButtonLink } from "@/components/ui/Button";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/ui/States";
 import { LocationText } from "@/components/ui/LocationText";
@@ -26,15 +26,13 @@ export default function OwnerInstruments() {
         title="My instruments"
         description="Every instrument registered under your account."
         action={
-          <Link to="/app/owner/instruments/new">
-            <Button>Register instrument</Button>
-          </Link>
+          <ButtonLink to="/app/owner/instruments/new">Register instrument</ButtonLink>
         }
       />
       {isError ? (
         <ErrorState message={error instanceof ApiError ? error.message : "Please try again."} onRetry={refetch} />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line bg-white">
+        <div className="md:overflow-hidden md:rounded-xl md:border md:border-line md:bg-white md:shadow-panel">
           <DataTable
             columns={columns}
             rows={data ?? []}

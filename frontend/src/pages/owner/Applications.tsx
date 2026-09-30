@@ -1,6 +1,5 @@
-import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
+import { ButtonLink } from "@/components/ui/Button";
 import { ApplicationsTable } from "@/components/domain/ApplicationsTable";
 import { useApplications } from "@/hooks/useData";
 
@@ -13,9 +12,7 @@ export default function OwnerApplications() {
         title="Applications"
         description="Track every verification application you've submitted."
         action={
-          <Link to="/app/owner/applications/new">
-            <Button>Apply for verification</Button>
-          </Link>
+          <ButtonLink to="/app/owner/applications/new">Apply for verification</ButtonLink>
         }
       />
       <ApplicationsTable

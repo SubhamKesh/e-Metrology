@@ -107,11 +107,11 @@ export default function RegisterInstrument() {
             value={form.type}
             onChange={(e) => set("type", e.target.value)}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <TextInput label="Manufacturer" required value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)} />
             <TextInput label="Model" required value={form.model} onChange={(e) => set("model", e.target.value)} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <TextInput
               label={selectedSpec ? `Capacity (${selectedSpec.unit})` : "Capacity"}
               required
@@ -126,7 +126,7 @@ export default function RegisterInstrument() {
             <TextInput label="Serial number" required value={form.serial_no} onChange={(e) => set("serial_no", e.target.value)} />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
             <SelectInput
               label="State / UT"
               required
@@ -156,7 +156,7 @@ export default function RegisterInstrument() {
           />
 
           {error && <p className="text-sm text-danger">{error}</p>}
-          <div className="mt-2 flex gap-3">
+          <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row">
             <Button type="submit" loading={create.isPending}>
               Register instrument
             </Button>

@@ -57,7 +57,7 @@ export function OfficerApplicationDetail({ role }: { role: Extract<Role, "lmo" |
               </Button>
             )}
             {isMine && application.status === "inspected" && (
-              <p className="text-sm text-slate-400">Inspection submitted — awaiting certificate generation.</p>
+              <p className="text-sm text-slate-500">Inspection submitted — awaiting certificate generation.</p>
             )}
           </div>
         }

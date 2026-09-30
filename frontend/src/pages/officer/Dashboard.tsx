@@ -1,56 +1,61 @@
-import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/layout/AppShell";
-import { StatCard } from "@/components/ui/Card";
-import { Skeleton } from "@/components/ui/States";
-import { Button } from "@/components/ui/Button";
-import { useDashboard } from "@/hooks/useData";
+import { ActionCard, DashboardHero, SectionTitle, StatCard } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/StatusBadge";
+import { ErrorState, Skeleton } from "@/components/ui/States";
+import { useApplications, useDashboard } from "@/hooks/useData";
 import type { OfficerDashboard, Role } from "@/lib/types";
+import { ROLE_LABEL } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
 
 export default function OfficerDashboardPage({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
   const { user } = useAuth();
-  const { data, isLoading, isError } = useDashboard(role);
+  const { data, isLoading, isError, refetch } = useDashboard(role);
+  // Same query key as the shell's queue poller, so this is served from cache.
+  const { data: queue } = useApplications({ status: "submitted" });
+  const queueCount = Array.isArray(queue) ? queue.length : undefined;
   const d = data as OfficerDashboard | undefined;
   const base = `/app/${role}`;
 
   return (
     <div>
-      <PageHeader
-        title={`Welcome back, ${user?.name.split(" ")[0]}`}
+      {/* The primary "Verification queue" action lives in the top bar; no duplicate button here. */}
+      <DashboardHero
+        roleLabel={ROLE_LABEL[role]}
+        title={`Welcome back, ${user?.name.split(" ")[0] ?? ""}`}
         description="Your verification workload for today."
-        action={
-          <Link to={`${base}/queue`}>
-            <Button>Open queue</Button>
-          </Link>
-        }
       />
 
       {isLoading ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+            <Skeleton key={i} className="h-28 w-full" />
           ))}
         </div>
       ) : isError ? (
-        <p className="text-sm text-danger">Couldn't load your dashboard. Try refreshing.</p>
+        <ErrorState message="Couldn't load your dashboard." onRetry={() => refetch()} />
       ) : d ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <StatCard label="Assigned to you" value={d.assigned} />
-          <StatCard label="Pending" value={d.pending} tone="warning" />
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+          <StatCard label="Assigned to you" value={d.assigned} to={`${base}/assignments`} />
+          <StatCard label="Pending" value={d.pending} tone="warning" to={`${base}/assignments`} />
           <StatCard label="Completed" value={d.completed} tone="success" />
-          <StatCard label="Today's inspections" value={d.today_inspections} />
+          <StatCard label="Today's inspections" value={d.today_inspections} tone="info" />
         </div>
       ) : null}
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2">
-        <Link to={`${base}/queue`} className="rounded-lg border border-line bg-white p-5 shadow-panel hover:shadow-raised">
-          <p className="font-medium text-ink">Verification queue</p>
-          <p className="mt-1 text-sm text-slate-500">Claim unassigned applications submitted by businesses.</p>
-        </Link>
-        <Link to={`${base}/assignments`} className="rounded-lg border border-line bg-white p-5 shadow-panel hover:shadow-raised">
-          <p className="font-medium text-ink">My assignments</p>
-          <p className="mt-1 text-sm text-slate-500">Applications currently assigned to you for inspection.</p>
-        </Link>
+      <SectionTitle>Where to start</SectionTitle>
+      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+        <ActionCard
+          to={`${base}/queue`}
+          title="Verification queue"
+          description="Claim unassigned applications submitted by businesses."
+          primary
+          badge={queueCount !== undefined ? <Badge tone="info">{queueCount} waiting</Badge> : undefined}
+        />
+        <ActionCard
+          to={`${base}/assignments`}
+          title="My assignments"
+          description="Applications currently assigned to you for inspection."
+          badge={d ? <Badge tone="warning">{d.pending} pending</Badge> : undefined}
+        />
       </div>
     </div>
   );
