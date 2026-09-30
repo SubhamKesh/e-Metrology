@@ -1,27 +1,37 @@
 """
-Background job queue for certificate generation (PDF render, QR code,
-Cloudinary upload) -- moves that work out of the request path.
+Background job queue -- moves slow, non-critical-path work out of the
+request/response cycle.
 
-issue_certificate() (cert_generator.py) does real, slow work: a CPU-bound
-PDF render, a QR-code image generation, and two Cloudinary uploads. Doing
-that inline, as routers/inspections.py used to, ties up a threadpool
-worker thread for however long Cloudinary/reportlab take -- fine at
-hackathon traffic, a real bottleneck at production volume, exactly the
-kind of thing flagged early in the scalability review.
+Two kinds of job live here so far:
 
-With REDIS_URL set, routers/inspections.py enqueues generate_certificate_job
-instead of calling issue_certificate directly, and returns immediately; a
-separate worker process (run_worker.py, its own terminal/process, same
-idea as running a second uvicorn instance) picks the job up and runs it.
-Without REDIS_URL, get_queue() returns None -- there's no queue to enqueue
-onto, so the router falls back to calling issue_certificate() inline,
-exactly as before this existed. Same graceful-degradation shape as every
-other Redis-dependent piece in this project.
+  - generate_certificate_job: PDF render, QR-code image, two Cloudinary
+    uploads. CPU- and I/O-heavy; used to run inline in
+    routers/inspections.py, tying up a threadpool worker thread for
+    however long that took.
+  - send_officer_credentials_job: one SMTP send. Used to run inline in
+    routers/admin_users.py, blocking the officer-creation response on
+    however long the mail server took to answer.
 
-The client finds out the certificate is ready via the same audience-scoped
+Both share one queue (QUEUE_NAME = "default") and one worker process
+(run_worker.py) -- there's no need for a job-type-specific queue at this
+project's scale, and one worker can run a mix of job types from a single
+queue without any special handling.
+
+With REDIS_URL set, a router enqueues the job and returns immediately; the
+separate worker process (its own terminal, same idea as running a second
+uvicorn instance) picks it up and runs it. Without REDIS_URL, get_queue()
+returns None -- there's no queue to enqueue onto, so each call site falls
+back to running the equivalent work inline, exactly as it did before this
+module existed. Same graceful-degradation shape as every other
+Redis-dependent piece in this project.
+
+Certificate readiness reaches the client via the same audience-scoped
 WebSocket notifications built in services/notifications.py -- a
 "certificate_ready" event reaches the owner and any assigned officer, the
-same way "application_submitted" already does.
+same way "application_submitted" already does. The email job has no
+real-time notification counterpart -- there's nothing to push, since the
+officer-creation response already returned before the email is actually
+sent (see routers/admin_users.py for how it reports this to the admin).
 """
 import logging
 
@@ -29,10 +39,11 @@ from app.config.settings import REDIS_URL
 from app.config.db import applications_col
 from app.services.cert_generator import issue_certificate
 from app.services.notifications import publish_notification_sync
+from app.services.mailer import send_officer_credentials
 
 logger = logging.getLogger("maapsetu")
 
-QUEUE_NAME = "certificates"
+QUEUE_NAME = "default"
 
 # Lazily created -- both `rq` and a live Redis connection are only needed
 # when REDIS_URL is actually set, so importing this module doesn't require
@@ -41,8 +52,8 @@ _queue = None
 
 
 def get_queue():
-    """None if REDIS_URL isn't set -- routers/inspections.py checks this
-    and falls back to calling issue_certificate() directly in that case."""
+    """None if REDIS_URL isn't set -- callers check this and fall back to
+    running the equivalent work inline in that case."""
     global _queue
     if _queue is None and REDIS_URL:
         from redis import Redis
@@ -98,3 +109,13 @@ def generate_certificate_job(inspection_id: str) -> None:
         "district_code": application.get("district_code"),
     }
     publish_notification_sync(payload, audience)
+
+
+def send_officer_credentials_job(to: str, name: str, role: str, temp_password: str) -> None:
+    """The job a worker process executes for a newly-created officer
+    account's welcome email. Fire-and-forget from the router's point of
+    view (see routers/admin_users.py) -- nothing waits on this finishing,
+    and nothing needs to, since the account itself already exists by the
+    time this runs; only the email is delayed, not the account creation.
+    """
+    send_officer_credentials(to=to, name=name, role=role, temp_password=temp_password)

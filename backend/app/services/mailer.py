@@ -24,6 +24,15 @@ def _smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_FROM)
 
 
+def is_configured() -> bool:
+    """Just an env-var check, no network -- safe to call synchronously
+    from a request even after send_email() itself moves to a background
+    job (see routers/admin_users.py), to tell an admin up front whether an
+    email will be attempted at all, versus them needing to share the temp
+    password some other way."""
+    return _smtp_configured()
+
+
 def send_email(to: str, subject: str, body: str) -> bool:
     """Best-effort send. Returns True if actually sent, False if SMTP isn't
     configured or the send failed — callers should never let a False here
@@ -39,15 +48,21 @@ def send_email(to: str, subject: str, body: str) -> bool:
     msg["To"] = to
     msg.set_content(body)
 
+    # 30s, not the original 10s -- this now runs in a background worker
+    # (see app/services/jobs.py), not inline in a request, so a slower
+    # ceiling here costs nothing user-facing. Some mail relays (and some
+    # antivirus software's SMTP-scanning proxies on the client side) are
+    # simply slower than 10s to hand back a final reply after the message
+    # body is sent, without anything actually being broken.
     try:
         if SMTP_USE_TLS:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
                 server.starttls()
                 if SMTP_USER:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as server:
                 if SMTP_USER:
                     server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)

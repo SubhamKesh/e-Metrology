@@ -11,7 +11,6 @@ import { ErrorState } from "@/components/ui/States";
 import { Badge } from "@/components/ui/StatusBadge";
 import { JurisdictionText } from "@/components/ui/JurisdictionText";
 import { useGeoDistricts, useGeoStates } from "@/hooks/useData";
-import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 const USER_STATUS_TONE = {
   active: "success",
@@ -50,7 +49,6 @@ export default function AdminUsers() {
   // GATC/state-controller account uses; see middleware/auth.py's
   // jurisdiction_filter()).
   const [stateLevelOnly, setStateLevelOnly] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{ email?: string; contact?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; temp_password: string; emailed: boolean } | null>(
     null,
@@ -67,7 +65,6 @@ export default function AdminUsers() {
       setCreated({ email: res.user.email, temp_password: res.temp_password, emailed: res.emailed });
       setForm({ name: "", email: "", role: "lmo", org_name: "", contact: "", state_code: "", district_code: "" });
       setStateLevelOnly(false);
-      setFieldErrors({});
       qc.invalidateQueries({ queryKey: ["admin", "officers"] });
     },
     onError: (err) => {
@@ -85,22 +82,6 @@ export default function AdminUsers() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function handleEmailChange(value: string) {
-    set("email", value);
-    setFieldErrors((f) => ({ ...f, email: value && !isValidEmail(value) ? "Enter a valid email address." : undefined }));
-  }
-
-  // Contact is optional on this form (same as UserRegister) — only flag it
-  // once something's been typed, same as Register.tsx's own contact field.
-  function handleContactChange(value: string) {
-    const digitsOnly = value.replace(/\D/g, "").slice(0, 10);
-    set("contact", digitsOnly);
-    setFieldErrors((f) => ({
-      ...f,
-      contact: digitsOnly.length > 0 && !isValidPhone(digitsOnly) ? "Invalid contact number." : undefined,
-    }));
-  }
-
   // Changing the state clears any previously-selected district — it
   // belonged to a different state's list and is no longer valid.
   function setStateCode(stateCode: string) {
@@ -111,14 +92,6 @@ export default function AdminUsers() {
     e.preventDefault();
     setFormError(null);
     setCreated(null);
-
-    const emailError = !isValidEmail(form.email) ? "Enter a valid email address." : undefined;
-    const contactError = form.contact.length > 0 && !isValidPhone(form.contact) ? "Invalid contact number." : undefined;
-    setFieldErrors({ email: emailError, contact: contactError });
-    if (emailError || contactError) {
-      return;
-    }
-
     if (!stateLevelOnly && !form.district_code) {
       setFormError("Pick a district, or check \"state-level officer\" if this account isn't scoped to one.");
       return;
@@ -149,8 +122,7 @@ export default function AdminUsers() {
             type="email"
             required
             value={form.email}
-            onChange={(e) => handleEmailChange(e.target.value)}
-            error={fieldErrors.email}
+            onChange={(e) => set("email", e.target.value)}
           />
           <SelectInput
             label="Role"
@@ -169,8 +141,7 @@ export default function AdminUsers() {
             type="tel"
             inputMode="numeric"
             value={form.contact}
-            onChange={(e) => handleContactChange(e.target.value)}
-            error={fieldErrors.contact}
+            onChange={(e) => set("contact", e.target.value)}
           />
           <SelectInput
             label="State / UT"
@@ -213,7 +184,7 @@ export default function AdminUsers() {
             <p className="font-medium text-ink">Account created for {created.email}</p>
             {created.emailed ? (
               <p className="mt-1 text-slate-600">
-                Login credentials have been emailed to them directly. The temporary password is shown below only as
+                Login credentials are being emailed to them directly. The temporary password is shown below only as
                 a backup, in case the email doesn't arrive.
               </p>
             ) : (

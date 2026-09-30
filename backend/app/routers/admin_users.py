@@ -3,12 +3,12 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
 
-from app.config.db import users_col
+from app.config.db import users_col, states_col, districts_col
 from app.middleware.auth import role_required
 from app.models.user import UserOut, OfficerCreate, OfficerCreatedOut
 from app.utils.security import hash_password, generate_temp_password
-from app.utils.geo_validation import validate_state_district
-from app.services.mailer import send_officer_credentials
+from app.services.mailer import send_officer_credentials, is_configured as smtp_is_configured
+from app.services.jobs import get_queue, send_officer_credentials_job
 
 router = APIRouter(prefix="/api/v1/admin/users", tags=["admin"])
 
@@ -39,7 +39,12 @@ def create_officer(payload: OfficerCreate, current_user: dict = Depends(role_req
     if payload.role not in ("lmo", "gatc"):
         raise HTTPException(status_code=400, detail="role must be 'lmo' or 'gatc'")
 
-    validate_state_district(payload.jurisdiction.state_code, payload.jurisdiction.district_code)
+    if not states_col.find_one({"code": payload.jurisdiction.state_code}):
+        raise HTTPException(status_code=400, detail=f"Unknown state_code '{payload.jurisdiction.state_code}'")
+    if payload.jurisdiction.district_code and not districts_col.find_one(
+        {"code": payload.jurisdiction.district_code, "state_code": payload.jurisdiction.state_code}
+    ):
+        raise HTTPException(status_code=400, detail=f"Unknown district_code '{payload.jurisdiction.district_code}'")
 
     temp_password = generate_temp_password()
 
@@ -66,9 +71,34 @@ def create_officer(payload: OfficerCreate, current_user: dict = Depends(role_req
 
     doc["_id"] = result.inserted_id
 
-    emailed = send_officer_credentials(
-        to=doc["email"], name=doc["name"], role=doc["role"], temp_password=temp_password
-    )
+    # `emailed` used to mean "SMTP confirmed it accepted the message" --
+    # found out synchronously, right here, by blocking this response on
+    # the SMTP round-trip. Now the actual send happens in a background
+    # worker (so a slow/unreachable mail server can't hold up officer
+    # creation), so `emailed` means "we've queued it and it will be
+    # attempted" instead. is_configured() is just an env-var check (no
+    # network), so it's fine to keep that part synchronous -- it's what
+    # lets an admin know immediately whether to expect the email at all,
+    # versus needing to share the temp password with this officer some
+    # other way right now.
+    emailed = False
+    if smtp_is_configured():
+        queue = get_queue()
+        if queue is not None:
+            try:
+                queue.enqueue(
+                    send_officer_credentials_job,
+                    to=doc["email"], name=doc["name"], role=doc["role"], temp_password=temp_password,
+                )
+                emailed = True
+            except Exception:
+                emailed = False
+        else:
+            # No Redis configured -- fall back to sending inline, exactly
+            # as before this queue existed.
+            emailed = send_officer_credentials(
+                to=doc["email"], name=doc["name"], role=doc["role"], temp_password=temp_password
+            )
 
     return OfficerCreatedOut(user=_to_user_out(doc), temp_password=temp_password, emailed=emailed)
 
