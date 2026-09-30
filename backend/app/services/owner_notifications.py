@@ -68,8 +68,24 @@ class EmailDeliveryError(Exception):
 # Helpers
 # --------------------------------------------------------------------------
 
+_warned_disabled = False
+
+
 def _enabled() -> bool:
-    return OWNER_EMAIL_NOTIFICATIONS_ENABLED and mailer.is_configured()
+    """True if owner status emails should be attempted. When not, log the
+    reason once per process -- this used to return False silently, which made
+    "no status emails are arriving" impossible to diagnose from the logs."""
+    global _warned_disabled
+    if OWNER_EMAIL_NOTIFICATIONS_ENABLED and mailer.is_configured():
+        return True
+    if not _warned_disabled:
+        _warned_disabled = True
+        logger.warning(
+            "Owner status emails are DISABLED: OWNER_EMAIL_NOTIFICATIONS_ENABLED=%s, mailer configured=%s "
+            "(needs BREVO_API_KEY + SMTP_FROM, or SMTP_HOST + SMTP_FROM).",
+            OWNER_EMAIL_NOTIFICATIONS_ENABLED, mailer.is_configured(),
+        )
+    return False
 
 
 def _never_raises(fn):
@@ -163,11 +179,13 @@ def send_owner_email_job(dedupe_key: str, to: str, subject: str, text: str, html
     ok = mailer.send_email(to, subject, text, html=html)
     if not ok:
         email_log_col.delete_one({"_id": dedupe_key, "status": "sending"})
+        logger.error("Owner email %s to %s was NOT delivered (see the mailer log line above for the cause).", dedupe_key, to)
         raise EmailDeliveryError(f"SMTP send failed for {dedupe_key}")
 
     email_log_col.update_one(
         {"_id": dedupe_key}, {"$set": {"status": "sent", "sent_at": datetime.now(timezone.utc)}}
     )
+    logger.info("Owner email %s sent to %s.", dedupe_key, to)
     return True
 
 
@@ -196,12 +214,22 @@ def _dispatch(dedupe_key, to, subject, text, html, *, inline: bool = False) -> N
     queue = _get_queue() if EMAIL_USE_QUEUE else None
     if queue is not None:
         try:
-            from rq import Retry
+            from rq import Retry, Worker
 
-            queue.enqueue(send_owner_email_job, *args, retry=Retry(max=3))
-            return
+            # A web-only deploy (e.g. a single Render web service) has no
+            # process running run_worker.py. Enqueueing then "succeeds" and the
+            # job sits in Redis forever -- no email, no error. Only use the
+            # queue if a worker is actually registered on it.
+            if Worker.count(queue=queue) > 0:
+                queue.enqueue(send_owner_email_job, *args, retry=Retry(max=3))
+                logger.info("Owner email %s queued for %s.", dedupe_key, to)
+                return
+            logger.warning(
+                "EMAIL_USE_QUEUE=true but no RQ worker is listening; sending %s in a thread instead.", dedupe_key
+            )
         except Exception:
             logger.warning("Could not enqueue owner email %s; sending in a thread.", dedupe_key, exc_info=True)
+    logger.info("Owner email %s sending in background thread to %s.", dedupe_key, to)
     threading.Thread(target=_run_quietly, args=args, daemon=True).start()
 
 

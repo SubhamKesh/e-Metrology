@@ -64,7 +64,9 @@ def _send_via_brevo(to: str, subject: str, body: str, html: str | None) -> bool:
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return 200 <= resp.status < 300
+            ok = 200 <= resp.status < 300
+            logger.info("Brevo accepted email to %s (status %s): %s", to, resp.status, subject)
+            return ok
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
         logger.error("Brevo API rejected email to %s: %s %s", to, e.code, detail)

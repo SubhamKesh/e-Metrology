@@ -98,6 +98,13 @@ async def _ddos_protection(request: Request, call_next):
 
 @app.on_event("startup")
 async def on_startup():
+    # One line in the Render logs that says how email is wired -- no secrets.
+    from app.services import mailer, owner_notifications as _on
+    logger.info(
+        "Email config: provider=%s, owner_status_emails=%s, email_use_queue=%s, redis=%s",
+        "brevo" if mailer._brevo_configured() else ("smtp" if mailer._smtp_configured() else "NONE"),
+        _on.OWNER_EMAIL_NOTIFICATIONS_ENABLED, _on.EMAIL_USE_QUEUE, bool(REDIS_URL),
+    )
     if IS_PRODUCTION and not REDIS_URL:
         # Not fatal on its own (the Dockerfile's --workers 2 still works,
         # just with each worker enforcing its own independent threshold —
