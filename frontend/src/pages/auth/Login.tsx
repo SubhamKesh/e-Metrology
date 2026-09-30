@@ -43,6 +43,19 @@ export default function Login() {
       const dest = location.state?.from?.pathname ?? roleHome(user.role);
       navigate(dest, { replace: true });
     } catch (err) {
+      // The backend answers 403 for accounts that can't sign in yet. Send
+      // those users to the pending page instead of a bare error line.
+      if (err instanceof ApiError && err.status === 403) {
+        const msg = err.message.toLowerCase();
+        if (msg.includes("awaiting admin approval")) {
+          navigate("/pending", { state: { email, status: "pending" } });
+          return;
+        }
+        if (msg.includes("not approved")) {
+          navigate("/pending", { state: { email, status: "rejected" } });
+          return;
+        }
+      }
       setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
     } finally {
       setLoading(false);
