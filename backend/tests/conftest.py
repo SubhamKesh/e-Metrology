@@ -8,6 +8,7 @@ gets a fresh in-memory database via the `client` fixture.
 import mongomock
 import pytest
 from fastapi.testclient import TestClient
+from passlib.context import CryptContext  # Added to hash our dummy password
 
 
 @pytest.fixture
@@ -50,13 +51,29 @@ def client(monkeypatch):
 
 @pytest.fixture
 def registered_owner(client):
-    client.post(
-        "/api/v1/auth/register",
-        json={
-            "name": "Test Owner",
-            "email": "owner@example.com",
-            "password": "correct-password",
-            "role": "owner",
-        },
-    )
+    """
+    Bypasses the /register API entirely to avoid OTP verification.
+    Directly seeds the test database with a verified user.
+    """
+    import app.config.db as dbmod
+    
+    # Hash the password exactly how the app expects it
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    hashed_password = pwd_context.hash("correct-password")
+    
+    # Create the user document with all required fields
+    user_doc = {
+        "name": "Test Owner",
+        "email": "owner@example.com",
+        "password": hashed_password,
+        "role": "owner",
+        "org_name": "Test Org",      # Added missing required field
+        "contact": "9876543210",     # Added missing required field
+        "is_verified": True,         # Mark as verified (adjust field name if your app uses something else)
+        "is_active": True
+    }
+    
+    # Insert directly into mongomock
+    dbmod.users_col.insert_one(user_doc)
+    
     return {"email": "owner@example.com", "password": "correct-password"}

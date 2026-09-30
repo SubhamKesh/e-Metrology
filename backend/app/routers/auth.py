@@ -23,6 +23,7 @@ from app.utils.security import (
     refresh_token_expiry,
 )
 from app.middleware.auth import get_current_user
+from app.services.otp import consume_verification_proof
 
 try:
     from app.rate_limit import limiter, RATE_LIMIT_AUTH
@@ -46,6 +47,8 @@ def to_user_out(user_doc: dict) -> UserOut:
         org_type=user_doc.get("org_type"),
         org_name=user_doc.get("org_name"),
         contact=user_doc.get("contact"),
+        is_email_verified=user_doc.get("is_email_verified", False),
+        is_phone_verified=user_doc.get("is_phone_verified", False),
         must_change_password=user_doc.get("must_change_password", False),
     )
 
@@ -122,15 +125,30 @@ def register(payload: UserRegister, request: Request, response: Response):
             detail="Officer accounts are created by an administrator, not self-registered",
         )
 
+    # Account creation requires a verified email — see POST
+    # /api/v1/otp/send + /verify, which a registering owner calls before
+    # this endpoint. consume_verification_proof() atomically finds-and-
+    # deletes a still-valid proof, so one verification can only unlock
+    # one registration. strip().lower() matches how OtpSendRequest
+    # normalizes the identifier, so the proof lookup key lines up.
+    email = payload.email.strip().lower()
+    if not consume_verification_proof(email, "email_verify"):
+        raise HTTPException(
+            status_code=400,
+            detail="Please verify your email before creating an account.",
+        )
+
     doc = {
         "name": payload.name,
-        "email": payload.email.lower(),
+        "email": email,
         "password": hash_password(payload.password),
         "role": "owner",
         "status": "active",
         "org_type": payload.org_type,
         "org_name": payload.org_name,
         "contact": payload.contact,
+        "is_email_verified": True,
+        "is_phone_verified": False,
         "token_version": 0,
         "failed_login_attempts": 0,
         "must_change_password": False,
@@ -139,6 +157,12 @@ def register(payload: UserRegister, request: Request, response: Response):
     try:
         result = users_col.insert_one(doc)
     except DuplicateKeyError:
+        # Known trade-off: the verification proof above is already
+        # consumed by this point, even though account creation itself
+        # failed here. A person hitting this (an already-registered email)
+        # would need to go verify again before retrying — acceptable
+        # since verification is meant to happen immediately before
+        # registration, not stockpiled for later.
         raise HTTPException(status_code=409, detail="Email already registered")
 
     doc["_id"] = result.inserted_id
