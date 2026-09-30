@@ -20,6 +20,10 @@ applications_col = db["applications"]
 inspections_col = db["inspections"]
 certificates_col = db["certificates"]
 alerts_col = db["alerts"]
+# One doc per owner status email, _id = dedupe key (e.g. "certificate_issued:<id>").
+# Claimed before sending so the same mail is never sent twice; see
+# app/services/owner_notifications.py.
+email_log_col = db["email_log"]
 # Refresh tokens live in their own collection so they can be listed/revoked
 # per-user (e.g. "log out of all devices") without touching users_col at all.
 refresh_tokens_col = db["refresh_tokens"]

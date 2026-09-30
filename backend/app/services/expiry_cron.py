@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from app.config.db import certificates_col, alerts_col
 from app.config.settings import REDIS_URL
 from app.services.status_transition import mark_expiring, mark_expired, InvalidTransitionError, ApplicationNotFoundError
+from app.services.owner_notifications import notify_expiry_reminder, notify_certificate_expired
 
 logger = logging.getLogger("maapsetu")
 
@@ -14,6 +15,11 @@ logger = logging.getLogger("maapsetu")
 # scheduled tick an hour later succeeds regardless, and a shorter gap in
 # between is fine to just skip.
 _LOCK_TTL_SECONDS = 600  # 10 minutes
+
+# Only send an "expired" email for certificates that lapsed recently, so
+# turning this feature on doesn't email owners about certificates that
+# expired months ago.
+_EXPIRED_NOTICE_WINDOW_DAYS = 7
 
 # A plain *synchronous* Redis client — deliberately not redis.asyncio like
 # middleware/ddos_store.py and services/notifications.py use. APScheduler's
@@ -52,9 +58,21 @@ def _acquire_run_lock(job_name: str) -> bool:
     return acquired
 
 
+def _is_superseded(cert: dict) -> bool:
+    """True if the owner already renewed: a newer certificate exists for the
+    same instrument, so reminding them about this one would be noise."""
+    instrument_id = cert.get("instrument_id")
+    if instrument_id is None:
+        return False
+    return certificates_col.find_one(
+        {"instrument_id": instrument_id, "valid_until": {"$gt": cert["valid_until"]}}
+    ) is not None
+
+
 def check_expiring_certificates():
-    """Certificates within 30 days of expiry: send a reminder (once) and
-    move their application to 'expiring' if it's still 'certified'."""
+    """Certificates within 30 days of expiry: record the alert, move their
+    application to 'expiring' if it's still 'certified', and email the owner
+    at each configured milestone (30/15/7/1 days by default, each sent once)."""
     if not _acquire_run_lock("check_expiring_certificates"):
         return
 
@@ -84,6 +102,9 @@ def check_expiring_certificates():
             # application vanished — either way, nothing to do here.
             pass
 
+        if not _is_superseded(cert):
+            notify_expiry_reminder(cert, now=now)
+
 
 def check_expired_certificates():
     """Certificates whose valid_until has passed: move application to
@@ -110,6 +131,13 @@ def check_expired_certificates():
             mark_expired(cert["application_id"])
         except (InvalidTransitionError, ApplicationNotFoundError):
             pass
+
+        valid_until = cert["valid_until"]
+        if valid_until.tzinfo is None:
+            valid_until = valid_until.replace(tzinfo=timezone.utc)
+        recently = valid_until >= now - timedelta(days=_EXPIRED_NOTICE_WINDOW_DAYS)
+        if recently and not _is_superseded(cert):
+            notify_certificate_expired(cert)
 
 
 def start_expiry_scheduler():

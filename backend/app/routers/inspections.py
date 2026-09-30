@@ -13,6 +13,7 @@ from app.services.status_transition import (
 )
 from app.services.cert_generator import issue_certificate
 from app.services.jobs import get_queue, generate_certificate_job
+from app.services.owner_notifications import notify_inspection_result
 
 router = APIRouter(prefix="/api/v1/inspections", tags=["inspections"])
 
@@ -81,6 +82,10 @@ def submit_inspection(
         raise HTTPException(status_code=409, detail=str(e))
     except ApplicationNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    # Email the owner the inspection outcome (pass -> certified, fail -> rejected).
+    # The certificate itself gets its own email once it has been generated.
+    notify_inspection_result(application, doc)
 
     # A pass triggers certificate generation (Kiran's cert_generator).
     # This runs after the status is already 'certified' — if cert

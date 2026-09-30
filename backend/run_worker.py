@@ -1,30 +1,47 @@
 """
 Runs the background job worker that processes certificate generation
-(see app/services/jobs.py). Start this as its own long-running process,
-alongside uvicorn -- same idea as running a second uvicorn instance for
-the WebSocket fan-out test, just a different kind of process this time.
+and owner email notifications (see app/services/jobs.py). Start this as
+its own long-running process, alongside uvicorn.
 
-Uses rq.SimpleWorker rather than plain rq.Worker: the default Worker forks
-a child process per job (via os.fork) to enforce a hard timeout on each
-job. os.fork() doesn't exist on Windows, so the default Worker crashes
-immediately there. SimpleWorker runs each job in the same process instead
--- no per-job timeout enforcement, but it actually runs on Windows, which
-matters more for this project's dev environment than the timeout
-guarantee does. (On a Linux production host, switching to the default
-Worker for real timeout enforcement is a reasonable upgrade -- not
-necessary to get this working today.)
+Uses rq.SimpleWorker (no os.fork, which Windows lacks) with a custom
+death penalty class (no signal.SIGALRM, which Windows also lacks).
+Trade-off: per-job timeouts are NOT enforced here. On a Linux production
+host, switch back to the default rq.Worker to get real timeout enforcement.
 
 Usage (from backend/, same venv as uvicorn):
     python run_worker.py
 
-Leave it running in its own terminal. It logs each job it picks up and
-each one's result; Ctrl+C to stop it, same as uvicorn.
+Leave it running in its own terminal. Ctrl+C to stop it.
 """
 from redis import Redis
 from rq import SimpleWorker
+from rq.timeouts import BaseDeathPenalty
 
 from app.config.settings import REDIS_URL
 from app.services.jobs import QUEUE_NAME
+
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
+
+
+
+class NoSignalDeathPenalty(BaseDeathPenalty):
+    """Windows has no SIGALRM, so skip signal-based job timeouts."""
+
+    def setup_death_penalty(self):
+        pass
+
+    def cancel_death_penalty(self):
+        pass
+
+
+class WindowsWorker(SimpleWorker):
+    death_penalty_class = NoSignalDeathPenalty
+
 
 if __name__ == "__main__":
     if not REDIS_URL:
@@ -36,6 +53,6 @@ if __name__ == "__main__":
             "first if you want to actually use the background queue."
         )
     conn = Redis.from_url(REDIS_URL)
-    worker = SimpleWorker([QUEUE_NAME], connection=conn)
+    worker = WindowsWorker([QUEUE_NAME], connection=conn)
     print(f"Worker started, listening on queue '{QUEUE_NAME}'. Ctrl+C to stop.")
     worker.work()

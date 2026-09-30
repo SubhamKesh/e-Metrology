@@ -5,6 +5,12 @@ Uses mongomock instead of a real MongoDB so tests run anywhere (CI, a
 laptop with no local Mongo) without needing Atlas credentials. Each test
 gets a fresh in-memory database via the `client` fixture.
 """
+import os
+
+# Tests run on mongomock with no Redis. Setting this to "" before the app is
+# imported stops a real REDIS_URL in .env from leaking into the test run
+# (python-dotenv does not override variables that are already set).
+os.environ["REDIS_URL"] = ""
 import mongomock
 import pytest
 from fastapi.testclient import TestClient

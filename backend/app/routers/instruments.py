@@ -10,6 +10,7 @@ from app.config.instrument_specs import INSTRUMENT_SPECS
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut, InstrumentTypeSpec
 from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
+from app.services.owner_notifications import notify_instrument_registered
 from app.utils.geo_validation import validate_state_district
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
@@ -109,6 +110,8 @@ def register_instrument(
         raise HTTPException(status_code=409, detail="An instrument with this serial number already exists")
 
     doc["_id"] = result.inserted_id
+    # Email the owner (best-effort, never raises, never blocks the response).
+    notify_instrument_registered(doc)
     return to_instrument_out(doc)
 
 

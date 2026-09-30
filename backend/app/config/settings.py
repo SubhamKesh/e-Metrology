@@ -134,6 +134,26 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
+# Base URL of the main frontend app, used to build deep links in owner
+# status emails (e.g. {FRONTEND_BASE_URL}/app/owner/applications/<id>).
+# Defaults to FRONTEND_LOGIN_URL minus its trailing "/login".
+FRONTEND_BASE_URL = (
+    os.getenv("FRONTEND_BASE_URL", "").strip().rstrip("/")
+    or FRONTEND_LOGIN_URL.rstrip("/").removesuffix("/login")
+)
+
+# Status-update emails to owners (app/services/owner_notifications.py).
+# Master switch; they also require SMTP_* to be configured.
+OWNER_EMAIL_NOTIFICATIONS_ENABLED = os.getenv("OWNER_EMAIL_NOTIFICATIONS_ENABLED", "true").lower() == "true"
+
+# Days before certificate expiry at which a reminder email is sent.
+EXPIRY_REMINDER_DAYS = tuple(
+    sorted(
+        {int(d) for d in os.getenv("EXPIRY_REMINDER_DAYS", "30,15,7,1").split(",") if d.strip().isdigit()},
+        reverse=True,
+    )
+) or (30, 15, 7, 1)
+
 
 class _Settings:
     """
@@ -170,6 +190,9 @@ class _Settings:
     SMTP_PASSWORD = SMTP_PASSWORD
     SMTP_FROM = SMTP_FROM
     SMTP_USE_TLS = SMTP_USE_TLS
+    FRONTEND_BASE_URL = FRONTEND_BASE_URL
+    OWNER_EMAIL_NOTIFICATIONS_ENABLED = OWNER_EMAIL_NOTIFICATIONS_ENABLED
+    EXPIRY_REMINDER_DAYS = EXPIRY_REMINDER_DAYS
 
 
 settings = _Settings()

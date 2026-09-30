@@ -8,6 +8,7 @@ from pymongo import ReturnDocument
 
 from app.config.db import applications_col, instruments_col
 from app.services.notifications import broadcast_threadsafe
+from app.services.owner_notifications import notify_application_submitted, notify_application_scheduled
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
 from app.middleware.auth import get_current_user, role_required, jurisdiction_filter
 
@@ -114,6 +115,8 @@ def submit_application(
     except Exception:
         # don't fail the request if broadcasting fails
         pass
+    # Email the owner that the application was received (best-effort).
+    notify_application_submitted(doc)
     return to_application_out(doc)
 
 
@@ -242,4 +245,6 @@ def claim_application(
             raise HTTPException(status_code=403, detail="Application is outside your jurisdiction")
         raise HTTPException(status_code=409, detail="Application is no longer claimable")
 
+    # Email the owner that an officer has been assigned (best-effort).
+    notify_application_scheduled(updated)
     return to_application_out(updated)

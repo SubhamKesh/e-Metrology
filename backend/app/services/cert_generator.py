@@ -18,6 +18,7 @@ from app.config.db import (
 from app.services.qr_generator import generate_qr
 from app.utils.upload_to_cloudinary import upload_bytes
 from app.utils.location_format import format_location
+from app.services.owner_notifications import notify_certificate_issued
 
 INK = (0.11, 0.15, 0.22)          # near-black navy for body text/borders
 ACCENT = (0.05, 0.35, 0.25)       # deep green for the seal/header rule, evokes an official emblem
@@ -196,4 +197,6 @@ def issue_certificate(inspection_id) -> dict:
         "valid_until": valid_until,
     }
     certificates_col.insert_one(cert_doc)
+    # Email the owner their certificate (best-effort, never raises).
+    notify_certificate_issued(cert_doc)
     return cert_doc

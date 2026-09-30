@@ -33,7 +33,7 @@ def is_configured() -> bool:
     return _smtp_configured()
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
+def send_email(to: str, subject: str, body: str, html: str | None = None) -> bool:
     """Best-effort send. Returns True if actually sent, False if SMTP isn't
     configured or the send failed — callers should never let a False here
     block the calling request, since the account creation itself already
@@ -47,6 +47,9 @@ def send_email(to: str, subject: str, body: str) -> bool:
     msg["From"] = SMTP_FROM
     msg["To"] = to
     msg.set_content(body)
+    if html:
+        # Plain text stays as the fallback part; clients that render HTML show this.
+        msg.add_alternative(html, subtype="html")
 
     # 30s, not the original 10s -- this now runs in a background worker
     # (see app/services/jobs.py), not inline in a request, so a slower
