@@ -11,7 +11,7 @@ python-multipart==0.0.9          # multipart form / photo upload parsing
 pymongo==4.8.0                   # also provides `bson` (ObjectId)
 # [email] installs email-validator, needed for EmailStr in app/models/user.py.
 pydantic[email]==2.9.2
-python-dotenv==1.0.1
+python-dotenv==1.2.3
 
 # --- Auth & security ---
 PyJWT==2.9.0
