@@ -44,7 +44,8 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 🔎 **Inspection Workflow** | Officers claim applications, scan a QR/UIID, review instrument details, and record outcomes with photo evidence |
 | 📜 **Digital Certificates** | PDF certificates (ReportLab) with embedded QR codes linking to a public verification page; generated off the request path when Redis is available |
 | ✅ **Public Verification** | Anyone can verify a certificate at `GET /api/v1/certificates/verify/{cert_id}` (frontend route `/verify/:certId`) — no login required; responses are cached |
-| ⏰ **Expiry Automation** | Hourly APScheduler jobs move certificates to `expiring` / `expired`, guarded by a Redis run-lock so only one instance runs each tick |
+| ⏰ **Expiry Automation** | Hourly APScheduler jobs move certificates to `expiring` / `expired` and email owners at 30 / 15 / 7 / 1 days before expiry, guarded by a Redis run-lock so only one instance runs each tick |
+| ✉️ **Owner Status Emails** | Owners get an HTML + plain-text email at every step: instrument registered, application received, inspection scheduled, passed/failed, certificate issued, expiry reminders, and expired. Sent in the background, never twice, and never able to break the request that triggered them (see [Owner Email Notifications](#-owner-email-notifications)) |
 | 📊 **Admin Dashboard** | System-wide analytics (cached for 60 s), user approval queue, officer account provisioning with emailed temp passwords |
 | 🔔 **Real-time Updates** | Audience-scoped WebSocket notifications (`/ws/notifications`), fanned out across instances via Redis pub/sub; includes a `certificate_ready` event |
 | 🛡️ **Hardened by Default** | Rate limiting, DDoS/request-flood protection, security headers, request-size caps, account lockout, DB-level `$jsonSchema` validation, and strict production startup guards |
@@ -62,13 +63,13 @@ Business owners register weighing/measuring instruments, submit them for verific
 | Validation | **Pydantic v2** (+ `email-validator`) plus MongoDB `$jsonSchema` |
 | Rate limiting / DDoS | `slowapi`, custom middleware, **Redis**-backed shared state |
 | Cache | Redis read-through cache (public cert verify, admin dashboard) |
-| Background jobs | **RQ** (Redis Queue) worker — certificate generation and officer emails |
+| Background jobs | **RQ** (Redis Queue) worker — certificate generation, officer credential emails, and owner status emails (with retries) |
 | Real-time | FastAPI WebSockets + Redis pub/sub for cross-instance delivery |
 | File storage | **Cloudinary** (instrument/inspection photos and certificate PDFs) |
 | PDF generation | **ReportLab** |
 | QR codes | `qrcode` (Pillow) |
 | Scheduled jobs | **APScheduler** (hourly certificate expiry checks) |
-| Email | SMTP via stdlib `smtplib` (officer onboarding, OTP codes) |
+| Email | SMTP via stdlib `smtplib` (30 s socket timeout) — officer onboarding, OTP codes, owner status emails (HTML + plain-text templates) |
 | Server | **Uvicorn** (ASGI) |
 | Testing | `pytest` + `mongomock` + `httpx` |
 | Linting | `ruff` |
@@ -108,8 +109,9 @@ Business owners register weighing/measuring instruments, submit them for verific
       ┌───────────────┬──────────────────┬──────────────┬───────────┴────────┐
       ▼               ▼                  ▼              ▼                    ▼
  MongoDB          Cloudinary        APScheduler     SMTP server        Redis (optional)
- (Atlas /         (photos +         (hourly expiry  (officer emails,   ├─ DDoS / rate-limit state
-  local)           cert PDFs)         jobs)           OTP codes)        ├─ WebSocket pub/sub fan-out
+ (Atlas /         (photos +         (hourly expiry  (officer, OTP &    ├─ DDoS / rate-limit state
+  local)           cert PDFs)         + reminder      owner status      ├─ WebSocket pub/sub fan-out
+                                        jobs)           emails)
                                                                         ├─ Scheduler run-lock
                                                                         ├─ Read-through cache
                                                                         └─ RQ job queue
@@ -117,7 +119,8 @@ Business owners register weighing/measuring instruments, submit them for verific
                                                                                ▼
                                                                     RQ worker (run_worker.py)
                                                                     ├─ generate_certificate_job
-                                                                    └─ send_officer_credentials_job
+                                                                    ├─ send_officer_credentials_job
+                                                                    └─ send_owner_email_job
 
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │ Public, unauthenticated verification: GET /api/v1/certificates/verify/{cert_id} │
@@ -130,9 +133,11 @@ Business owners register weighing/measuring instruments, submit them for verific
 2. An `lmo`/`gatc` officer in that jurisdiction claims the application (`/applications/{id}/claim`).
 3. The officer submits an inspection (evidence photos uploaded via Cloudinary) → the application moves through the enforced status state machine.
 4. On a passing inspection, certificate generation (`cert_generator.py` → PDF + `qr_generator.py` → QR code, both uploaded to Cloudinary) is **enqueued to the RQ worker** if `REDIS_URL` is set, otherwise it runs inline.
-5. When the certificate is ready, a `certificate_ready` WebSocket event is pushed to the owner and the assigned officer.
-6. `expiry_cron.py` runs hourly and transitions certificates to `expiring` → `expired`.
+5. When the certificate is ready, a `certificate_ready` WebSocket event is pushed to the owner and the assigned officer, and the owner receives a "certificate issued" email with the PDF and verify link.
+6. `expiry_cron.py` runs hourly, transitions certificates to `expiring` → `expired`, and sends the owner expiry reminder / expired emails.
 7. Anyone can scan the certificate's QR code to hit the public verify endpoint and confirm authenticity.
+
+> Every lifecycle step above (registration, submission, claim, inspection result, certificate, expiry) also triggers an owner status email — see [Owner Email Notifications](#-owner-email-notifications).
 
 ---
 
@@ -148,13 +153,68 @@ Set `REDIS_URL` to switch these on. Without it, the app runs as a single-process
 | Public verify + admin dashboard | Read-through cache (300 s / 60 s TTL) | Always queries MongoDB |
 | Certificate generation | Enqueued to RQ worker; owner notified via `certificate_ready` | Runs inline in the inspection request |
 | Officer credential emails | Enqueued to RQ worker (`emailed` in the response means "queued") | Sent inline during officer creation |
+| Owner status emails | Enqueued to RQ worker with `Retry(max=3)` | Sent from a short-lived daemon thread (the expiry cron sends inline) |
 
 **Running the worker** (separate long-lived process, same venv as uvicorn):
 ```bash
 cd backend
 python run_worker.py
 ```
-The worker uses `rq.SimpleWorker` so it also runs on Windows (no `os.fork`). On Linux production hosts you can switch to `rq.Worker` for per-job timeouts. Failed jobs stay visible in RQ's `FailedJobRegistry` rather than being lost.
+It handles certificate generation, officer credential emails, and owner status emails from one queue (`default`). Failed jobs stay visible in RQ's `FailedJobRegistry` rather than being lost.
+
+**Windows note.** RQ's default worker needs `os.fork()` and `signal.SIGALRM`, and Windows has neither. `run_worker.py` therefore uses `rq.SimpleWorker` (runs jobs in-process) with a custom `NoSignalDeathPenalty` (skips signal-based timeouts). Without this, every job crashes with `AttributeError: module 'signal' has no attribute 'SIGALRM'` before any of your code runs. The trade-off is that **per-job timeouts are not enforced**; that is why `mailer.py` sets its own 30 s SMTP socket timeout, so one hung connection can't block the worker forever. On a Linux production host (or WSL / Docker), switch back to the default `rq.Worker` to get real timeouts.
+
+The worker configures `logging` at `INFO`, so SMTP failures and "already sent, skipping" lines show up in its terminal.
+
+**Re-running a failed job** (for example after fixing SMTP credentials):
+```python
+import os
+from redis import Redis
+from rq import Queue
+from rq.registry import FailedJobRegistry
+
+conn = Redis.from_url(os.getenv("REDIS_URL"))
+registry = FailedJobRegistry(queue=Queue("default", connection=conn))
+print(registry.get_job_ids())        # everything that failed
+registry.requeue("<job-id>")         # put one back on the queue
+```
+Requeueing an email job is safe: the dedupe key is only claimed once an SMTP send is attempted, and a failed send releases it.
+
+---
+
+## 📧 Owner Email Notifications
+
+Owners (the business people who register machines) get an email for every step of an instrument's life. Implemented in `backend/app/services/owner_notifications.py`, with all content in `email_templates.py` (pure functions: context in, subject + plain text + HTML out; user input is HTML-escaped).
+
+| Event | Sent when | Dedupe key |
+|---|---|---|
+| `instrument_registered` | Instrument registered and UIID issued | `instrument_registered:<instrument_id>` |
+| `application_submitted` | Verification application received | `application_submitted:<application_id>` |
+| `application_scheduled` | An officer claims it and inspection is scheduled | `application_scheduled:<application_id>` |
+| `inspection_passed` | Inspection passed (certificate being generated) | `inspection_passed:<application_id>` |
+| `inspection_failed` | Inspection failed, application rejected (includes officer observations and a re-apply link) | `inspection_failed:<application_id>` |
+| `certificate_issued` | Certificate ready (PDF link + public verify link) | `certificate_issued:<cert_id>` |
+| `expiry_reminder` | 30 / 15 / 7 / 1 days before expiry (configurable) | `expiry_reminder:<cert_id>:<milestone>` |
+| `certificate_expired` | Certificate has expired (only if it lapsed within the last 7 days) | `certificate_expired:<cert_id>` |
+
+**Design rules**
+- **Never breaks the caller.** Every `notify_*()` swallows and logs its own errors, so a mail problem can't fail a registration or an inspection.
+- **Never blocks the caller.** Mail goes out through the RQ queue when `REDIS_URL` is set (`Retry(max=3)`), otherwise through a short-lived daemon thread. The expiry cron sends inline because it already runs in a background thread.
+- **Never sent twice.** Before sending, the job atomically claims its dedupe key as the `_id` of a document in the `email_log` collection. A failed SMTP send releases the claim so a retry can succeed; a claim stuck in `sending` for more than 10 minutes (crashed process) can be taken over.
+- **No SMTP configured = silent no-op**, checked before any database work.
+- **Reminders are quiet.** Only the tightest reached milestone is sent (a server that was down for a week won't fire three stale reminders), each milestone is sent once, and no reminder or expired notice is sent if the owner already renewed with a newer certificate.
+
+Turn everything off with `OWNER_EMAIL_NOTIFICATIONS_ENABLED=false`. Reminder days come from `EXPIRY_REMINDER_DAYS` and the links inside emails from `FRONTEND_BASE_URL` (see the Environment Variables section below).
+
+**Gmail SMTP example** (use an App Password, not your normal password; `SMTP_USE_TLS=true` for port 587/STARTTLS, `false` for port 465/SSL):
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your.account@gmail.com
+SMTP_PASSWORD=<app password>
+SMTP_FROM=your.account@gmail.com
+SMTP_USE_TLS=true
+```
 
 ---
 
@@ -217,11 +277,13 @@ e-Metrology-main/
 │   │   │   ├── uiid_generator.py   # Unique instrument ID generation
 │   │   │   ├── status_transition.py# Enforces the application state machine
 │   │   │   ├── expiry_cron.py      # APScheduler jobs + Redis run-lock
-│   │   │   ├── jobs.py             # RQ queue + job definitions (certificate, email)
+│   │   │   ├── jobs.py             # RQ queue + job definitions (certificate, officer email)
 │   │   │   ├── notifications.py    # Audience-scoped WebSocket delivery
 │   │   │   ├── ws_pubsub.py        # Redis pub/sub subscriber for cross-instance fan-out
 │   │   │   ├── otp.py              # OTP generation, hashing, verification
-│   │   │   └── mailer.py           # SMTP email dispatch
+│   │   │   ├── mailer.py           # SMTP email dispatch (30 s timeout)
+│   │   │   ├── owner_notifications.py # Owner status emails: dedupe via email_log, queue/thread dispatch
+│   │   │   └── email_templates.py  # HTML + plain-text email templates for every owner event
 │   │   └── utils/
 │   │       ├── security.py         # Password hashing, token helpers
 │   │       ├── cache.py            # Redis read-through cache (no-op without Redis)
@@ -234,7 +296,7 @@ e-Metrology-main/
 │   │   ├── seed_data.py
 │   │   └── districts.csv           # District reference data (code, name, state_code)
 │   ├── tests/                      # pytest suite (mongomock-backed, no live DB needed)
-│   ├── run_worker.py               # RQ worker process
+│   ├── run_worker.py               # RQ worker process (Windows-safe SimpleWorker, INFO logging)
 │   ├── seed_super_admin.py         # Creates/updates the Super Admin account
 │   ├── seed_geo.py                 # Upserts states/UTs and districts
 │   ├── fix_certificate_pdf_urls.py # One-off migration for old certificate PDF URLs
@@ -278,7 +340,7 @@ e-Metrology-main/
 - **MongoDB** (local instance or [Docker](#option-b--docker-compose))
 - *(Optional)* **Redis** — enables shared DDoS state, WebSocket fan-out, caching, the scheduler lock, and the background job queue
 - *(Optional)* **Cloudinary** account — for photo uploads and certificate PDFs
-- *(Optional)* **SMTP** credentials — for OTP codes and officer onboarding emails
+- *(Optional)* **SMTP** credentials — for OTP codes, officer onboarding emails, and owner status emails
 
 ### Option A — Manual Setup
 
@@ -361,12 +423,15 @@ docker compose --profile redis up --build
 | `LOGIN_MAX_ATTEMPTS` | Failed logins before lockout begins | `5` |
 | `LOGIN_LOCKOUT_BASE_MINUTES` | Base lockout duration (doubles on each repeat) | `1` |
 | `MAX_REQUEST_BODY_BYTES` | Maximum request body size | `2097152` (2 MB) |
-| `REDIS_URL` | Optional — enables shared DDoS state, WS fan-out, cache, scheduler lock, and the job queue | *(unset → in-process fallbacks)* |
+| `REDIS_URL` | Optional — enables shared DDoS state, WS fan-out, cache, scheduler lock, and the job queue (required to run `run_worker.py`) | *(unset → in-process fallbacks)* |
 | `OTP_PEPPER` | Secret used to HMAC-hash OTP codes. **Set this outside local dev** — a warning is logged and an insecure default is used if unset | *(insecure dev default)* |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Photo and certificate PDF storage | — |
 | `FRONTEND_VERIFY_URL` | Public verification page base URL (embedded in certificate QR codes) | `http://localhost:3001/verify` |
 | `FRONTEND_LOGIN_URL` | Login page URL used in officer onboarding emails | `http://localhost:5173/login` |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_TLS` | Outgoing mail (OTP codes, officer credentials) | *(optional — no-ops if `SMTP_HOST`/`SMTP_FROM` unset)* |
+| `FRONTEND_BASE_URL` | Frontend root used for links in owner status emails (application, certificate, renew pages) | Derived from `FRONTEND_LOGIN_URL` minus `/login` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_TLS` | Outgoing mail (OTP codes, officer credentials, owner status emails). `SMTP_USE_TLS=true` uses STARTTLS (port 587), `false` uses SSL (port 465) | *(optional — no-ops if `SMTP_HOST`/`SMTP_FROM` unset)* |
+| `OWNER_EMAIL_NOTIFICATIONS_ENABLED` | Master switch for owner status emails | `true` |
+| `EXPIRY_REMINDER_DAYS` | Comma-separated days before expiry at which a reminder is emailed | `30,15,7,1` |
 | `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` / `SUPER_ADMIN_NAME` | Used once by `seed_super_admin.py` | — |
 
 ### Frontend (`frontend/.env`)
@@ -447,7 +512,7 @@ npm run lint
 npm run build     # type-checks and builds
 ```
 
-The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), production startup guards, application-ID matching, and WebSocket notification scoping. It runs against `mongomock`, so no live database is required.
+The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 1. **Backend** — lint (`ruff`) → test (`pytest` against `mongomock`, no live DB required)
@@ -460,8 +525,9 @@ Handy manual checks: `python burst_test.py` fires a burst of requests to exercis
 
 ## 🗺️ Roadmap / Notes
 
-- **Scaling — done:** Redis-backed DDoS state, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications, and certificate generation + officer emails moved to a background worker.
+- **Scaling — done:** Redis-backed DDoS state, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications, and certificate generation, officer emails, and owner status emails moved to a background worker.
 - **Scaling — still to do:** MongoDB read replicas (`secondaryPreferred` for read-heavy paths), and deployment-level work — load balancer with multiple backend instances, autoscaling, and a CDN.
+- Owner status emails retry immediately (`Retry(max=3)`); consider backoff (`Retry(max=3, interval=[10, 60, 300])`) so a short SMTP outage doesn't burn all retries at once.
 - The RQ worker is not yet part of `docker-compose.yml`, and a deploy job is intentionally not wired into CI — pending target environment secrets (Render/Railway/Vercel).
 - Certificate listing (`GET /certificates/`) is currently unscoped by role server-side; see `docs/api-contract.md` for current vs. expected behavior.
 - `POST /otp/send` does not yet have its own rate limit, so it should be limited before it is exposed publicly.
