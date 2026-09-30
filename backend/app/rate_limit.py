@@ -15,4 +15,4 @@ limiter = Limiter(key_func=get_remote_address)
 # figure. Applied to /login and /register specifically, not globally —
 # a global limit belongs at the reverse proxy / gateway layer per the
 # checklist's DDoS section, which is an infra concern outside this repo.
-RATE_LIMIT_AUTH = "5/15minutes"
+RATE_LIMIT_AUTH = "15/15minutes"
