@@ -28,6 +28,7 @@ from __future__ import annotations
 import functools
 import logging
 import math
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -47,6 +48,12 @@ from app.services.email_templates import render
 from app.utils.location_format import format_location
 
 logger = logging.getLogger("maapsetu")
+
+# Route owner emails through the RQ queue only if explicitly enabled. The queue
+# needs a separate worker process (run_worker.py); on hosts without one (e.g.
+# Render free tier) jobs would sit in Redis forever and no email would go out.
+# Default: send from a short-lived daemon thread inside the web process.
+EMAIL_USE_QUEUE = os.getenv("EMAIL_USE_QUEUE", "false").strip().lower() == "true"
 
 # A claim stuck in "sending" longer than this belonged to a crashed process
 # and may be taken over.
@@ -186,7 +193,7 @@ def _dispatch(dedupe_key, to, subject, text, html, *, inline: bool = False) -> N
     if inline:
         _run_quietly(*args)
         return
-    queue = _get_queue()
+    queue = _get_queue() if EMAIL_USE_QUEUE else None
     if queue is not None:
         try:
             from rq import Retry
