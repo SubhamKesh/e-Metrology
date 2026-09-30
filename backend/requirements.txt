@@ -2,7 +2,7 @@
 # Install from backend/:  pip install -r requirements.txt
 
 # --- Web framework & server ---
-fastapi==0.115.0
+fastapi==0.141.1
 # [standard] pulls in websockets, which /ws/notifications and ws_listener.py rely on.
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9          # multipart form / photo upload parsing
