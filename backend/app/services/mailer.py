@@ -3,9 +3,13 @@ dependency — so it works the moment SMTP_* env vars are set, and simply
 logs instead of failing when they aren't (e.g. local dev).
 """
 
+import json
 import logging
 import smtplib
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
+from email.utils import parseaddr
 
 from app.config.settings import (
     SMTP_HOST,
@@ -14,14 +18,60 @@ from app.config.settings import (
     SMTP_PASSWORD,
     SMTP_FROM,
     SMTP_USE_TLS,
+    BREVO_API_KEY,
     FRONTEND_LOGIN_URL,
 )
 
 logger = logging.getLogger("app.mailer")
 
 
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+
+
+def _brevo_configured() -> bool:
+    return bool(BREVO_API_KEY and SMTP_FROM)
+
+
 def _smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_FROM)
+
+
+def _send_via_brevo(to: str, subject: str, body: str, html: str | None) -> bool:
+    """Send through Brevo's HTTP API (HTTPS/443) -- works on hosts that block
+    outbound SMTP ports. SMTP_FROM must be a sender verified in Brevo; it may
+    be a bare address or 'Name <address>'."""
+    sender_name, sender_email = parseaddr(SMTP_FROM)
+    sender = {"email": sender_email or SMTP_FROM}
+    if sender_name:
+        sender["name"] = sender_name
+    payload = {
+        "sender": sender,
+        "to": [{"email": to}],
+        "subject": subject,
+        "textContent": body,
+    }
+    if html:
+        payload["htmlContent"] = html
+    req = urllib.request.Request(
+        BREVO_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "api-key": BREVO_API_KEY,
+            "content-type": "application/json",
+            "accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")[:500]
+        logger.error("Brevo API rejected email to %s: %s %s", to, e.code, detail)
+        return False
+    except Exception:  # pragma: no cover - network failure
+        logger.exception("Brevo API request failed for %s", to)
+        return False
 
 
 def is_configured() -> bool:
@@ -30,7 +80,7 @@ def is_configured() -> bool:
     job (see routers/admin_users.py), to tell an admin up front whether an
     email will be attempted at all, versus them needing to share the temp
     password some other way."""
-    return _smtp_configured()
+    return _brevo_configured() or _smtp_configured()
 
 
 def send_email(to: str, subject: str, body: str, html: str | None = None) -> bool:
@@ -38,8 +88,11 @@ def send_email(to: str, subject: str, body: str, html: str | None = None) -> boo
     configured or the send failed — callers should never let a False here
     block the calling request, since the account creation itself already
     succeeded by the time this runs."""
+    if _brevo_configured():
+        return _send_via_brevo(to, subject, body, html)
+
     if not _smtp_configured():
-        logger.warning("SMTP not configured; skipping email to %s (subject: %s)", to, subject)
+        logger.warning("Email not configured; skipping email to %s (subject: %s)", to, subject)
         return False
 
     msg = EmailMessage()

@@ -134,6 +134,11 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
+# Brevo HTTP API (https://api.brevo.com, port 443). Preferred over SMTP on hosts
+# that block outbound SMTP ports (e.g. Render free tier). When set together
+# with SMTP_FROM (a sender verified in Brevo), mailer.py uses it instead of SMTP.
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+
 # Base URL of the main frontend app, used to build deep links in owner
 # status emails (e.g. {FRONTEND_BASE_URL}/app/owner/applications/<id>).
 # Defaults to FRONTEND_LOGIN_URL minus its trailing "/login".
@@ -190,6 +195,7 @@ class _Settings:
     SMTP_PASSWORD = SMTP_PASSWORD
     SMTP_FROM = SMTP_FROM
     SMTP_USE_TLS = SMTP_USE_TLS
+    BREVO_API_KEY = BREVO_API_KEY
     FRONTEND_BASE_URL = FRONTEND_BASE_URL
     OWNER_EMAIL_NOTIFICATIONS_ENABLED = OWNER_EMAIL_NOTIFICATIONS_ENABLED
     EXPIRY_REMINDER_DAYS = EXPIRY_REMINDER_DAYS
