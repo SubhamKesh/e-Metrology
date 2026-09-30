@@ -47,6 +47,18 @@ def init_indexes():
     instruments_col.create_index("uiid", unique=True)
     applications_col.create_index("status")
     certificates_col.create_index("cert_no", unique=True)
+    # One certificate per application, enforced by the DB so a retried job and the
+    # reconciler can never double-issue. Isolated in its own try: if legacy
+    # duplicates already exist this can't be built, and that must not abort the
+    # rest of startup (the scheduler starts right after this function).
+    try:
+        certificates_col.create_index("application_id", unique=True)
+    except Exception:
+        import logging
+        logging.getLogger("maapsetu").warning(
+            "Could not create the unique index on certificates.application_id "
+            "(duplicate certificates for one application already exist?).", exc_info=True,
+        )
 
     # Geo reference lookups.
     states_col.create_index("code", unique=True)

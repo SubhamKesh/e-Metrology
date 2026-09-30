@@ -135,3 +135,75 @@ def test_redis_with_a_worker_uses_the_queue(monkeypatch, dispatch):
     jobs.start_certificate_generation("insp-3")
     assert queue.enqueued == [(jobs.generate_certificate_job, ("insp-3",))]
     assert dispatch.started == []
+
+
+# ---- self-healing: certified applications with no certificate --------------
+
+@pytest.fixture
+def stranded(monkeypatch):
+    """One owner with two certified applications: A has a certificate, B (the
+    'beam scale') never got one because generation failed."""
+    db = mongomock.MongoClient()["reconcile"]
+    for name in ("applications_col", "certificates_col", "inspections_col"):
+        monkeypatch.setattr(jobs, name, db[name.replace("_col", "")])
+    monkeypatch.setattr(jobs, "broadcast_threadsafe", lambda *a, **k: None)
+    monkeypatch.setattr(jobs, "_certificate_ready_message", lambda cert: None)
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    owner = ObjectId()
+    ids = {}
+    for label in ("A", "B"):
+        app_id, insp_id = ObjectId(), ObjectId()
+        ids[label] = (app_id, insp_id)
+        db["applications"].insert_one(
+            {"_id": app_id, "owner_id": owner, "instrument_id": ObjectId(), "status": "certified",
+             "history": [{"from": "inspected", "to": "certified", "at": old.replace(tzinfo=None)}]}
+        )
+        db["inspections"].insert_one(
+            {"_id": insp_id, "application_id": app_id, "result": "pass", "inspected_at": old.replace(tzinfo=None)}
+        )
+    db["certificates"].insert_one({"_id": "cert-A", "application_id": ids["A"][0]})
+    return {"db": db, "owner": owner, "ids": ids}
+
+
+def test_finds_only_certified_applications_without_a_certificate(stranded):
+    missing = jobs.find_applications_missing_certificate(stranded["owner"])
+    assert [a["_id"] for a in missing] == [stranded["ids"]["B"][0]]
+
+
+def test_recently_certified_application_is_left_alone(stranded):
+    # Its normal generation is probably still running -- don't race it.
+    app_b = stranded["ids"]["B"][0]
+    stranded["db"]["applications"].update_one(
+        {"_id": app_b}, {"$set": {"history": [{"to": "certified", "at": datetime.now(timezone.utc)}]}}
+    )
+    assert jobs.find_applications_missing_certificate(stranded["owner"]) == []
+    assert len(jobs.find_applications_missing_certificate(stranded["owner"], grace_seconds=0)) == 1
+
+
+def test_reconcile_issues_the_missing_certificate(stranded, monkeypatch):
+    issued = []
+
+    def fake_issue(inspection_id):
+        issued.append(inspection_id)
+        cert = {"_id": "cert-B", "application_id": stranded["ids"]["B"][0]}
+        stranded["db"]["certificates"].insert_one(dict(cert))
+        return cert
+
+    monkeypatch.setattr(jobs, "issue_certificate", fake_issue)
+    result = jobs.reconcile_missing_certificates()
+    assert result == {"issued": 1, "failed": 0, "skipped": False}
+    assert issued == [stranded["ids"]["B"][1]]
+    # Second run has nothing left to do.
+    assert jobs.reconcile_missing_certificates()["issued"] == 0
+
+
+def test_reconcile_records_failures_and_keeps_going(stranded, monkeypatch):
+    def boom(inspection_id):
+        raise RuntimeError("cloudinary exploded")
+
+    monkeypatch.setattr(jobs, "issue_certificate", boom)
+    assert jobs.reconcile_missing_certificates()["failed"] == 1
+    app_b = stranded["db"]["applications"].find_one({"_id": stranded["ids"]["B"][0]})
+    assert "cloudinary exploded" in app_b["certificate_error"]
+    # ...and it is still reported as pending (failed=True) so the UI can say so.
+    assert jobs.find_applications_missing_certificate(stranded["owner"])[0]["certificate_error"]

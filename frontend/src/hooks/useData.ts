@@ -158,6 +158,33 @@ export function useCertificates() {
   return useQuery({ queryKey: ["certificates"], queryFn: CertificateApi.list });
 }
 
+// Certified applications whose certificate isn't generated yet. Polls while any
+// exist so the certificate appears on its own once the server finishes.
+export function usePendingCertificates() {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ["certificates-pending"],
+    queryFn: async () => {
+      const pending = await CertificateApi.pending();
+      // Something just finished generating -> refresh the real list.
+      qc.invalidateQueries({ queryKey: ["certificates"] });
+      return pending;
+    },
+    refetchInterval: (query) => (query.state.data && query.state.data.length > 0 ? 8000 : false),
+  });
+}
+
+export function useGenerateCertificate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (applicationId: string) => CertificateApi.generate(applicationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["certificates"] });
+      qc.invalidateQueries({ queryKey: ["certificates-pending"] });
+    },
+  });
+}
+
 export function useCertificate(id?: string) {
   return useQuery({
     queryKey: ["certificate", id],

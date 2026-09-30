@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { CertificateApi } from "@/lib/endpoints";
 import { Panel } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -6,6 +8,25 @@ import type { Certificate } from "@/lib/types";
 
 export function CertificateDetailCore({ certificate }: { certificate: Certificate }) {
   const verifyUrl = `${window.location.origin}/verify/${certificate.id}`;
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // PDF held by the API (external storage was unavailable when it was issued):
+  // fetch it with the auth header and open it, since a plain <a href> can't send it.
+  async function openStoredPdf() {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const blob = await CertificateApi.pdf(certificate.id);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setDownloadError("Couldn't download the PDF. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div className="max-w-2xl">
@@ -55,6 +76,10 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
             <a href={certificate.pdf_url} target="_blank" rel="noreferrer">
               <Button size="sm">Download PDF</Button>
             </a>
+          ) : certificate.has_pdf ? (
+            <Button size="sm" loading={downloading} onClick={openStoredPdf}>
+              Download PDF
+            </Button>
           ) : (
             <Button size="sm" disabled>
               PDF not available
@@ -66,6 +91,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
             </Button>
           </a>
         </div>
+        {downloadError && <p className="px-6 pb-4 text-sm text-danger">{downloadError}</p>}
       </Panel>
     </div>
   );

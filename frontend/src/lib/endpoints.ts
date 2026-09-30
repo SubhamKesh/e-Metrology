@@ -1,9 +1,10 @@
-import { api } from "./api";
+import { api, fetchBlob } from "./api";
 import type {
   AdminDashboard,
   Application,
   Certificate,
   CertificateVerifyResponse,
+  PendingCertificate,
   DistrictOption,
   Inspection,
   Instrument,
@@ -116,6 +117,9 @@ export const CertificateApi = {
     api.get<CertificateVerifyResponse>(`/certificates/verify/${encodeURIComponent(certId)}`, { public: true }),
   get: (certId: string) => api.get<Certificate>(`/certificates/${certId}`),
   list: () => api.get<Certificate[]>("/certificates/"),
+  pending: () => api.get<PendingCertificate[]>("/certificates/pending"),
+  generate: (applicationId: string) => api.post<Certificate>(`/certificates/generate/${applicationId}`),
+  pdf: (certId: string) => fetchBlob(`/certificates/${certId}/pdf`),
 };
 
 // ---- Uploads ----

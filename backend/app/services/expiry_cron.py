@@ -140,8 +140,28 @@ def check_expired_certificates():
             notify_certificate_expired(cert)
 
 
+def reconcile_missing_certificates_job():
+    """Safety net: issue certificates for 'certified' applications that never got one
+    (see services/jobs.py). Runs shortly after boot and then every 15 minutes."""
+    if not _acquire_run_lock("reconcile_missing_certificates"):
+        return
+    from app.services.jobs import reconcile_missing_certificates
+
+    result = reconcile_missing_certificates()
+    if result["issued"] or result["failed"]:
+        logger.info("Certificate reconciliation: %s", result)
+
+
 def start_expiry_scheduler():
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_expiring_certificates, "interval", hours=1)
     scheduler.add_job(check_expired_certificates, "interval", hours=1)
+    # First run ~45s after startup so a freshly (re)started or woken-up host
+    # immediately picks up anything that was stranded while it was down.
+    scheduler.add_job(
+        reconcile_missing_certificates_job,
+        "interval",
+        minutes=15,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=45),
+    )
     scheduler.start()

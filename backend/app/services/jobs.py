@@ -36,9 +36,12 @@ sent (see routers/admin_users.py for how it reports this to the admin).
 import logging
 import threading
 import time
+from datetime import datetime, timedelta, timezone
+
+from bson import ObjectId
 
 from app.config.settings import REDIS_URL
-from app.config.db import applications_col
+from app.config.db import applications_col, certificates_col, inspections_col
 from app.services.cert_generator import issue_certificate
 from app.services.notifications import publish_notification_sync, broadcast_threadsafe
 from app.services.mailer import send_officer_credentials
@@ -138,9 +141,15 @@ def _generate_certificate_in_thread(inspection_id: str) -> None:
                 time.sleep(_INLINE_RETRY_DELAYS[attempt - 1])
     logger.error(
         "Giving up on certificate generation for inspection %s. The application is still 'certified'; "
-        "re-issue it with POST /api/v1/certificates/generate/<application_id>.",
+        "the reconciler will retry it, or re-issue it with POST /api/v1/certificates/generate/<application_id>.",
         inspection_id,
     )
+    try:
+        insp = inspections_col.find_one({"_id": ObjectId(inspection_id)}, {"application_id": 1})
+        if insp:
+            record_certificate_failure(insp["application_id"], "certificate generation failed after retries")
+    except Exception:
+        logger.warning("Could not record certificate failure for inspection %s.", inspection_id, exc_info=True)
 
 
 def _worker_available(queue) -> bool:
@@ -186,3 +195,126 @@ def send_officer_credentials_job(to: str, name: str, role: str, temp_password: s
     time this runs; only the email is delayed, not the account creation.
     """
     send_officer_credentials(to=to, name=name, role=role, temp_password=temp_password)
+
+
+
+# ---------------------------------------------------------------------------
+# Self-healing: certified applications that have no certificate
+# ---------------------------------------------------------------------------
+#
+# Certificate generation is fire-and-forget (queue job or background thread).
+# If it fails for any reason -- Cloudinary hiccup, a worker on another machine
+# that lacks credentials, the host restarting mid-job, a stale RQ worker
+# registration swallowing the job -- the application stays 'certified' and the
+# owner never sees a certificate. Nothing used to retry it. The reconciler below
+# is that retry: it finds every such application and issues the certificate.
+# It is idempotent (issue_certificate returns an existing certificate).
+
+# Don't touch an application certified moments ago -- its normal generation is
+# probably still running.
+RECONCILE_GRACE_SECONDS = 60
+_RECONCILE_MIN_INTERVAL = 60  # seconds between lazily-triggered runs, per owner
+
+_reconcile_lock = threading.Lock()
+_last_kick: dict[str, float] = {}
+
+
+def _as_utc(dt):
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _certified_at(application: dict):
+    history = application.get("history") or []
+    for entry in reversed(history):
+        if entry.get("to") == "certified" and entry.get("at"):
+            return _as_utc(entry["at"])
+    return None
+
+
+def find_applications_missing_certificate(owner_id=None, grace_seconds: int = RECONCILE_GRACE_SECONDS, limit: int = 50) -> list[dict]:
+    """Applications in 'certified' status with no certificate document."""
+    query: dict = {"status": "certified"}
+    if owner_id is not None:
+        query["owner_id"] = owner_id
+    candidates = list(applications_col.find(query).limit(limit * 4))
+    if not candidates:
+        return []
+    ids = [a["_id"] for a in candidates]
+    have_cert = set(certificates_col.distinct("application_id", {"application_id": {"$in": ids}}))
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=grace_seconds)
+    missing = []
+    for a in candidates:
+        if a["_id"] in have_cert:
+            continue
+        at = _certified_at(a)
+        if at is not None and at > cutoff:
+            continue
+        missing.append(a)
+        if len(missing) >= limit:
+            break
+    return missing
+
+
+def record_certificate_failure(application_id, message: str) -> None:
+    applications_col.update_one(
+        {"_id": application_id},
+        {"$set": {"certificate_error": str(message)[:300], "certificate_error_at": datetime.now(timezone.utc)}},
+    )
+
+
+def _clear_certificate_failure(application_id) -> None:
+    applications_col.update_one(
+        {"_id": application_id},
+        {"$unset": {"certificate_error": "", "certificate_error_at": ""}},
+    )
+
+
+def reconcile_missing_certificates(owner_id=None, limit: int = 25) -> dict:
+    """Issue certificates for certified applications that lack one.
+    Returns {"issued": n, "failed": n, "skipped": bool}. Never raises."""
+    if not _reconcile_lock.acquire(blocking=False):
+        return {"issued": 0, "failed": 0, "skipped": True}
+    issued = failed = 0
+    try:
+        for application in find_applications_missing_certificate(owner_id, limit=limit):
+            inspection = inspections_col.find_one(
+                {"application_id": application["_id"], "result": "pass"},
+                sort=[("inspected_at", -1)],
+            )
+            if not inspection:
+                logger.warning("Application %s is certified but has no passing inspection; cannot issue.", application["_id"])
+                continue
+            try:
+                cert_doc = issue_certificate(inspection["_id"])
+                _clear_certificate_failure(application["_id"])
+                logger.info("Reconciler issued certificate %s for application %s.", cert_doc["_id"], application["_id"])
+                message = _certificate_ready_message(cert_doc)
+                if message:
+                    broadcast_threadsafe(*message)
+                issued += 1
+            except Exception as exc:
+                failed += 1
+                logger.exception("Reconciler could not issue a certificate for application %s.", application["_id"])
+                try:
+                    record_certificate_failure(application["_id"], f"{type(exc).__name__}: {exc}")
+                except Exception:
+                    pass
+    except Exception:
+        logger.exception("Certificate reconciliation run failed.")
+    finally:
+        _reconcile_lock.release()
+    return {"issued": issued, "failed": failed, "skipped": False}
+
+
+def start_reconcile(owner_id=None) -> bool:
+    """Fire-and-forget reconciliation in a background thread, throttled so a
+    page that polls can't start one every few seconds. True if one was started."""
+    key = str(owner_id) if owner_id is not None else "*"
+    now = time.monotonic()
+    if now - _last_kick.get(key, float("-inf")) < _RECONCILE_MIN_INTERVAL:
+        return False
+    _last_kick[key] = now
+    threading.Thread(target=reconcile_missing_certificates, args=(owner_id,), daemon=True).start()
+    return True

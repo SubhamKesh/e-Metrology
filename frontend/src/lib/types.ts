@@ -139,6 +139,15 @@ export interface Certificate extends CertificateSummary {
   // Null when the PDF could not be produced (or has not been yet).
   qr_url: string | null;
   pdf_url: string | null;
+  // True when the PDF is stored by the API itself (no external pdf_url); download it via the API.
+  has_pdf?: boolean;
+}
+
+// A certified application whose certificate hasn't been generated yet (or failed to generate).
+export interface PendingCertificate {
+  application_id: string;
+  instrument: { type: string | null; uiid: string | null } | null;
+  failed: boolean;
 }
 
 export interface OwnerDashboard {

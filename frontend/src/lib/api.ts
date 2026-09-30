@@ -188,3 +188,19 @@ export const api = {
   del: <T>(path: string, opts?: Omit<RequestOptions, "method" | "body">) =>
     request<T>(path, { ...opts, method: "DELETE" }),
 };
+
+// Authenticated file download (e.g. a certificate PDF served by the API itself).
+export async function fetchBlob(path: string, _isRetry = false): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { headers, credentials: "include" });
+  } catch {
+    throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
+  }
+  if (res.status === 401 && !_isRetry && (await tryRefresh())) return fetchBlob(path, true);
+  if (!res.ok) throw new ApiError(res.status, STATUS_FALLBACK[res.status] ?? `Request failed (${res.status}).`);
+  return res.blob();
+}
