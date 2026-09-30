@@ -118,7 +118,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     if (!token) return;
     const loc = window.location;
     const protocol = loc.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${loc.host}/ws/notifications?token=${encodeURIComponent(token)}`;
+    // On Render the API lives on a different origin than the static site, so
+    // derive the socket host from VITE_API_BASE_URL when it is set.
+    const apiBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
+    const wsBase = apiBase
+      ? apiBase.replace(/^http/, "ws").replace(/\/$/, "")
+      : `${protocol}//${loc.host}`;
+    const wsUrl = `${wsBase}/ws/notifications?token=${encodeURIComponent(token)}`;
     let ws: WebSocket | null = null;
     try {
       ws = new WebSocket(wsUrl);

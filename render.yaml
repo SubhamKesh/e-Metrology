@@ -1,0 +1,65 @@
+# Render Blueprint for e-Metrology (MaapSetu)
+# Dashboard -> New -> Blueprint -> pick this repo.
+# Replace the two onrender.com URLs below if Render gives your services different names.
+services:
+  # ---------- Backend: FastAPI in Docker ----------
+  - type: web
+    name: maapsetu-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PORT
+        value: "8000"            # Dockerfile binds uvicorn to 8000
+      - key: ENVIRONMENT
+        value: production
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: none              # frontend + API are on different onrender.com subdomains (cross-site)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DB_NAME
+        value: maapsetu
+      - key: MONGO_URI
+        sync: false              # Atlas connection string
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://maapsetu-web.onrender.com
+      - key: FRONTEND_LOGIN_URL
+        value: https://maapsetu-web.onrender.com/login
+      - key: FRONTEND_BASE_URL
+        value: https://maapsetu-web.onrender.com
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+
+  # ---------- Frontend: Vite/React static site ----------
+  - type: web
+    name: maapsetu-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://maapsetu-api.onrender.com
+    routes:
+      - type: rewrite            # SPA fallback (same as vercel.json)
+        source: /*
+        destination: /index.html
