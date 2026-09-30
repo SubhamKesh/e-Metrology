@@ -127,9 +127,18 @@ export interface CertificateVerifyResponse {
 }
 
 export interface Certificate extends CertificateSummary {
+  cert_no?: string | null;
   application_id?: string;
-  qr_url: string;
-  pdf_url: string;
+  instrument?: {
+    type: string | null;
+    uiid: string | null;
+    manufacturer: string | null;
+    model: string | null;
+    location: string | null;
+  } | null;
+  // Null when the PDF could not be produced (or has not been yet).
+  qr_url: string | null;
+  pdf_url: string | null;
 }
 
 export interface OwnerDashboard {

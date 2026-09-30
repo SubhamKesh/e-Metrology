@@ -115,7 +115,11 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
 # Public URL of the verify-page app (Aritra + Anushka). The QR code on every
 # certificate points here + "/{cert_id}". Set this in .env once verify-page
 # is deployed — falls back to localhost for local dev against `next dev`.
-FRONTEND_VERIFY_URL = os.getenv("FRONTEND_VERIFY_URL", "http://localhost:3001/verify")
+# Left unset, it is derived below from FRONTEND_BASE_URL (+ "/verify"), which is
+# where the main frontend's public /verify/:id page lives. Previously the
+# fallback was always localhost, so a deploy that forgot this variable printed
+# QR codes pointing at localhost:3001.
+_FRONTEND_VERIFY_URL_ENV = os.getenv("FRONTEND_VERIFY_URL", "").strip().rstrip("/")
 
 # Where an emailed "your account was created" message should send officers
 # to sign in — the main app's /login page, not the verify-page app above.
@@ -146,6 +150,8 @@ FRONTEND_BASE_URL = (
     os.getenv("FRONTEND_BASE_URL", "").strip().rstrip("/")
     or FRONTEND_LOGIN_URL.rstrip("/").removesuffix("/login")
 )
+
+FRONTEND_VERIFY_URL = _FRONTEND_VERIFY_URL_ENV or f"{FRONTEND_BASE_URL}/verify"
 
 # Status-update emails to owners (app/services/owner_notifications.py).
 # Master switch; they also require SMTP_* to be configured.

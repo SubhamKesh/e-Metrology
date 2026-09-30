@@ -12,21 +12,67 @@ from app.services.cert_generator import issue_certificate
 router = APIRouter(prefix="/api/v1/certificates", tags=["certificates"])
 
 
-def _serialize_cert(cert: dict) -> dict:
-    valid_until = cert["valid_until"]
-    if valid_until.tzinfo is None:
-        valid_until = valid_until.replace(tzinfo=timezone.utc)
+def _as_utc(dt: datetime) -> datetime:
+    # Mongo hands datetimes back naive (UTC). Serialize them with an explicit
+    # offset, otherwise the browser parses "2027-01-01T10:00:00" as local time.
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _serialize_cert(cert: dict, instrument: dict | None = None) -> dict:
+    valid_until = _as_utc(cert["valid_until"])
+    issued_at = _as_utc(cert["issued_at"])
     is_expired = valid_until < datetime.now(timezone.utc)
 
     return {
         "id": cert["_id"],
+        "cert_no": cert.get("cert_no"),
         "application_id": str(cert["application_id"]),
-        "verified_on": cert["issued_at"].isoformat(),
-        "valid_until": cert["valid_until"].isoformat(),
+        "instrument": (
+            {
+                "type": instrument.get("type"),
+                "uiid": instrument.get("uiid"),
+                "manufacturer": instrument.get("manufacturer"),
+                "model": instrument.get("model"),
+                "location": _safe_location(instrument),
+            }
+            if instrument
+            else None
+        ),
+        "verified_on": issued_at.isoformat(),
+        "valid_until": valid_until.isoformat(),
         "is_expired": is_expired,
-        "qr_url": cert["qr_url"],
-        "pdf_url": cert["pdf_url"],
+        "qr_url": cert.get("qr_url"),
+        "pdf_url": cert.get("pdf_url"),
     }
+
+
+def _safe_location(instrument: dict):
+    try:
+        return format_location(instrument.get("location"))
+    except Exception:
+        return None
+
+
+def _can_view_cert(user: dict, cert: dict) -> bool:
+    """Owners see their own certificates, officers those inside their
+    jurisdiction, admins everything. Fails closed."""
+    role = user.get("role")
+    if role == "admin":
+        return True
+    application = applications_col.find_one({"_id": cert["application_id"]}, {"owner_id": 1, "state_code": 1, "district_code": 1})
+    if not application:
+        return False
+    if role == "owner":
+        return application.get("owner_id") == user["_id"]
+    if role in ("lmo", "gatc"):
+        jurisdiction = user.get("jurisdiction")
+        if not jurisdiction or not jurisdiction.get("state_code"):
+            return False  # no jurisdiction on file -> nothing
+        if application.get("state_code") != jurisdiction["state_code"]:
+            return False
+        district = jurisdiction.get("district_code")
+        return not district or application.get("district_code") == district
+    return False
 
 
 # IMPORTANT: this route must be registered BEFORE /{cert_id},
@@ -98,15 +144,49 @@ def verify_certificate(cert_id: str):
 @router.get("/{cert_id}")
 def get_certificate(cert_id: str, user=Depends(get_current_user)):
     cert = certificates_col.find_one({"_id": cert_id})
-    if not cert:
+    # 404 (not 403) for someone else's certificate so ids can't be probed.
+    if not cert or not _can_view_cert(user, cert):
         raise HTTPException(404, "Certificate not found")
-    return _serialize_cert(cert)
+    instrument = instruments_col.find_one({"_id": cert.get("instrument_id")})
+    return _serialize_cert(cert, instrument)
 
 
 @router.get("/")
 def list_certificates(user=Depends(get_current_user)):
-    certs = list(certificates_col.find())
-    return [_serialize_cert(c) for c in certs]
+    """Certificates the caller is allowed to see, newest first: an owner's own,
+    an officer's jurisdiction, everything for an admin. (This used to return
+    every certificate in the database to any logged-in user.)"""
+    role = user.get("role")
+    if role == "admin":
+        app_filter: dict | None = {}
+    elif role == "owner":
+        app_filter = {"owner_id": user["_id"]}
+    elif role in ("lmo", "gatc"):
+        jurisdiction = user.get("jurisdiction")
+        if jurisdiction and jurisdiction.get("state_code"):
+            app_filter = {"state_code": jurisdiction["state_code"]}
+            if jurisdiction.get("district_code"):
+                app_filter["district_code"] = jurisdiction["district_code"]
+        else:
+            app_filter = None  # no jurisdiction -> sees nothing
+    else:
+        app_filter = None
+
+    if app_filter is None:
+        return []
+
+    if app_filter:
+        app_ids = [a["_id"] for a in applications_col.find(app_filter, {"_id": 1})]
+        if not app_ids:
+            return []
+        cert_filter = {"application_id": {"$in": app_ids}}
+    else:
+        cert_filter = {}
+
+    certs = list(certificates_col.find(cert_filter).sort("issued_at", -1))
+    instrument_ids = list({c["instrument_id"] for c in certs if c.get("instrument_id")})
+    instruments = {i["_id"]: i for i in instruments_col.find({"_id": {"$in": instrument_ids}})}
+    return [_serialize_cert(c, instruments.get(c.get("instrument_id"))) for c in certs]
 
 
 @router.post("/generate/{application_id}")

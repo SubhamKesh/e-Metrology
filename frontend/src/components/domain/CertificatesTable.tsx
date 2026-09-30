@@ -27,7 +27,19 @@ export function CertificatesTable({
   }
 
   const columns: Column<Certificate>[] = [
-    { header: "Certificate ID", cell: (c) => <span className="font-mono text-xs">{c.id}</span> },
+    { header: "Certificate No.", cell: (c) => <span className="font-mono text-xs">{c.cert_no ?? c.id}</span> },
+    {
+      header: "Instrument",
+      cell: (c) =>
+        c.instrument ? (
+          <div>
+            <p className="text-ink">{c.instrument.type ?? "-"}</p>
+            <p className="font-mono text-xs text-slate-500">{c.instrument.uiid ?? "-"}</p>
+          </div>
+        ) : (
+          "-"
+        ),
+    },
     {
       header: "Verified on",
       cell: (c) => new Date(c.verified_on).toLocaleDateString("en-IN", { dateStyle: "medium" }),

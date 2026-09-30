@@ -19,6 +19,7 @@ from app.services.qr_generator import generate_qr
 from app.utils.upload_to_cloudinary import upload_bytes
 from app.utils.location_format import format_location
 from app.services.owner_notifications import notify_certificate_issued
+from app.config.settings import FRONTEND_VERIFY_URL
 
 INK = (0.11, 0.15, 0.22)          # near-black navy for body text/borders
 ACCENT = (0.05, 0.35, 0.25)       # deep green for the seal/header rule, evokes an official emblem
@@ -44,7 +45,7 @@ def _draw_field_row(c, x, y, label, value, label_width=150):
     c.drawString(x + label_width, y, str(value) if value else "-")
 
 
-def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_url) -> bytes:
+def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_url, verify_url) -> bytes:
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
@@ -137,7 +138,7 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, val
     c.setFont("Helvetica-Oblique", 7.5)
     c.setFillColorRGB(*MUTED)
     c.drawCentredString(width / 2, margin + 8 * mm, "This is a system-generated certificate and is valid without a physical signature.")
-    c.drawCentredString(width / 2, margin + 4 * mm, f"Verify at: {'/'.join(qr_url.split('/')[:3])}  |  Certificate No. {cert_no}")
+    c.drawCentredString(width / 2, margin + 4 * mm, f"Verify at: {verify_url}  |  Certificate No. {cert_no}")
 
     c.save()
     buf.seek(0)
@@ -162,6 +163,13 @@ def issue_certificate(inspection_id) -> dict:
     if not application:
         raise ValueError("Application not found for this inspection")
 
+    # One certificate per application. The inspection route, the manual
+    # /generate endpoint and a retried job can all land here for the same
+    # application; return what already exists rather than issuing a duplicate.
+    existing = certificates_col.find_one({"application_id": application["_id"]})
+    if existing:
+        return existing
+
     instrument = instruments_col.find_one({"_id": application["instrument_id"]})
     if not instrument:
         raise ValueError("Instrument not found for this application")
@@ -173,8 +181,11 @@ def issue_certificate(inspection_id) -> dict:
     issued_at = datetime.now(timezone.utc)
     valid_until = issued_at + timedelta(days=365)
 
+    verify_url = f"{FRONTEND_VERIFY_URL.rstrip('/')}/{cert_id}"
     qr_url = generate_qr(cert_id)
-    pdf_bytes = _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_url)
+    pdf_bytes = _generate_pdf_bytes(
+        cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_url, verify_url
+    )
     # Cloudinary's raw delivery URL is derived from public_id verbatim, with
     # no automatic extension — without ".pdf" here, the served file has no
     # extension and browsers/OS can't tell it's a PDF, so they fall back to

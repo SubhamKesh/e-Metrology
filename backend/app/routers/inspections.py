@@ -11,8 +11,7 @@ from app.services.status_transition import (
     InvalidTransitionError,
     ApplicationNotFoundError,
 )
-from app.services.cert_generator import issue_certificate
-from app.services.jobs import get_queue, generate_certificate_job
+from app.services.jobs import start_certificate_generation
 from app.services.owner_notifications import notify_inspection_result
 
 router = APIRouter(prefix="/api/v1/inspections", tags=["inspections"])
@@ -87,33 +86,14 @@ def submit_inspection(
     # The certificate itself gets its own email once it has been generated.
     notify_inspection_result(application, doc)
 
-    # A pass triggers certificate generation (Kiran's cert_generator).
-    # This runs after the status is already 'certified' — if cert
-    # generation fails for some reason (Cloudinary down, etc.), the
-    # application stays correctly certified and this can be retried
-    # manually, rather than the whole inspection call failing.
-    #
-    # With REDIS_URL configured, this is enqueued onto a background worker
-    # (see app/services/jobs.py, run_worker.py) instead of running here --
-    # PDF rendering + a QR image + two Cloudinary uploads is real,
-    # slow-ish work that shouldn't tie up a request thread. The owner
-    # finds out it's ready via the same WebSocket notification system used
-    # elsewhere (a "certificate_ready" event), not by this request waiting
-    # for it. Without Redis, falls back to the original inline behaviour.
+    # A pass triggers certificate generation. The status is already
+    # 'certified' by now, so a generation failure never fails the inspection;
+    # it is retried in the background and can be re-issued with
+    # POST /certificates/generate/{application_id}. start_certificate_generation
+    # uses the RQ worker only if one is actually running, otherwise a
+    # background thread -- see app/services/jobs.py.
     if final_status == "certified":
-        queue = get_queue()
-        if queue is not None:
-            try:
-                queue.enqueue(generate_certificate_job, str(doc["_id"]))
-            except Exception as e:
-                print(f"[WARN] Failed to enqueue certificate generation for inspection {doc['_id']}: {e}")
-        else:
-            try:
-                issue_certificate(doc["_id"])
-            except Exception as e:
-                # Don't fail the inspection submission over this — log and
-                # move on. Surface it in your terminal so it isn't silently lost.
-                print(f"[WARN] Certificate generation failed for inspection {doc['_id']}: {e}")
+        start_certificate_generation(doc["_id"])
 
     return to_inspection_out(doc)
 

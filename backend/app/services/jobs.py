@@ -34,11 +34,13 @@ officer-creation response already returned before the email is actually
 sent (see routers/admin_users.py for how it reports this to the admin).
 """
 import logging
+import threading
+import time
 
 from app.config.settings import REDIS_URL
 from app.config.db import applications_col
 from app.services.cert_generator import issue_certificate
-from app.services.notifications import publish_notification_sync
+from app.services.notifications import publish_notification_sync, broadcast_threadsafe
 from app.services.mailer import send_officer_credentials
 
 logger = logging.getLogger("maapsetu")
@@ -63,21 +65,9 @@ def get_queue():
     return _queue
 
 
-def generate_certificate_job(inspection_id: str) -> None:
-    """The job a worker process (run_worker.py) actually executes -- not
-    called directly by any router. Routers enqueue this by reference via
-    get_queue().enqueue(generate_certificate_job, ...) instead, so it runs
-    in the separate worker process, not the web process handling the
-    original request.
-
-    Any exception here is left to propagate -- RQ records the job as
-    failed (visible via RQ's FailedJobRegistry) rather than silently
-    losing it, which is the right behaviour for something that isn't in a
-    request/response cycle any more and so has no HTTP response to carry
-    an error back on.
-    """
-    cert_doc = issue_certificate(inspection_id)
-
+def _certificate_ready_message(cert_doc: dict):
+    """(payload, audience) for the "certificate_ready" WebSocket event, or
+    None if the certificate's application can't be found."""
     application = applications_col.find_one({"_id": cert_doc["application_id"]})
     if not application:
         # Certificate exists; just can't figure out who to notify. Log
@@ -87,7 +77,7 @@ def generate_certificate_job(inspection_id: str) -> None:
             "Certificate %s issued but its application %s is gone; skipping notification.",
             cert_doc["_id"], cert_doc["application_id"],
         )
-        return
+        return None
 
     payload = {
         "type": "certificate_ready",
@@ -99,16 +89,93 @@ def generate_certificate_job(inspection_id: str) -> None:
         },
     }
     # Same audience shape as "application_submitted" (routers/applications.py)
-    # -- owner, jurisdiction, and (new here) the specific officer who
-    # handled it, so they get notified even if they're outside their own
-    # jurisdiction's usual filter for some reason.
+    # -- owner, jurisdiction, and the specific officer who handled it.
     audience = {
         "owner_id": str(application["owner_id"]),
         "officer_id": str(application["assigned_officer_id"]) if application.get("assigned_officer_id") else None,
         "state_code": application.get("state_code"),
         "district_code": application.get("district_code"),
     }
-    publish_notification_sync(payload, audience)
+    return payload, audience
+
+
+def generate_certificate_job(inspection_id: str) -> None:
+    """The job a worker process (run_worker.py) executes -- enqueued by
+    start_certificate_generation() below, not called directly by routers.
+
+    Any exception here is left to propagate -- RQ records the job as
+    failed (visible via RQ's FailedJobRegistry) rather than silently
+    losing it, since there is no HTTP response left to carry an error.
+    """
+    cert_doc = issue_certificate(inspection_id)
+    message = _certificate_ready_message(cert_doc)
+    if message:
+        publish_notification_sync(*message)
+
+
+# Backoff between attempts when generating in a thread (Cloudinary / the QR
+# fetch can fail transiently). Three tries in total.
+_INLINE_RETRY_DELAYS = (5, 20)
+
+
+def _generate_certificate_in_thread(inspection_id: str) -> None:
+    attempts = len(_INLINE_RETRY_DELAYS) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            cert_doc = issue_certificate(inspection_id)
+            logger.info("Certificate %s issued for inspection %s.", cert_doc["_id"], inspection_id)
+            message = _certificate_ready_message(cert_doc)
+            if message:
+                # Works with or without Redis, and from a non-event-loop thread.
+                broadcast_threadsafe(*message)
+            return
+        except Exception:
+            logger.exception(
+                "Certificate generation failed for inspection %s (attempt %d/%d).",
+                inspection_id, attempt, attempts,
+            )
+            if attempt < attempts:
+                time.sleep(_INLINE_RETRY_DELAYS[attempt - 1])
+    logger.error(
+        "Giving up on certificate generation for inspection %s. The application is still 'certified'; "
+        "re-issue it with POST /api/v1/certificates/generate/<application_id>.",
+        inspection_id,
+    )
+
+
+def _worker_available(queue) -> bool:
+    """True only if a worker process is actually registered on this queue.
+    With REDIS_URL set but no worker (e.g. a single Render web service),
+    enqueueing "succeeds" and the job then sits in Redis forever -- which is
+    exactly how certificates silently never got generated."""
+    try:
+        from rq import Worker
+
+        return Worker.count(queue=queue) > 0
+    except Exception:
+        logger.warning("Could not check for RQ workers.", exc_info=True)
+        return False
+
+
+def start_certificate_generation(inspection_id: str) -> None:
+    """Kick off certificate generation for a passed inspection without
+    blocking the request. Uses the RQ worker when one is running, otherwise a
+    background thread in this process (with retries). Never raises."""
+    inspection_id = str(inspection_id)
+    try:
+        queue = get_queue()
+        if queue is not None and _worker_available(queue):
+            queue.enqueue(generate_certificate_job, inspection_id)
+            logger.info("Certificate generation for inspection %s queued for the RQ worker.", inspection_id)
+            return
+        if queue is not None:
+            logger.warning(
+                "REDIS_URL is set but no RQ worker is running; generating the certificate for inspection %s "
+                "in a background thread instead.", inspection_id,
+            )
+    except Exception:
+        logger.warning("Could not enqueue certificate generation for %s; using a thread.", inspection_id, exc_info=True)
+    threading.Thread(target=_generate_certificate_in_thread, args=(inspection_id,), daemon=True).start()
 
 
 def send_officer_credentials_job(to: str, name: str, role: str, temp_password: str) -> None:

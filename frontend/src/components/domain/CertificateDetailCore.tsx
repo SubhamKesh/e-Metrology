@@ -14,7 +14,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-500">Certificate</p>
-              <p className="font-mono text-sm text-ink">{certificate.id}</p>
+              <p className="font-mono text-sm text-ink">{certificate.cert_no ?? certificate.id}</p>
             </div>
             <Badge tone={certificate.is_expired ? "danger" : "success"}>
               {certificate.is_expired ? "Expired" : "Valid"}
@@ -23,6 +23,17 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
         </div>
         <div className="grid gap-6 p-6 sm:grid-cols-[1fr_auto]">
           <dl className="grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
+            {certificate.instrument && (
+              <>
+                <Field label="Instrument" value={certificate.instrument.type ?? "-"} />
+                <Field label="UIID" value={certificate.instrument.uiid ?? "-"} />
+                <Field
+                  label="Make / model"
+                  value={[certificate.instrument.manufacturer, certificate.instrument.model].filter(Boolean).join(" ") || "-"}
+                />
+                <Field label="Location" value={certificate.instrument.location ?? "-"} />
+              </>
+            )}
             <Field
               label="Verified on"
               value={new Date(certificate.verified_on).toLocaleDateString("en-IN", { dateStyle: "long" })}
@@ -40,9 +51,15 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
           </div>
         </div>
         <div className="flex flex-wrap gap-3 border-t border-line px-6 py-4">
-          <a href={certificate.pdf_url} target="_blank" rel="noreferrer">
-            <Button size="sm">Download PDF</Button>
-          </a>
+          {certificate.pdf_url ? (
+            <a href={certificate.pdf_url} target="_blank" rel="noreferrer">
+              <Button size="sm">Download PDF</Button>
+            </a>
+          ) : (
+            <Button size="sm" disabled>
+              PDF not available
+            </Button>
+          )}
           <a href={verifyUrl} target="_blank" rel="noreferrer">
             <Button size="sm" variant="secondary">
               Open public verification page
