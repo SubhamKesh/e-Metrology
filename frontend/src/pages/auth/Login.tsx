@@ -15,6 +15,7 @@ export default function Login() {
   const location = useLocation() as { state?: { from?: { pathname: string } } };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [emailError, setEmailError] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -60,14 +61,49 @@ export default function Login() {
           onChange={(e) => handleEmailChange(e.target.value)}
           error={emailError}
         />
-        <TextInput
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="relative">
+          <TextInput
+            label="Password"
+            type={passwordVisible ? "text" : "password"}
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="pr-12"
+          />
+          <button
+            type="button"
+            onClick={() => setPasswordVisible((visible) => !visible)}
+            aria-label={passwordVisible ? "Hide password" : "Show password"}
+            aria-pressed={passwordVisible}
+            className="absolute right-1 top-[1.625rem] flex h-11 w-11 items-center justify-center rounded-md text-slate-500 hover:bg-paper2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/50 sm:h-10 sm:w-10"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="h-5 w-5"
+            >
+              {passwordVisible ? (
+                <>
+                  <path d="M3 3l18 18" />
+                  <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                  <path d="M9.9 5.2A10.8 10.8 0 0112 5c5 0 8.3 4.5 9 7-.3 1.1-1.2 2.5-2.5 3.7" />
+                  <path d="M6.2 6.2C3.9 7.7 2.5 10 2 12c.7 2.5 4 7 10 7 1 0 2-.2 2.9-.5" />
+                </>
+              ) : (
+                <>
+                  <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+                  <circle cx="12" cy="12" r="3" />
+                </>
+              )}
+            </svg>
+          </button>
+        </div>
         {error && (
           <p role="alert" className="rounded-md bg-danger-50 px-3 py-2 text-sm text-danger">
             {error}
