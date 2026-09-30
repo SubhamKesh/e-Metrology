@@ -6,9 +6,12 @@ exponential backoff, and logout-all via token_version.
 
 
 def test_login_issues_access_token_and_refresh_cookie(client, registered_owner):
+    # Reverted back to json=
     r = client.post("/api/v1/auth/login", json=registered_owner)
-    assert r.status_code == 200
-    assert r.json()["token"]
+    
+    # Keeping this so we can see the exact 401 message!
+    assert r.status_code == 200, f"Login failed! API responded with: {r.text}"
+    assert "token" in r.json()
     assert "refresh_token" in r.cookies
 
 
