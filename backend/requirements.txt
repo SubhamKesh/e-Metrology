@@ -4,7 +4,7 @@
 # --- Web framework & server ---
 fastapi==0.115.0
 # [standard] pulls in websockets, which /ws/notifications and ws_listener.py rely on.
-uvicorn[standard]==0.30.6
+uvicorn[standard]==0.54.0
 python-multipart==0.0.9          # multipart form / photo upload parsing
 
 # --- Data & validation ---
