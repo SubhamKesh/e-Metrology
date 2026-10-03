@@ -24,7 +24,7 @@ cryptography==50.0.2             # Fernet: encrypts TOTP (2-step verification) s
 reportlab==4.2.5                 # PDF certificate rendering
 qrcode[pil]==7.4.2               # QR codes (Pillow included via [pil])
 cloudinary==1.41.0               # photo + certificate PDF storage
-requests==2.32.3                 # used by cert_generator / fix_certificate_pdf_urls.py / burst_test.py
+requests==2.34.2                 # used by cert_generator / fix_certificate_pdf_urls.py / burst_test.py
 
 # --- Scheduling ---
 apscheduler==3.10.4              # hourly certificate expiry jobs (app/services/expiry_cron.py)
