@@ -27,7 +27,7 @@ cloudinary==1.41.0               # photo + certificate PDF storage
 requests==2.32.3                 # used by cert_generator / fix_certificate_pdf_urls.py / burst_test.py
 
 # --- Scheduling ---
-apscheduler==3.10.4              # hourly certificate expiry jobs (app/services/expiry_cron.py)
+apscheduler==3.11.3              # hourly certificate expiry jobs (app/services/expiry_cron.py)
 
 # --- Redis-backed features (all optional at runtime; enabled by setting REDIS_URL) ---
 # Without REDIS_URL the app still runs, falling back to per-process behaviour:
