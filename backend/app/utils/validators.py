@@ -115,15 +115,54 @@ def validate_address(value: str) -> str:
 
 # --- Passwords ---------------------------------------------------------
 #
-# Same MIN_PASSWORD_LENGTH bound as Field(min_length=6) enforced before,
-# just with a message in plain words. Used for both the initial password
-# on signup and a new password on change — same rule either way.
-MIN_PASSWORD_LENGTH = 6
+# Policy (kept in sync with frontend/src/lib/validation.ts):
+#   - 8 to 64 characters (bcrypt only uses the first 72 BYTES, so an upper
+#     bound is needed; 64 characters keeps ASCII passwords well inside it)
+#   - at least one uppercase letter, one lowercase letter, one digit and
+#     one special character (anything that isn't a letter or digit)
+#   - not one of a short list of very common passwords that would otherwise
+#     satisfy the character rules (e.g. "Password@123")
+# Used for signup, change-password and reset-password — same rule everywhere.
+# It is deliberately NOT applied at login, so accounts created under the old
+# 6-character rule can still sign in (and are nudged to change it).
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 64
+_BCRYPT_MAX_BYTES = 72
+
+_COMMON_PASSWORDS = frozenset(
+    {
+        "password", "password1", "password@1", "password@123", "password123", "password#123",
+        "passw0rd", "p@ssw0rd", "p@ssword", "p@ssword1", "p@ssword123", "pa$$w0rd",
+        "admin123", "admin@123", "admin@1234", "administrator", "welcome1", "welcome@123",
+        "welcome123", "qwerty123", "qwerty@123", "qwertyuiop", "letmein123", "iloveyou1",
+        "abc12345", "abcd1234", "abcd@1234", "abc@12345", "india@123", "india@1234",
+        "india123", "india@2024", "india@2025", "india@2026", "12345678", "123456789",
+        "1234567890", "changeme", "changeme1", "changeme@123", "maapsetu", "maapsetu@123",
+        "legalmetrology", "metrology@123",
+    }
+)
 
 
 def validate_password(value: str) -> str:
     if len(value) < MIN_PASSWORD_LENGTH:
         raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+    if len(value) > MAX_PASSWORD_LENGTH or len(value.encode("utf-8")) > _BCRYPT_MAX_BYTES:
+        raise ValueError(f"Password must be at most {MAX_PASSWORD_LENGTH} characters.")
+
+    missing = []
+    if not any(c.isupper() for c in value):
+        missing.append("an uppercase letter")
+    if not any(c.islower() for c in value):
+        missing.append("a lowercase letter")
+    if not any(c.isdigit() for c in value):
+        missing.append("a number")
+    if not any(not c.isalnum() for c in value):
+        missing.append("a special character")
+    if missing:
+        raise ValueError("Password must include " + ", ".join(missing[:-1]) + (" and " if len(missing) > 1 else "") + missing[-1] + ".")
+
+    if value.lower() in _COMMON_PASSWORDS:
+        raise ValueError("That password is too common. Choose something harder to guess.")
     return value
 
 

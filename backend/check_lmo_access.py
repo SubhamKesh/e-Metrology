@@ -1,4 +1,3 @@
-import json
 import urllib.request
 from pymongo import MongoClient
 
@@ -9,20 +8,15 @@ assert user, "LMO user not found"
 app = db.applications.find_one({"assigned_officer_id": user["_id"]})
 assert app, "No assigned app for LMO user"
 
-login_req = urllib.request.Request(
-    "http://127.0.0.1:8000/api/v1/auth/login",
-    data=json.dumps({
-        "email": "anjali.roy@legalmetrology.gov.in",
-        "password": "seed-pass-004",
-    }).encode(),
-    headers={"Content-Type": "application/json"},
-    method="POST",
-)
-with urllib.request.urlopen(login_req, timeout=20) as resp:
-    login_body = resp.read().decode()
-    login_data = json.loads(login_body)
-    print("login_status", resp.status)
-    token = login_data["token"]
+# Officer accounts now sign in with a second step (authenticator code), which
+# this script isn't testing -- it checks what an officer's session can SEE. So
+# mint that officer's access token directly, exactly as the server would after a
+# completed login (needs the same JWT_SECRET as the running API, i.e. your .env;
+# run from the backend/ directory).
+from app.utils.security import create_access_token  # noqa: E402
+
+token = create_access_token(str(user["_id"]), user.get("token_version", 0))
+print("token_minted_for", user["email"])
 
 headers = {"Authorization": f"Bearer {token}"}
 app_req = urllib.request.Request(

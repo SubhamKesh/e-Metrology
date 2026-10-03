@@ -10,6 +10,7 @@ from app.config.settings import (
     JWT_ALGORITHM,
     ACCESS_TOKEN_EXPIRES_MINUTES,
     REFRESH_TOKEN_EXPIRES_DAYS,
+    MFA_TOKEN_EXPIRES_MINUTES,
 )
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -53,6 +54,31 @@ def decode_access_token(token: str) -> dict:
     return payload
 
 
+# --- MFA step token ----------------------------------------------------
+#
+# Issued after the PASSWORD is accepted for an account that must use
+# two-step verification. It proves "this person knew the password a moment
+# ago" and nothing else: type="mfa", so decode_access_token() above rejects
+# it (it can't be used as a Bearer token for any API), and it is only
+# accepted by the /auth/mfa/* endpoints, for the one `purpose` it was minted
+# for ("verify" = enter a code, "setup" = enrol an authenticator). `tv` ties
+# it to the user's token_version, so a password change/reset or admin
+# revocation kills it instantly.
+
+def create_mfa_token(user_id: str, token_version: int, purpose: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=MFA_TOKEN_EXPIRES_MINUTES)
+    payload = {"sub": user_id, "tv": token_version, "purpose": purpose, "exp": expire, "type": "mfa"}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_mfa_token(token: str, purpose: str) -> dict:
+    """Returns the payload, or raises jwt exceptions (wrong type / purpose included)."""
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    if payload.get("type") != "mfa" or payload.get("purpose") != purpose:
+        raise jwt.InvalidTokenError("Not a valid MFA token for this step")
+    return payload
+
+
 # Back-compat shim: routers/callers that only need the user id can keep
 # calling decode_token(...) -> str, same as before this change.
 def decode_token(token: str) -> str:
@@ -82,5 +108,7 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def refresh_token_expiry() -> datetime:
-    return datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRES_DAYS)
+def refresh_token_expiry(days: int | None = None) -> datetime:
+    """Defaults to REFRESH_TOKEN_EXPIRES_DAYS; pass `days` for a longer
+    'remember me' lifetime."""
+    return datetime.now(timezone.utc) + timedelta(days=days if days is not None else REFRESH_TOKEN_EXPIRES_DAYS)

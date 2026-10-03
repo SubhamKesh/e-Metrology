@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/context/AuthContext";
 import { ApiError } from "@/lib/api";
 import { roleHome } from "@/lib/roleHome";
+import { isValidPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_POLICY_ERROR } from "@/lib/validation";
+import { PasswordRequirements } from "@/components/ui/PasswordRequirements";
 
 interface PasswordInputProps {
   label: string;
@@ -13,9 +15,10 @@ interface PasswordInputProps {
   value: string;
   onChange: (event: ChangeEvent<HTMLInputElement>) => void;
   minLength?: number;
+  maxLength?: number;
 }
 
-function PasswordInput({ label, autoComplete, value, onChange, minLength }: PasswordInputProps) {
+function PasswordInput({ label, autoComplete, value, onChange, minLength, maxLength }: PasswordInputProps) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -26,6 +29,7 @@ function PasswordInput({ label, autoComplete, value, onChange, minLength }: Pass
         autoComplete={autoComplete}
         required
         minLength={minLength}
+        maxLength={maxLength}
         value={value}
         onChange={onChange}
         className="pr-12"
@@ -81,8 +85,12 @@ export default function ChangePassword() {
     e.preventDefault();
     setError(null);
 
-    if (newPassword.length < 6) {
-      setError("New password must be at least 6 characters.");
+    if (!isValidPassword(newPassword)) {
+      setError(PASSWORD_POLICY_ERROR);
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setError("New password must be different from your current password.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -120,14 +128,17 @@ export default function ChangePassword() {
         <PasswordInput
           label="New password"
           autoComplete="new-password"
-          minLength={6}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
         />
+        <PasswordRequirements password={newPassword} />
         <PasswordInput
           label="Confirm new password"
           autoComplete="new-password"
-          minLength={6}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
         />

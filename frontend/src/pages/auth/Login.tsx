@@ -12,10 +12,11 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation() as { state?: { from?: { pathname: string } } };
+  const location = useLocation() as { state?: { from?: { pathname: string }; passwordReset?: boolean } };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [emailError, setEmailError] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -39,8 +40,16 @@ export default function Login() {
 
     setLoading(true);
     try {
-      const user = await login(email, password);
-      const dest = location.state?.from?.pathname ?? roleHome(user.role);
+      const result = await login(email, password, rememberMe);
+      if (result.kind === "mfa") {
+        // Officer/admin accounts: password accepted, now the second step.
+        navigate("/two-step", {
+          replace: true,
+          state: { mfaToken: result.mfaToken, setup: result.setup, email, from: location.state?.from },
+        });
+        return;
+      }
+      const dest = location.state?.from?.pathname ?? roleHome(result.user.role);
       navigate(dest, { replace: true });
     } catch (err) {
       // The backend answers 403 for accounts that can't sign in yet. Send
@@ -64,6 +73,11 @@ export default function Login() {
 
   return (
     <AuthLayout title="Sign in" subtitle="Access your MaapSetu dashboard.">
+      {location.state?.passwordReset && (
+        <p role="status" className="mb-4 rounded-md bg-success-50 px-3 py-2 text-sm text-success">
+          Your password has been updated. Sign in with your new password.
+        </p>
+      )}
       <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <TextInput
           label="Email"
@@ -117,6 +131,25 @@ export default function Login() {
             </svg>
           </button>
         </div>
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 rounded border-line accent-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40"
+            />
+            Remember me
+          </label>
+          <Link to="/forgot-password" className="text-sm font-medium text-teal underline underline-offset-2">
+            Forgot password?
+          </Link>
+        </div>
+        <p className="-mt-2 text-xs text-slate-500">
+          "Remember me" keeps business accounts signed in for 30 days. It isn't available for officer or administrator
+          accounts, which also need a code from an authenticator app at every sign-in. Don't use it on a shared
+          computer.
+        </p>
         {error && (
           <p role="alert" className="rounded-md bg-danger-50 px-3 py-2 text-sm text-danger">
             {error}

@@ -74,6 +74,48 @@ Also update (if used):
 
 ---
 
+## 3) Password recovery, remember-me & session security — DONE
+
+Implemented (see `docs/api-contract.md` for the endpoint contract and `docs/security-hardening-status.md` for the rationale). Files touched:
+
+Backend:
+- `backend/app/routers/auth.py` — remember-me (owner-only), `/forgot-password`, `/reset-password`, change-password signs out other sessions, login/logout/refresh audit events
+- `backend/app/routers/admin_users.py` — `POST /admin/users/{id}/reset-password` (admin resets an officer)
+- `backend/app/utils/validators.py` — password policy (8–64 chars, upper/lower/digit/special, common-password list)
+- `backend/app/services/audit.py` *(new)* — audit-log writer; `backend/app/config/db.py` creates the `audit_logs` collection + TTL index
+- `backend/app/services/otp.py`, `mailer.py`, `jobs.py` — reset-code helpers, "password changed" + admin-reset emails
+- `backend/app/models/user.py`, `utils/security.py`, `config/settings.py` — new request/response models, token expiry argument, new settings
+- `backend/seed_super_admin.py` — validates the password policy; re-running it is the recovery path for the admin account
+- Tests: `backend/tests/test_password_reset_and_remember_me.py`, `test_govt_hardening.py`, `test_sessions_and_login_audit.py` (all new); `conftest.py` points the audit collection at the in-memory DB
+
+Frontend:
+- `frontend/src/pages/auth/ForgotPassword.tsx` *(new)*, route in `App.tsx`; `Login.tsx` (remember-me checkbox, forgot link)
+- `frontend/src/components/ui/PasswordRequirements.tsx` *(new)* + `lib/validation.ts` — shared password rules used by `Register.tsx`, `ChangePassword.tsx`, `ForgotPassword.tsx`
+- `frontend/src/context/AuthContext.tsx`, `lib/api.ts`, `lib/endpoints.ts` — session restore on load, remember-me storage, fresh token after change-password
+- `frontend/src/pages/admin/Users.tsx` — "Reset password" button for officers
+
+---
+
+## 4) Two-step verification & account-lifecycle audit — DONE
+
+Officer and admin accounts must pass a TOTP (authenticator app) second step; registration, officer creation, approve and suspend are audit-logged; suspending now ends sessions. Contract: `docs/api-contract.md`; rationale and limits: `docs/security-hardening-status.md`. Files touched:
+
+Backend:
+- `backend/app/routers/auth.py` — login returns an `mfa_token` instead of a session for officer/admin; `POST /auth/mfa/setup`, `/mfa/confirm-setup`, `/mfa/verify`; refresh requires the second-step mark and refuses inactive accounts; registration audit events
+- `backend/app/routers/admin_users.py` — `POST /admin/users/{id}/reset-mfa`; audit events for officer creation / approve / suspend; suspend revokes sessions; `mfa_enabled` in officer lists
+- `backend/app/utils/totp.py` *(new)* — RFC 6238 TOTP; `backend/app/utils/mfa.py` *(new)* — secret encryption, recovery codes, QR code
+- `backend/app/utils/security.py` — `create_mfa_token` / `decode_mfa_token`; `backend/app/config/settings.py` — `MFA_*` settings; `backend/app/models/user.py` — `LoginResponse`, MFA request/response models, `mfa_enabled`
+- `backend/reset_mfa.py` *(new)* — operator tool for a lost admin authenticator; `backend/requirements.txt` — adds `cryptography`; `backend/.env.example`
+- Tests: `backend/tests/test_mfa.py` *(new)*, `backend/tests/mfa_helpers.py` *(new)*; `conftest.py` gives every test a fresh DDoS counter; `test_govt_hardening.py` and `test_sessions_and_login_audit.py` now sign officers in through the second step
+
+Frontend:
+- `frontend/src/pages/auth/TwoFactor.tsx` *(new)* — code entry, recovery-code entry, authenticator setup (QR + manual key), recovery-code screen; route `/two-step` in `App.tsx`
+- `frontend/src/context/AuthContext.tsx` — `login` can return "second step needed"; `verifyMfa`, `beginMfaSetup`, `confirmMfaSetup`, `commitSession`
+- `frontend/src/pages/auth/Login.tsx` — hands off to `/two-step`; `frontend/src/lib/endpoints.ts`, `frontend/src/lib/types.ts` — new API calls and types
+- `frontend/src/pages/admin/Users.tsx` — "2-step" status column and "Reset 2-step" button
+
+---
+
 ## Suggested process for the team
 
 1. Implement frontend changes and test locally (Register + Login + RegisterInstrument pages).

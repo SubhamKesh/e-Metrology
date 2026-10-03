@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, EmailStr, validator
 
 from app.models.geo import JurisdictionIn, JurisdictionOut
@@ -55,6 +55,9 @@ class UserLogin(BaseModel):
     # an email that's already stored and already valid, not user input.
     email: str
     password: str
+    # "Remember me" checkbox. Defaults to False so older clients (and the
+    # existing tests) that don't send it keep today's behaviour exactly.
+    remember_me: bool = False
 
     @validator("email")
     def _validate_email(cls, v):
@@ -82,11 +85,64 @@ class UserOut(BaseModel):
     # password; the frontend uses this to force a change-password screen
     # before letting the officer into the rest of the app.
     must_change_password: bool = False
+    # Whether two-step verification (authenticator app) is set up. Lets the
+    # admin's officer list show who still has to enrol.
+    mfa_enabled: bool = False
 
 
 class TokenResponse(BaseModel):
     user: UserOut
     token: str
+    # Whether "Remember me" was actually honoured. Always False for officer
+    # and admin accounts even if the client asked for it — the frontend uses
+    # this (not its own checkbox) to decide where to keep the session.
+    remember_me: bool = False
+
+
+class LoginResponse(BaseModel):
+    """What /auth/login and the /auth/mfa/* endpoints return.
+
+    Either a finished session (`user` + `token`), or — for officer/admin
+    accounts whose PASSWORD was accepted but who still owe the second step —
+    just an `mfa_token` plus a flag saying which step comes next. No token,
+    no cookie and no user data is released until the second step passes.
+    """
+
+    user: Optional[UserOut] = None
+    token: Optional[str] = None
+    remember_me: bool = False
+    # Second step pending: enter a code from the authenticator app.
+    mfa_required: bool = False
+    # Second step pending, and the account has no authenticator yet: enrol one.
+    mfa_setup_required: bool = False
+    mfa_token: Optional[str] = None
+    # Only returned once, when enrolment completes.
+    recovery_codes: Optional[List[str]] = None
+    # Only set when a recovery code (not an app code) was just used.
+    recovery_codes_remaining: Optional[int] = None
+
+
+class MfaTokenRequest(BaseModel):
+    mfa_token: str
+
+
+class MfaCodeRequest(BaseModel):
+    mfa_token: str
+    # 6-digit authenticator code, or a recovery code like "k7m2x-q9d4p".
+    code: str
+
+    @validator("code")
+    def _validate_code(cls, v):
+        v = v.strip()
+        if not v or len(v) > 32:
+            raise ValueError("Enter the code from your authenticator app.")
+        return v
+
+
+class MfaSetupResponse(BaseModel):
+    secret: str  # base32, for manual entry
+    otpauth_uri: str
+    qr_data_uri: str  # PNG, ready for <img src>
 
 
 class OfficerCreate(BaseModel):
@@ -139,6 +195,45 @@ class OfficerCreatedOut(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+
+    @validator("new_password")
+    def _validate_new_password(cls, v):
+        return validate_password(v)
+
+
+class ChangePasswordResponse(UserOut):
+    """change-password signs the account out of every session (token_version
+    bump + all refresh tokens revoked), then issues a fresh session for the
+    device that made the change — so the response carries the new access
+    token (and the new refresh cookie is set), exactly like login."""
+
+    token: str
+    remember_me: bool = False
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+    @validator("email")
+    def _validate_email(cls, v):
+        return validate_email(v)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+    @validator("email")
+    def _validate_email(cls, v):
+        return validate_email(v)
+
+    @validator("code")
+    def _validate_code(cls, v):
+        v = v.strip()
+        if not v.isdigit() or len(v) != 6:
+            raise ValueError("Enter the 6-digit code exactly as sent.")
+        return v
 
     @validator("new_password")
     def _validate_new_password(cls, v):

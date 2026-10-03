@@ -30,8 +30,9 @@ account, it's a completely ordinary "admin"-role user under the hood.
 import os
 import sys
 
-from app.config.db import users_col
+from app.config.db import users_col, refresh_tokens_col
 from app.utils.security import hash_password
+from app.utils.validators import validate_password
 
 
 def main() -> None:
@@ -41,6 +42,12 @@ def main() -> None:
 
     if not email or not password:
         print("SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must be set in your .env file.")
+        sys.exit(1)
+
+    try:
+        validate_password(password)
+    except ValueError as exc:
+        print(f"SUPER_ADMIN_PASSWORD rejected: {exc}")
         sys.exit(1)
 
     if len(password) < 12:
@@ -61,8 +68,20 @@ def main() -> None:
     }
 
     if existing:
-        users_col.update_one({"_id": existing["_id"]}, {"$set": doc})
-        print(f"Updated existing super-admin account: {email}")
+        # This script is also the recovery path for a forgotten/compromised
+        # super-admin password (the admin account cannot use the self-service
+        # reset). So rotating the password here also signs the account out
+        # everywhere and clears any lockout.
+        users_col.update_one(
+            {"_id": existing["_id"]},
+            {
+                "$set": {**doc, "failed_login_attempts": 0, "must_change_password": False},
+                "$unset": {"locked_until": ""},
+                "$inc": {"token_version": 1},
+            },
+        )
+        refresh_tokens_col.update_many({"user_id": str(existing["_id"]), "revoked": False}, {"$set": {"revoked": True}})
+        print(f"Updated existing super-admin account: {email} (all existing sessions signed out)")
     else:
         users_col.insert_one(doc)
         print(f"Created super-admin account: {email}")

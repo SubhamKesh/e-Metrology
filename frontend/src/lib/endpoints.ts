@@ -29,16 +29,53 @@ export interface RegisterPayload {
 export interface AuthResponse {
   user: User;
   token: string;
+  // Whether "Remember me" was actually applied. The server only honours it
+  // for business/owner accounts, never for officers or admin.
+  remember_me?: boolean;
+}
+
+// change-password signs the account out of every session, then issues a
+// fresh one for this device — so the response also carries a new token.
+export type ChangePasswordResponse = User & { token: string; remember_me: boolean };
+
+// /auth/login and /auth/mfa/* answer with either a finished session
+// (user + token) or — for officer/admin accounts whose password was accepted
+// but who still owe the second step — just an mfa_token saying which step is next.
+export interface LoginResponse {
+  user: User | null;
+  token: string | null;
+  remember_me: boolean;
+  mfa_required: boolean;
+  mfa_setup_required: boolean;
+  mfa_token: string | null;
+  recovery_codes: string[] | null;
+  recovery_codes_remaining: number | null;
+}
+
+export interface MfaSetup {
+  secret: string;
+  otpauth_uri: string;
+  qr_data_uri: string;
 }
 
 export const AuthApi = {
   register: (body: RegisterPayload) => api.post<AuthResponse>("/auth/register", body, { public: true }),
-  login: (body: { email: string; password: string }) =>
-    api.post<AuthResponse>("/auth/login", body, { public: true }),
-  me: () => api.get<{ user: User }>("/auth/me"),
+  login: (body: { email: string; password: string; remember_me?: boolean }) =>
+    api.post<LoginResponse>("/auth/login", body, { public: true }),
+  mfaSetup: (mfa_token: string) => api.post<MfaSetup>("/auth/mfa/setup", { mfa_token }, { public: true }),
+  mfaConfirmSetup: (body: { mfa_token: string; code: string }) =>
+    api.post<LoginResponse>("/auth/mfa/confirm-setup", body, { public: true }),
+  mfaVerify: (body: { mfa_token: string; code: string }) =>
+    api.post<LoginResponse>("/auth/mfa/verify", body, { public: true }),
+  // The backend returns the user object directly (not wrapped in {user}).
+  me: () => api.get<User>("/auth/me"),
+  forgotPassword: (body: { email: string }) =>
+    api.post<{ sent: boolean }>("/auth/forgot-password", body, { public: true }),
+  resetPassword: (body: { email: string; code: string; new_password: string }) =>
+    api.post<{ reset: boolean }>("/auth/reset-password", body, { public: true }),
   logout: () => api.post<void>("/auth/logout"),
   changePassword: (body: { current_password: string; new_password: string }) =>
-    api.post<User>("/auth/change-password", body),
+    api.post<ChangePasswordResponse>("/auth/change-password", body),
 };
 
 // ---- Admin: officer accounts (invite-only lmo/gatc) ----
@@ -63,6 +100,10 @@ export const AdminUsersApi = {
     api.post<CreateOfficerResponse>("/admin/users/create-officer", body),
   approve: (id: string) => api.post<User>(`/admin/users/${id}/approve`),
   reject: (id: string) => api.post<User>(`/admin/users/${id}/reject`),
+  // Officers can't use the self-service "forgot password"; an admin resets it here.
+  resetPassword: (id: string) => api.post<CreateOfficerResponse>(`/admin/users/${id}/reset-password`),
+  // Clears an officer's authenticator so they can enrol a new one at next sign-in.
+  resetMfa: (id: string) => api.post<User>(`/admin/users/${id}/reset-mfa`),
 };
 
 // ---- Instruments ----

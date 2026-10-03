@@ -8,6 +8,7 @@ import logging
 import smtplib
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
 
@@ -144,3 +145,34 @@ def send_officer_credentials(*, to: str, name: str, role: str, temp_password: st
         "If you weren't expecting this account, please contact your department administrator.\n"
     )
     return send_email(to, subject, body)
+
+
+def send_admin_password_reset(*, to: str, name: str, temp_password: str) -> bool:
+    """Sent when an administrator resets an officer's password for them."""
+    body = (
+        f"Hello {name},\n\n"
+        "An administrator has reset the password for your MaapSetu account.\n\n"
+        f"Email: {to}\n"
+        f"Temporary password: {temp_password}\n\n"
+        f"Sign in here: {FRONTEND_LOGIN_URL}\n\n"
+        "You will be asked to set your own password the first time you sign in. "
+        "This temporary password will stop working once you do, and you have been "
+        "signed out of all other sessions.\n\n"
+        "If you did not expect this, contact your department administrator immediately.\n"
+    )
+    return send_email(to, "Your MaapSetu password was reset by an administrator", body)
+
+
+def send_password_changed_notice(*, to: str, name: str) -> bool:
+    """Security alert after a password change/reset, so the real owner finds
+    out quickly if someone else did it. Never contains the password."""
+    ist = timezone(timedelta(hours=5, minutes=30))
+    when = datetime.now(ist).strftime("%d %b %Y, %H:%M IST")
+    body = (
+        f"Hello {name},\n\n"
+        f"The password for your MaapSetu account ({to}) was changed on {when}.\n\n"
+        "If this was you, no action is needed.\n\n"
+        "If this was NOT you, someone else may have access to your account or email. "
+        "Reset your password again right away and contact your department administrator.\n"
+    )
+    return send_email(to, "Your MaapSetu password was changed", body)

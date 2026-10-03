@@ -32,6 +32,9 @@ refresh_tokens_col = db["refresh_tokens"]
 # abandoned codes; verify_otp()/consume_verification_proof() in
 # app/services/otp.py manage success/expiry/consumption during normal use.
 otp_verifications_col = db["otp_verifications"]
+# Append-only security audit trail (password resets/changes etc.) — see
+# app/services/audit.py. Never read or modified by the API itself.
+audit_logs_col = db["audit_logs"]
 
 # Reference data (seeded by scripts/seed_geo.py) — states/UTs and their
 # districts. Kept as data, not code, so a boundary change doesn't need a
@@ -85,6 +88,19 @@ def init_indexes():
     # a backstop for codes nobody came back to verify or consume.
     otp_verifications_col.create_index([("identifier", 1), ("purpose", 1)], unique=True)
     otp_verifications_col.create_index("expires_at", expireAfterSeconds=0)
+
+    # Audit log: keep for AUDIT_LOG_RETENTION_DAYS (default 365; CERT-In asks
+    # for at least 180 days), then let Mongo expire it. Wrapped so that a
+    # changed retention value (which makes Mongo reject re-creating an
+    # existing index with different options) can never stop startup.
+    try:
+        from app.config.settings import AUDIT_LOG_RETENTION_DAYS
+
+        audit_logs_col.create_index("created_at", expireAfterSeconds=AUDIT_LOG_RETENTION_DAYS * 86400)
+        audit_logs_col.create_index([("event", 1), ("created_at", -1)])
+        audit_logs_col.create_index([("email", 1), ("created_at", -1)])
+    except Exception:  # pragma: no cover - best effort
+        pass
 
     _apply_schema_validation()
 
@@ -222,7 +238,7 @@ def _apply_schema_validation():
                 "bsonType": "object",
                 "required": ["identifier", "purpose", "code_hash", "expires_at", "attempts"],
                 "properties": {
-                    "purpose": {"enum": ["email_verify"]},
+                    "purpose": {"enum": ["email_verify", "password_reset"]},
                     "attempts": {"bsonType": ["int", "long"]},
                 },
             }

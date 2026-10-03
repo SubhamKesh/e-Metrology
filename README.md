@@ -35,8 +35,11 @@ Business owners register weighing/measuring instruments, submit them for verific
 
 | Area | Capability |
 |---|---|
-| 🔐 **Authentication** | JWT access tokens (15 min) + rotating, hashed refresh tokens in HttpOnly cookies; instant revocation via `token_version` (`/auth/logout-all`); self-registration for business owners, invite-only provisioning for officers |
-| ✉️ **Email OTP Verification** | 6-digit, single-use, attempt-capped codes (HMAC-hashed, 10-minute expiry) via `/otp/send` + `/otp/verify`; verification proof is checked at registration |
+| 🔐 **Authentication** | JWT access tokens (15 min) + rotating, hashed refresh tokens in HttpOnly cookies; instant revocation via `token_version` (`/auth/logout-all`); self-registration for business owners, invite-only provisioning for officers; strong-password policy; **Remember me** (owners only); changing a password signs out every other session; **mandatory two-step verification** (authenticator app) for officer and admin accounts |
+| 📲 **Two-Step Verification** | Officers (`lmo` / `gatc`) and the super admin must enter a 6-digit code from an authenticator app (Google/Microsoft Authenticator, Authy…) after their password — no token, cookie or user data is released until it passes. TOTP (RFC 6238) built on the standard library; secrets encrypted at rest; one-time recovery codes; replay-proof; shares the account lockout; an admin can reset an officer's, the operator can reset the admin's (see [Account Security](#-account-security--password-recovery)) |
+| 🔑 **Password Recovery** | Owners can reset a forgotten password with an emailed one-time code (anti-enumeration, single-use, attempt-capped, cooldown). Officer and admin accounts can't self-reset — an admin resets officers, and the super admin is recovered via `seed_super_admin.py`. A "your password was changed" email follows every change or reset (see [Account Security](#-account-security--password-recovery)) |
+| ✉️ **Email OTP Verification** | 6-digit, single-use, attempt-capped codes (HMAC-hashed, 10-minute expiry) via `/otp/send` + `/otp/verify` (signup) and `/auth/forgot-password` + `/auth/reset-password` (password reset); verification proof is checked at registration |
+| 🧾 **Security Audit Trail** | Logins (success / failure / blocked), the two-step stages, logouts, replayed refresh tokens, every password event, and account lifecycle (registration, officer creation, approve, suspend) are recorded — never passwords, codes or tokens — and retained for a configurable period (default 365 days) |
 | 👥 **Role-based Access** | Four roles — `owner`, `lmo`, `gatc`, `admin` — each with a dedicated dashboard and permission scope |
 | 🗺️ **Jurisdiction Scoping** | States/UTs and districts stored as reference data; officers see only applications in their state/district, validated at write time |
 | 🧰 **Instrument Registry** | Owners register instruments from a controlled list of instrument types, with a unique serial number and auto-generated UIID |
@@ -69,7 +72,7 @@ Business owners register weighing/measuring instruments, submit them for verific
 | PDF generation | **ReportLab** |
 | QR codes | `qrcode` (Pillow) |
 | Scheduled jobs | **APScheduler** (hourly certificate expiry checks) |
-| Email | SMTP via stdlib `smtplib` (30 s socket timeout) — officer onboarding, OTP codes, owner status emails (HTML + plain-text templates) |
+| Email | SMTP via stdlib `smtplib` (30 s socket timeout) — officer onboarding, OTP and password-reset codes, "password changed" security notices, owner status emails (HTML + plain-text templates) |
 | Server | **Uvicorn** (ASGI) |
 | Testing | `pytest` + `mongomock` + `httpx` |
 | Linting | `ruff` |
@@ -231,6 +234,32 @@ Officer accounts (`lmo` / `gatc`) are provisioned exclusively by an admin, who r
 
 ---
 
+## 🔑 Account Security & Password Recovery
+
+| | `owner` (business) | `lmo` / `gatc` (officers) | `admin` (super admin) |
+|---|---|---|---|
+| Self-service "Forgot password" | ✅ emailed 6-digit code | ❌ no code is sent | ❌ no code is sent |
+| How a forgotten password is fixed | Forgot-password page | An admin clicks **Reset password** (Admin → Officer accounts): one-time temp password, shown once and emailed | The operator re-runs `python seed_super_admin.py` |
+| "Remember me" (30-day session) | ✅ | ❌ ignored by the server | ❌ ignored by the server |
+| Two-step verification (authenticator app) | — not required | ✅ **mandatory** | ✅ **mandatory** |
+| Lost phone / used up recovery codes | — | An admin clicks **Reset 2-step** (Admin → Officer accounts) | The operator runs `python reset_mfa.py <email>` |
+
+- **Password policy:** 8–64 characters with an uppercase letter, a lowercase letter, a number and a special character; very common passwords are rejected. Applies when setting a password (register, change, reset), not at login — so older accounts still sign in. The frontend shows a live checklist; the backend is the authority.
+- **Forgot password flow:** enter email → 6-digit code (valid 10 min, single use, 5 attempts) → new password. The API gives the same answer whether or not the account exists (and whether or not it's an officer/admin), so it can't be used to discover accounts. One reset email per account per 60 s.
+- **Two-step verification:** after the password, officer and admin accounts must also enter a 6-digit code from an authenticator app (or a one-time recovery code). On first sign-in they scan a QR code, confirm one code, and are shown **8 recovery codes once** — save them. Until the code is accepted nothing is issued: no token, no cookie, no user data (the short-lived 10-minute "step-two" token can't be used as a login token, and dies if the password changes or sessions are revoked). Details:
+  - **Codes can't be replayed** — a time-step that was accepted once is refused, even inside its 30-second window — and recovery codes are consumed atomically, so each works once.
+  - **Wrong codes count like wrong passwords** (same failed-attempt counter and lockout); the counter is cleared only after the second step succeeds, so knowing the password never resets it.
+  - **Secrets are encrypted at rest** (Fernet; key from `MFA_ENCRYPTION_KEY`, or derived from `JWT_SECRET`); recovery codes are stored only as keyed hashes.
+  - **Refresh tokens carry a "second step done" mark** that officer/admin refreshes require, so a session can never be renewed from a password alone — this also retires officer sessions that predate two-step verification (they simply sign in again).
+  - **First-time enrolment is protected by the temporary password alone**, so hand it over through a secure channel; if an officer ever reports being locked out right after onboarding, use **Reset 2-step**.
+- **Sessions:** a reset or a password change signs the account out everywhere. After a change, the device that made it is given a fresh session so you aren't logged out of your own screen. Admin-initiated resets also revoke the officer's sessions and clear any lockout.
+- **Notifications:** a "your password was changed" email (with an IST timestamp, never the password) follows every successful change or reset.
+- **Suspending an officer** (Admin → Officer accounts → Suspend) now ends their sessions immediately and stops them renewing one; previously it only blocked new sign-ins.
+- **Audit trail:** see the Security section below. Event list in [`docs/api-contract.md`](docs/api-contract.md#audit-log).
+- **Deployment note:** if the frontend and API are on different sites (e.g. Vercel + Render), set `COOKIE_SAMESITE=none` and `COOKIE_SECURE=true`, or the refresh cookie — and "Remember me" — won't work. Safari and some privacy browsers block cross-site cookies regardless; proxy `/api` through the frontend host or serve both from one domain to avoid that.
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -260,8 +289,8 @@ e-Metrology-main/
 │   │   │   └── ddos_store.py       # In-memory / Redis-backed request counters
 │   │   ├── models/                 # Pydantic schemas (user, instrument, application, inspection, dashboard, geo, otp)
 │   │   ├── routers/                # REST + WebSocket endpoints
-│   │   │   ├── auth.py             # register, login, refresh, logout, logout-all, me, change-password
-│   │   │   ├── otp.py              # Email OTP send / verify
+│   │   │   ├── auth.py             # register, login (+ remember me, two-step gate), mfa/setup, mfa/confirm-setup, mfa/verify, refresh, logout, logout-all, me, change-password, forgot-password, reset-password
+│   │   │   ├── otp.py              # Email OTP send / verify (signup)
 │   │   │   ├── geo.py              # States and districts lookups
 │   │   │   ├── instruments.py
 │   │   │   ├── applications.py
@@ -269,7 +298,7 @@ e-Metrology-main/
 │   │   │   ├── certificates.py
 │   │   │   ├── dashboard.py
 │   │   │   ├── uploads.py
-│   │   │   ├── admin_users.py      # Officer creation, approval queue
+│   │   │   ├── admin_users.py      # Officer creation, approval queue, suspend, admin-initiated officer password reset and two-step reset
 │   │   │   └── ws.py               # /ws/notifications
 │   │   ├── services/
 │   │   │   ├── cert_generator.py   # PDF certificate generation
@@ -280,14 +309,17 @@ e-Metrology-main/
 │   │   │   ├── jobs.py             # RQ queue + job definitions (certificate, officer email)
 │   │   │   ├── notifications.py    # Audience-scoped WebSocket delivery
 │   │   │   ├── ws_pubsub.py        # Redis pub/sub subscriber for cross-instance fan-out
-│   │   │   ├── otp.py              # OTP generation, hashing, verification
-│   │   │   ├── mailer.py           # SMTP email dispatch (30 s timeout)
+│   │   │   ├── otp.py              # OTP generation, hashing, verification (signup + password reset)
+│   │   │   ├── audit.py            # Security audit trail (audit_logs collection + app.audit log stream)
+│   │   │   ├── mailer.py           # SMTP email dispatch (30 s timeout), incl. password-changed / admin-reset notices
 │   │   │   ├── owner_notifications.py # Owner status emails: dedupe via email_log, queue/thread dispatch
 │   │   │   └── email_templates.py  # HTML + plain-text email templates for every owner event
 │   │   └── utils/
-│   │       ├── security.py         # Password hashing, token helpers
+│   │       ├── security.py         # Password hashing, access/refresh tokens, two-step "MFA step" token
+│   │       ├── totp.py             # RFC 6238 TOTP (stdlib only): secrets, verification window, replay guard, otpauth URI
+│   │       ├── mfa.py              # TOTP-secret encryption, recovery codes, QR code data URI
 │   │       ├── cache.py            # Redis read-through cache (no-op without Redis)
-│   │       ├── validators.py       # Input validation helpers
+│   │       ├── validators.py       # Input validation helpers + password policy
 │   │       ├── geo_validation.py   # State/district checks against reference data
 │   │       ├── location_format.py
 │   │       └── upload_to_cloudinary.py
@@ -297,7 +329,8 @@ e-Metrology-main/
 │   │   └── districts.csv           # District reference data (code, name, state_code)
 │   ├── tests/                      # pytest suite (mongomock-backed, no live DB needed)
 │   ├── run_worker.py               # RQ worker process (Windows-safe SimpleWorker, INFO logging)
-│   ├── seed_super_admin.py         # Creates/updates the Super Admin account
+│   ├── seed_super_admin.py         # Creates/updates the Super Admin account (also its password-recovery path)
+│   ├── reset_mfa.py                # Operator tool: clears an account's two-step verification (lost admin phone)
 │   ├── seed_geo.py                 # Upserts states/UTs and districts
 │   ├── fix_certificate_pdf_urls.py # One-off migration for old certificate PDF URLs
 │   ├── burst_test.py               # Quick request-burst check for DDoS protection
@@ -311,7 +344,7 @@ e-Metrology-main/
     ├── src/
     │   ├── main.tsx / App.tsx      # Entry point + route definitions
     │   ├── pages/
-    │   │   ├── auth/               # Login, Register, ChangePassword, PendingApproval
+    │   │   ├── auth/               # Login, Register, ForgotPassword, TwoFactor (code entry + authenticator setup), ChangePassword, PendingApproval
     │   │   ├── owner/              # Dashboard, instruments, applications, certificates
     │   │   ├── officer/            # Queue, inspection workflow, dashboard, certificates
     │   │   ├── admin/              # Dashboard, users, instruments, applications, certificates
@@ -363,8 +396,14 @@ cp .env.example .env             # fill in Mongo URI, JWT secret, Cloudinary, SM
 # Seed states/UTs (and districts, if seed/districts.csv is present)
 python seed_geo.py
 
-# Seed a super admin account (reads SUPER_ADMIN_* from .env)
+# Seed a super admin account (reads SUPER_ADMIN_* from .env).
+# SUPER_ADMIN_PASSWORD must meet the password policy (8-64 chars, upper/lower/digit/special).
+# Re-running this later is also how a forgotten super-admin password is recovered:
+# it rotates the password and signs the account out everywhere.
 python seed_super_admin.py
+# The super admin (and every officer) sets up an authenticator app on their first
+# sign-in: scan the QR code, enter one code, and save the 8 recovery codes shown.
+# If that phone is ever lost along with the recovery codes:  python reset_mfa.py <email>
 
 # (Optional) seed demo data — wipes and reloads the demo collections
 python -m seed.seed
@@ -418,13 +457,20 @@ docker compose --profile redis up --build
 | `REFRESH_TOKEN_EXPIRES_DAYS` | Refresh token lifetime | `7` |
 | `REFRESH_COOKIE_NAME` | Name of the refresh-token cookie | `refresh_token` |
 | `COOKIE_SECURE` | Must be `true` in production (HTTPS-only cookies) | `false` |
-| `COOKIE_SAMESITE` | SameSite policy for the refresh cookie | `strict` |
+| `COOKIE_SAMESITE` | SameSite policy for the refresh cookie. Use `none` (with `COOKIE_SECURE=true`) when the frontend and API are on different sites, e.g. Vercel + Render — otherwise token refresh and "Remember me" can't work | `strict` |
+| `REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS` | How long a "Remember me" session lasts (owners only; renewed on every refresh) | `30` |
+| `PASSWORD_RESET_COOLDOWN_SECONDS` | Minimum gap between two password-reset emails for the same account | `60` |
+| `MFA_ENCRYPTION_KEY` | Key material for encrypting authenticator secrets at rest (any long random string). If unset it is derived from `JWT_SECRET`. **Set a dedicated value in production** so rotating `JWT_SECRET` later doesn't make every stored authenticator undecryptable | *(derived from `JWT_SECRET`)* |
+| `MFA_TOKEN_EXPIRES_MINUTES` | How long the "password accepted, enter your code" step stays valid | `10` |
+| `MFA_ISSUER` | Name shown in the authenticator app next to the account | `MaapSetu` |
+| `MFA_RECOVERY_CODE_COUNT` | One-time recovery codes issued at enrolment | `8` |
+| `AUDIT_LOG_RETENTION_DAYS` | How long audit-log records are kept before MongoDB expires them (values below 180 are raised to 180) | `365` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated allowed frontend origins | `http://localhost:5173` |
 | `LOGIN_MAX_ATTEMPTS` | Failed logins before lockout begins | `5` |
 | `LOGIN_LOCKOUT_BASE_MINUTES` | Base lockout duration (doubles on each repeat) | `1` |
 | `MAX_REQUEST_BODY_BYTES` | Maximum request body size | `2097152` (2 MB) |
 | `REDIS_URL` | Optional — enables shared DDoS state, WS fan-out, cache, scheduler lock, and the job queue (required to run `run_worker.py`) | *(unset → in-process fallbacks)* |
-| `OTP_PEPPER` | Secret used to HMAC-hash OTP codes. **Set this outside local dev** — a warning is logged and an insecure default is used if unset | *(insecure dev default)* |
+| `OTP_PEPPER` | Secret used to HMAC-hash OTP and password-reset codes. **Set this outside local dev** — a warning is logged and an insecure default is used if unset | *(insecure dev default)* |
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Photo and certificate PDF storage | — |
 | `FRONTEND_VERIFY_URL` | Public verification page base URL (embedded in certificate QR codes) | `http://localhost:3001/verify` |
 | `FRONTEND_LOGIN_URL` | Login page URL used in officer onboarding emails | `http://localhost:5173/login` |
@@ -455,7 +501,7 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 
 | Resource | Examples |
 |---|---|
-| **Auth** | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/logout-all` · `GET /auth/me` · `POST /auth/change-password` |
+| **Auth** | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/logout-all` · `GET /auth/me` · `POST /auth/change-password` · `POST /auth/forgot-password` **(public)** · `POST /auth/reset-password` **(public)** · `POST /auth/mfa/setup` · `POST /auth/mfa/confirm-setup` · `POST /auth/mfa/verify` *(the three `mfa` calls take the short-lived `mfa_token` from `/auth/login`, not a Bearer token)* |
 | **OTP** | `POST /otp/send` · `POST /otp/verify` **(public)** |
 | **Geo** | `GET /geo/states` · `GET /geo/states/{state_code}/districts` |
 | **Instruments** | `POST /instruments` · `GET /instruments` · `GET /instruments/{id}` · `GET /instruments/by-uiid/{uiid}` · `GET /instruments/meta/types` |
@@ -463,7 +509,7 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | **Inspections** | `POST /inspections` · `GET /inspections/{id}` |
 | **Certificates** | `GET /certificates/` · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
 | **Uploads** | `POST /uploads/photo` |
-| **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` |
+| **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` |
 | **Dashboard** | `GET /dashboard/owner` · `/lmo` · `/gatc` · `/admin` |
 | **WebSocket** | `/ws/notifications?token=<access token>` — live application, queue, and certificate updates |
 | **Health** | `GET /api/v1/health` |
@@ -483,9 +529,14 @@ Transitions are enforced centrally in `backend/app/services/status_transition.py
 ## 🛡️ Security
 
 - Password hashing via `bcrypt`/`passlib`; JWT access tokens (15 min) + rotating, hashed, HttpOnly refresh tokens with reuse detection.
-- Instant token revocation via a per-user `token_version` (`/auth/logout-all`).
+- Instant token revocation via a per-user `token_version` (`/auth/logout-all`, password change, password reset).
+- Password policy (8–64 chars, upper/lower/digit/special, common passwords rejected); a password change or reset signs out every other session; "password changed" email after each.
+- Password reset is owner-only and anti-enumeration; officer/admin passwords are reset by an admin (or the operator for the super admin). "Remember me" is owner-only and enforced server-side.
+- Mandatory two-step verification (TOTP) for officer and admin accounts: password alone never yields a token, cookie or user data; codes are single-use, attempt-capped (shared lockout) and replay-proof; authenticator secrets are encrypted at rest and recovery codes stored only as keyed hashes; officer/admin refresh tokens must carry the "second step done" mark.
+- Suspending an officer revokes their sessions at once; refresh also refuses accounts that are no longer active.
+- Security audit trail (`audit_logs` collection + `app.audit` log stream): login success/failure/lockout/blocked, the two-step stages, logout, replayed refresh tokens, all password events, and account lifecycle (registration, officer creation, approve, suspend) — never passwords, codes or tokens. Best-effort (never breaks a request) and expires after `AUDIT_LOG_RETENTION_DAYS`.
 - Account lockout with exponential backoff after repeated failed logins; `slowapi` rate limit on `/login` and `/register`.
-- Email OTPs are HMAC-hashed with a server-side pepper, single-use, expire after 10 minutes, and are capped at 5 attempts.
+- Email OTPs and password-reset codes are HMAC-hashed with a server-side pepper, single-use, expire after 10 minutes, and are capped at 5 attempts (counted atomically, so parallel guesses can't exceed the cap).
 - DDoS/request-flood protection middleware (in-memory or Redis-backed across workers).
 - Security response headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `HSTS`).
 - Request body size limits; MongoDB `$jsonSchema` validation as a second gate behind Pydantic.
@@ -512,7 +563,7 @@ npm run lint
 npm run build     # type-checks and builds
 ```
 
-The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
+The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 1. **Backend** — lint (`ruff`) → test (`pytest` against `mongomock`, no live DB required)
@@ -531,6 +582,7 @@ Handy manual checks: `python burst_test.py` fires a burst of requests to exercis
 - The RQ worker is not yet part of `docker-compose.yml`, and a deploy job is intentionally not wired into CI — pending target environment secrets (Render/Railway/Vercel).
 - Certificate listing (`GET /certificates/`) is currently unscoped by role server-side; see `docs/api-contract.md` for current vs. expected behavior.
 - `POST /otp/send` does not yet have its own rate limit, so it should be limited before it is exposed publicly.
+- **Account security — still to do:** CAPTCHA on forgot-password and an admin screen to view the audit log. Two-step verification is in place for officers/admin (owners don't need it; it could be offered to them as an option later), with a self-service "regenerate recovery codes" screen as a possible follow-up. For a real government deployment, a CERT-In-empanelled security audit, hosting on NIC / MeitY-empanelled cloud, and GIGW 3.0 / DPDP Act compliance are outside this repo's code.
 - See [`docs/implementation_tasks.md`](docs/implementation_tasks.md) for the team task breakdown.
 
 ---

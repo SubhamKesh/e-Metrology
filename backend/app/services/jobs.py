@@ -44,7 +44,7 @@ from app.config.settings import REDIS_URL
 from app.config.db import applications_col, certificates_col, inspections_col
 from app.services.cert_generator import issue_certificate
 from app.services.notifications import publish_notification_sync, broadcast_threadsafe
-from app.services.mailer import send_officer_credentials
+from app.services.mailer import send_officer_credentials, send_admin_password_reset
 
 logger = logging.getLogger("maapsetu")
 
@@ -195,6 +195,12 @@ def send_officer_credentials_job(to: str, name: str, role: str, temp_password: s
     time this runs; only the email is delayed, not the account creation.
     """
     send_officer_credentials(to=to, name=name, role=role, temp_password=temp_password)
+
+
+def send_admin_password_reset_job(to: str, name: str, temp_password: str) -> None:
+    """Worker job for the email sent after an administrator resets an
+    officer's password (see routers/admin_users.py)."""
+    send_admin_password_reset(to=to, name=name, temp_password=temp_password)
 
 
 

@@ -5,6 +5,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
 import PendingApproval from "@/pages/auth/PendingApproval";
+import ForgotPassword from "@/pages/auth/ForgotPassword";
+import TwoFactor from "@/pages/auth/TwoFactor";
 import ChangePassword from "@/pages/auth/ChangePassword";
 import VerifyCertificate from "@/pages/public/VerifyCertificate";
 import Landing from "@/pages/public/Landing";
@@ -54,6 +56,8 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/two-step" element={<TwoFactor />} />
       <Route path="/pending" element={<PendingApproval />} />
       <Route path="/change-password" element={<ChangePassword />} />
       <Route path="/verify" element={<VerifyCertificate />} />

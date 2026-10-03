@@ -15,6 +15,8 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from pymongo import ReturnDocument
+
 from app.config.db import otp_verifications_col
 
 logger = logging.getLogger("app.otp")
@@ -140,3 +142,52 @@ def consume_verification_proof(identifier: str, purpose: str) -> bool:
         }
     )
     return doc is not None
+
+
+def otp_sent_within(*, identifier: str, purpose: str, seconds: int) -> bool:
+    """True if a code for this (identifier, purpose) was generated less than
+    `seconds` ago. Used as a per-account cooldown on 'forgot password' so the
+    endpoint can't be used to flood someone's inbox."""
+    doc = otp_verifications_col.find_one({"identifier": identifier, "purpose": purpose})
+    if not doc or not doc.get("created_at"):
+        return False
+    created_at = doc["created_at"]
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - created_at < timedelta(seconds=seconds)
+
+
+def verify_and_consume_otp(*, identifier: str, purpose: str, submitted_code: str) -> bool:
+    """One-shot check for flows where the code itself authorises an action
+    (password reset). Unlike verify_otp() — which leaves a reusable
+    'verified' proof behind for the signup flow — this either consumes the
+    code and returns True, or returns False. It never leaves anything
+    behind that a later request could ride on.
+
+    The attempt counter is incremented atomically *before* the code is
+    compared, so even a burst of parallel guesses can't exceed MAX_ATTEMPTS.
+    Every failure mode returns the same False — callers must show one
+    generic message, so the response can't reveal whether the account exists
+    or has a pending reset."""
+    now = datetime.now(timezone.utc)
+    doc = otp_verifications_col.find_one_and_update(
+        {
+            "identifier": identifier,
+            "purpose": purpose,
+            "verified": {"$ne": True},
+            "expires_at": {"$gt": now},
+            "attempts": {"$lt": MAX_ATTEMPTS},
+        },
+        {"$inc": {"attempts": 1}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        return False
+
+    if not hmac.compare_digest(doc["code_hash"], _hash_code(submitted_code)):
+        return False
+
+    # Correct. Delete by _id + code_hash so two simultaneous correct
+    # submissions can't both succeed: only one delete finds the document.
+    deleted = otp_verifications_col.find_one_and_delete({"_id": doc["_id"], "code_hash": doc["code_hash"]})
+    return deleted is not None

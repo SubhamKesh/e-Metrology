@@ -3,17 +3,43 @@
 
 const BASE_URL = `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/v1`;
 const TOKEN_KEY = "maapsetu_token";
+const SESSION_MODE_KEY = "maapsetu_session_mode";
+
+// "Remember me" support. The short-lived access token is kept in:
+//   - localStorage   when the user ticked "Remember me" ("persistent"), so it
+//                    survives closing the browser; or
+//   - sessionStorage otherwise ("session"), so it disappears with the tab/browser.
+// The mode itself is stored in localStorage as a harmless hint (it holds no
+// credentials) so that, on the next visit, the app knows whether it's worth
+// trying the httpOnly refresh cookie to restore the session.
+export type SessionMode = "persistent" | "session";
+
+export function getSessionMode(): SessionMode | null {
+  const value = localStorage.getItem(SESSION_MODE_KEY);
+  return value === "persistent" || value === "session" ? value : null;
+}
+
+export function setSessionMode(mode: SessionMode) {
+  localStorage.setItem(SESSION_MODE_KEY, mode);
+}
 
 export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return sessionStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(TOKEN_KEY);
 }
 
 export function setToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
+  const mode = getSessionMode();
+  // No stored mode = a session that began before "Remember me" existed; keep
+  // its token wherever it already was instead of silently moving it.
+  const persistent = mode === "persistent" || (mode === null && localStorage.getItem(TOKEN_KEY) !== null);
+  (persistent ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
+  (persistent ? sessionStorage : localStorage).removeItem(TOKEN_KEY);
 }
 
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(SESSION_MODE_KEY);
 }
 
 export class ApiError extends Error {
@@ -33,6 +59,7 @@ const STATUS_FALLBACK: Record<number, string> = {
   403: "You don't have access to do that.",
   404: "We couldn't find that.",
   409: "That's already been claimed or already exists — refresh and try again.",
+  429: "Too many attempts. Please wait a few minutes and try again.",
   500: "Something went wrong on our end. Please try again shortly.",
 };
 
@@ -108,6 +135,17 @@ async function tryRefresh(): Promise<boolean> {
       });
   }
   return refreshInFlight;
+}
+
+// Used on app start to bring back a session from the refresh cookie when the
+// short-lived access token is missing or expired (e.g. the user ticked
+// "Remember me" and came back the next day). `mode` is passed in because a
+// failed /auth/me call clears the stored mode before we get here.
+export async function refreshSession(mode: SessionMode): Promise<boolean> {
+  setSessionMode(mode);
+  const ok = await tryRefresh();
+  if (!ok) clearToken();
+  return ok;
 }
 
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {

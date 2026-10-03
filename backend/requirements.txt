@@ -18,6 +18,7 @@ PyJWT==2.9.0
 passlib==1.7.4
 bcrypt==4.0.1                    # pinned: passlib 1.7.4 breaks with bcrypt >= 4.1
 slowapi==0.1.9                   # rate limiting on /login and /register
+cryptography==50.0.2             # Fernet: encrypts TOTP (2-step verification) secrets at rest
 
 # --- Certificates, media & outbound calls ---
 reportlab==4.2.5                 # PDF certificate rendering

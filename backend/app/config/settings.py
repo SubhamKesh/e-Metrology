@@ -56,6 +56,42 @@ JWT_EXPIRES_MINUTES = ACCESS_TOKEN_EXPIRES_MINUTES
 REFRESH_TOKEN_EXPIRES_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRES_DAYS", "7"))
 REFRESH_COOKIE_NAME = os.getenv("REFRESH_COOKIE_NAME", "refresh_token")
 
+# "Remember me": when the user ticks it at login, the refresh token (and its
+# cookie) lives this many days instead of being a browser-session cookie.
+# Each refresh rotates the token and restarts this window (sliding expiry).
+REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS = int(os.getenv("REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS", "30"))
+
+# Roles that may use the self-service "forgot password" flow and the
+# "Remember me" option. Officer (lmo/gatc) and admin accounts are
+# deliberately excluded: a stolen or compromised mailbox must not be enough
+# to take over a government account, and shared office computers must not
+# keep officers signed in for weeks. Their passwords are reset by an
+# administrator (officers) or by the operator running seed_super_admin.py
+# (the super admin).
+SELF_SERVICE_AUTH_ROLES = frozenset({"owner"})
+
+# Two-step verification (TOTP authenticator app). Mandatory for these roles:
+# after the password is accepted they must also present a code from their
+# authenticator app (or a one-time recovery code) before any session exists.
+MFA_REQUIRED_ROLES = frozenset({"lmo", "gatc", "admin"})
+# Lifetime of the short "password accepted, second step pending" token.
+MFA_TOKEN_EXPIRES_MINUTES = int(os.getenv("MFA_TOKEN_EXPIRES_MINUTES", "10"))
+# Shown in the authenticator app next to the account.
+MFA_ISSUER = os.getenv("MFA_ISSUER", "MaapSetu")
+MFA_RECOVERY_CODE_COUNT = int(os.getenv("MFA_RECOVERY_CODE_COUNT", "8"))
+# Key material for encrypting TOTP secrets at rest. Optional: when unset it is
+# derived from JWT_SECRET (which production already requires to be strong).
+# Set a dedicated value so that rotating JWT_SECRET later doesn't make every
+# stored authenticator secret undecryptable.
+MFA_ENCRYPTION_KEY = os.getenv("MFA_ENCRYPTION_KEY", "")
+
+# How long audit-log records are kept (days) before MongoDB expires them.
+AUDIT_LOG_RETENTION_DAYS = max(int(os.getenv("AUDIT_LOG_RETENTION_DAYS", "365")), 180)
+
+# Forgot-password: minimum gap between two reset emails for the same account,
+# so the endpoint can't be used to mail-bomb someone's inbox.
+PASSWORD_RESET_COOLDOWN_SECONDS = int(os.getenv("PASSWORD_RESET_COOLDOWN_SECONDS", "60"))
+
 # Cookie flags for the refresh-token cookie. COOKIE_SECURE should be True in
 # any real deployment (HTTPS) — default False only so local http://localhost
 # dev doesn't silently drop the cookie.
@@ -183,6 +219,14 @@ class _Settings:
     ACCESS_TOKEN_EXPIRES_MINUTES = ACCESS_TOKEN_EXPIRES_MINUTES
     REFRESH_TOKEN_EXPIRES_DAYS = REFRESH_TOKEN_EXPIRES_DAYS
     REFRESH_COOKIE_NAME = REFRESH_COOKIE_NAME
+    REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS = REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS
+    PASSWORD_RESET_COOLDOWN_SECONDS = PASSWORD_RESET_COOLDOWN_SECONDS
+    SELF_SERVICE_AUTH_ROLES = SELF_SERVICE_AUTH_ROLES
+    AUDIT_LOG_RETENTION_DAYS = AUDIT_LOG_RETENTION_DAYS
+    MFA_REQUIRED_ROLES = MFA_REQUIRED_ROLES
+    MFA_TOKEN_EXPIRES_MINUTES = MFA_TOKEN_EXPIRES_MINUTES
+    MFA_ISSUER = MFA_ISSUER
+    MFA_RECOVERY_CODE_COUNT = MFA_RECOVERY_CODE_COUNT
     COOKIE_SECURE = COOKIE_SECURE
     COOKIE_SAMESITE = COOKIE_SAMESITE
     CORS_ALLOWED_ORIGINS = CORS_ALLOWED_ORIGINS

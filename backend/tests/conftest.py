@@ -43,6 +43,22 @@ def client(monkeypatch):
     monkeypatch.setattr(auth_mod, "refresh_tokens_col", fake_db["refresh_tokens"])
     monkeypatch.setattr(auth_mid, "users_col", fake_db["users"])
 
+    # Audit trail (app/services/audit.py) writes to its own collection,
+    # imported by name — point it at the in-memory DB too, otherwise every
+    # audit write would try to reach a real MongoDB.
+    import app.services.audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "audit_logs_col", fake_db["audit_logs"])
+
+    # The DDoS middleware counts requests per IP in a process-wide store. Every
+    # TestClient request comes from the same IP, so without a fresh store per
+    # test the counts pile up across the whole suite and eventually trip the
+    # block — which says nothing about the code under test.
+    from app.middleware import ddos_protection as ddos_mod
+    from app.middleware.ddos_store import InMemoryDDoSStore
+
+    monkeypatch.setattr(ddos_mod, "_store", InMemoryDDoSStore())
+
     from app.main import app
 
     try:

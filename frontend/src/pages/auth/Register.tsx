@@ -7,7 +7,8 @@ import { useAuth } from "@/context/AuthContext";
 import { api, ApiError } from "@/lib/api";
 import { roleHome } from "@/lib/roleHome";
 import type { Role } from "@/lib/types";
-import { isValidName, isValidEmail, isValidPhone } from "@/lib/validation";
+import { isValidName, isValidEmail, isValidPhone, isValidPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_POLICY_ERROR } from "@/lib/validation";
+import { PasswordRequirements } from "@/components/ui/PasswordRequirements";
 
 // Self-registration is for owner (business/user) accounts only. lmo/gatc
 // are real government officer roles and are invite-only — an admin
@@ -113,6 +114,11 @@ export default function Register() {
     const errors: FieldErrors = { name: nameError, email: emailError, contact: contactError };
     setFieldErrors(errors);
 
+    if (!isValidPassword(form.password)) {
+      setError(PASSWORD_POLICY_ERROR);
+      return false;
+    }
+
     return !nameError && !emailError && !contactError;
   }
 
@@ -213,10 +219,12 @@ export default function Register() {
           type="password"
           autoComplete="new-password"
           required
-          minLength={8}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
           value={form.password}
           onChange={(e) => set("password", e.target.value)}
         />
+        <PasswordRequirements password={form.password} />
         <TextInput
           label="Business name"
           required

@@ -69,6 +69,50 @@ checkbox).
   out-of-scope, unchanged from the first pass. Left here for visibility;
   revisit if judges specifically probe auth depth.
 
+## Done in code — password recovery & session security pass
+
+**Password policy** (`app/utils/validators.py`, mirrored in `frontend/src/lib/validation.ts`)
+- 8–64 characters with an uppercase letter, a lowercase letter, a digit and a special character; ~45 very common passwords (e.g. `Password@123`) rejected. Applies to register, change-password and reset-password — **not** to login, so older accounts still sign in. The 64-char cap keeps bcrypt inside its 72-byte limit.
+- `seed_super_admin.py` validates `SUPER_ADMIN_PASSWORD` against the same policy.
+
+**Forgot password** (`POST /auth/forgot-password`, `POST /auth/reset-password`)
+- Reuses the OTP system (separate `password_reset` purpose, so a signup-verification proof can never unlock a reset). 6-digit HMAC-hashed code, 10-minute expiry, single-use, 5 attempts — the attempt counter is incremented atomically *before* comparing, so parallel guesses can't exceed the cap.
+- Anti-enumeration: identical `200 {"sent": true}` for unknown emails, cooldowns and officer/admin accounts; the email is sent in a background task so timing doesn't leak either. One generic `400` for every reset failure. Per-account 60 s cooldown on top of the per-IP rate limit.
+- Success revokes every session (token_version bump + all refresh tokens), clears any lockout, and emails a "password changed" notice.
+
+**Officer / admin accounts (`SELF_SERVICE_AUTH_ROLES = {"owner"}`)**
+- `lmo`, `gatc`, `admin` get no self-service reset: no code is sent, and the reset endpoint refuses them even with a valid code (defence in depth). A hijacked mailbox is not enough to take over a government account.
+- Officers are reset by an admin: `POST /admin/users/{id}/reset-password` → one-time temp password (shown once + emailed), forced change at next login, sessions revoked, lockout cleared, pending reset codes deleted. Admin accounts can't be reset through the API; the operator re-runs `seed_super_admin.py`, which now also revokes that account's sessions.
+
+**Remember me**
+- Owner accounts only; the server ignores the flag for officers/admin and reports the real outcome in the response, which the frontend trusts over its own checkbox. 30-day sliding refresh cookie (`REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS`); otherwise a browser-session cookie. Rotation preserves the choice.
+
+**Session handling**
+- `change-password` now signs the account out of every other session (token_version bump + all refresh tokens revoked) and issues a fresh token + cookie to the device that made the change.
+- "Password changed" email after every successful change/reset (IST timestamp, never the password).
+
+**Two-step verification (TOTP) — mandatory for `lmo`, `gatc`, `admin`** (`MFA_REQUIRED_ROLES`)
+- After the password is accepted, `/auth/login` returns only a 10-minute `mfa_token` — no access token, refresh cookie or user data. The session starts in `/auth/mfa/verify` (6-digit code or one-time recovery code) or, for an account with no authenticator yet, `/auth/mfa/confirm-setup` (scan QR → confirm one code → 8 recovery codes shown once).
+- The `mfa_token` is a JWT of type `mfa` bound to one step; `decode_access_token` rejects it as a Bearer token, it's refused for the wrong step, expires, and dies if the password changes or sessions are revoked (`token_version`).
+- TOTP is RFC 6238 (SHA-1 / 6 digits / 30 s / ±1 step), implemented with the standard library and tested against the RFC's published vectors. An accepted time-step can't be reused (atomic `mfa_last_step` claim, so two simultaneous submissions can't both win); recovery codes are consumed with an atomic `$pull`.
+- Wrong codes feed the same failed-attempt counter and lockout as wrong passwords. The counter is **not** cleared by the password step — only by a completed second step — so knowing the password never buys unlimited code guesses.
+- Authenticator secrets are encrypted at rest with Fernet (`cryptography`; key from `MFA_ENCRYPTION_KEY`, else derived from `JWT_SECRET`); recovery codes are stored only as keyed HMAC hashes.
+- Refresh tokens carry `mfa_verified`; `/auth/refresh` requires it for officer/admin accounts, so sessions can't be renewed from a password alone and officer sessions that predate this feature are retired (they sign in again). The mark is preserved by `change-password`.
+- Recovery paths: admin → `POST /admin/users/{id}/reset-mfa` (officers only); operator → `python reset_mfa.py <email>` for the super admin (not exposed via the API, so a hijacked admin session can't strip another admin's second factor).
+- **Known limitation:** first-time enrolment is protected only by the temporary password, so an attacker who intercepted it could enrol first. Hand temp passwords over securely; "Reset 2-step" recovers the account. Access tokens issued before deployment stay valid for their remaining ≤15 minutes.
+
+**Account lifecycle & session fixes**
+- Audit events for registration (including blocked self-registration as officer/admin), officer creation, approve and suspend (see `docs/api-contract.md` → "Audit log").
+- Suspending an officer (`/reject`) now ends their sessions immediately; `/auth/refresh` also refuses accounts that are no longer `active`. Before this, a suspended officer could stay signed in indefinitely by letting the browser renew the session.
+
+**Audit trail** (`app/services/audit.py`, collection `audit_logs`, logger `app.audit`)
+- Login success / failure / blocked (locked, pending, rejected), logout, logout-all, replayed refresh tokens, and all password events including admin-initiated resets. Never records passwords, codes or tokens; best-effort so it can't break a request. TTL-indexed (`AUDIT_LOG_RETENTION_DAYS`, default 365, minimum 180). Event list: `docs/api-contract.md` → "Audit log".
+- This is an application-level log and does not need an M10+ Atlas tier; the Atlas-side audit logging listed under Infra-only is still a separate, infra-level item.
+
+**Still open from this pass**
+- No CAPTCHA on forgot-password; no screen to view the audit log (read it in MongoDB or the host's log stream); no self-service "regenerate recovery codes" screen (an admin resets an officer's two-step verification instead); two-step verification isn't offered to owner accounts.
+- Safari/privacy browsers block third-party cookies, so "Remember me" may not persist while the frontend and API are on different domains — proxy `/api` through the frontend host or serve both from one domain.
+
 **DevOps**
 - `backend/Dockerfile` — multi-stage, non-root user, HEALTHCHECK
 - `docker-compose.yml` — local dev only (backend + Mongo), not the prod deploy shape
@@ -137,6 +181,10 @@ Also still infra-only, unchanged from the first pass:
 - [ ] Set `CORS_ALLOWED_ORIGINS` to your real deployed frontend origin(s) — **the app now refuses to start in production with the `localhost:5173` default or `*`**
 - [ ] Set a real, random, 32+ char `JWT_SECRET` (not `dev_secret_change_me` or the `.env.example` placeholder) — **the app now refuses to start in production without this**
 - [ ] Set `ENVIRONMENT=production` in the deploy host's env vars — this is what turns on all three guards above, and what removes `/__dev/db-info`
+- [ ] Set `MFA_ENCRYPTION_KEY` to a dedicated long random value (`openssl rand -hex 32`) so authenticator secrets stay decryptable if `JWT_SECRET` is ever rotated — **losing or changing it makes every stored authenticator unusable** (officers would need a reset)
+- [ ] After deploying, officers and the super admin set up an authenticator at their next sign-in (existing officer sessions are retired); make sure each of them gets their recovery codes
+- [ ] Set `OTP_PEPPER` to a long random value (`openssl rand -hex 32`) — it also hashes password-reset codes, and without it a public default is used
+- [ ] If the frontend and API are on different sites (e.g. Vercel + Render): set `COOKIE_SAMESITE=none` together with `COOKIE_SECURE=true`, or the refresh cookie (and "Remember me") won't work
 - [ ] Set `REDIS_URL` if running with `--workers > 1` or multiple containers — otherwise the DDoS middleware's per-IP threshold is effectively multiplied by however many workers/instances are running (the app still starts and runs without it — just logs a warning)
 - [ ] Whitelist the deploy host's IP in Atlas Network Access, and remove `0.0.0.0/0`
 - [ ] Put the deployed app behind Cloudflare (or host-equivalent) and confirm `X-Forwarded-For`/`CF-Connecting-IP` reaches the app correctly

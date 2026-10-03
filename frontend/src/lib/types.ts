@@ -30,6 +30,9 @@ export interface User {
   // one-time temp password — the UI should route them to change it
   // before anything else.
   must_change_password: boolean;
+  // Whether two-step verification (authenticator app) is set up. Officer and
+  // admin accounts must have it; the admin's officer list shows who still has to enrol.
+  mfa_enabled: boolean;
 }
 
 export interface Location {
