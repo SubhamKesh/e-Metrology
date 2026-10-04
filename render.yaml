@@ -27,11 +27,11 @@ services:
       - key: MONGO_URI
         sync: false              # Atlas connection string
       - key: CORS_ALLOWED_ORIGINS
-        value: https://maapsetu-web.onrender.com
+        value: https://maapsetu-india.vercel.app
       - key: FRONTEND_LOGIN_URL
-        value: https://maapsetu-web.onrender.com/login
+        value: https://maapsetu-india.vercel.app/login
       - key: FRONTEND_BASE_URL
-        value: https://maapsetu-web.onrender.com
+        value: https://maapsetu-india.vercel.app
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
