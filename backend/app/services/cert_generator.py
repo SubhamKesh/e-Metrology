@@ -2,7 +2,14 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
+from reportlab.lib.colors import Color
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.platypus import Paragraph, Table, TableStyle
+from xml.sax.saxutils import escape
 from io import BytesIO
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from bson.binary import Binary
@@ -26,9 +33,13 @@ from app.config.settings import FRONTEND_VERIFY_URL
 
 logger = logging.getLogger("maapsetu")
 
+LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "maappramaan_logo.png"
+
 INK = (0.11, 0.15, 0.22)          # near-black navy for body text/borders
 ACCENT = (0.05, 0.35, 0.25)       # deep green for the seal/header rule, evokes an official emblem
-MUTED = (0.42, 0.45, 0.5)         # grey for field labels
+MUTED = (0.30, 0.34, 0.40)        # slate grey for labels / secondary text
+PAPER = (0.992, 0.988, 0.972)     # warm off-white, like security paper
+LABEL_BG = (0.93, 0.96, 0.94)     # pale green tint for table label column
 
 
 def _generate_cert_number() -> str:
@@ -53,108 +64,235 @@ def _safe_location(location) -> str | None:
         return None
 
 
-def _draw_field_row(c, x, y, label, value, label_width=150):
-    c.setFont("Helvetica", 10)
-    c.setFillColorRGB(*MUTED)
-    c.drawString(x, y, label)
-    c.setFont("Helvetica-Bold", 11)
-    c.setFillColorRGB(*INK)
-    c.drawString(x + label_width, y, str(value) if value else "-")
+def _fmt_date(value) -> str:
+    if hasattr(value, "strftime"):
+        return value.strftime("%d %B %Y")
+    return str(value) if value else "-"
+
+
+def _draw_emblem(c, cx, cy, r):
+    """Neutral circular seal (not a state emblem): concentric rings, a balance
+    beam and pans -- a nod to weights & measures."""
+    c.saveState()
+    c.setStrokeColorRGB(*ACCENT)
+    c.setFillColorRGB(*ACCENT)
+    c.setLineWidth(1.6)
+    c.circle(cx, cy, r, stroke=1, fill=0)
+    c.setLineWidth(0.5)
+    c.circle(cx, cy, r - 1.6 * mm, stroke=1, fill=0)
+    # balance
+    c.setLineWidth(1)
+    c.line(cx, cy - r * 0.50, cx, cy + r * 0.50)                       # pillar
+    c.line(cx - r * 0.55, cy + r * 0.32, cx + r * 0.55, cy + r * 0.32)  # beam
+    c.line(cx - r * 0.30, cy - r * 0.50, cx + r * 0.30, cy - r * 0.50)  # base
+    for sx in (-1, 1):
+        px = cx + sx * r * 0.55
+        c.line(px, cy + r * 0.32, px - r * 0.2, cy - r * 0.02)
+        c.line(px, cy + r * 0.32, px + r * 0.2, cy - r * 0.02)
+        c.line(px - r * 0.2, cy - r * 0.02, px + r * 0.2, cy - r * 0.02)
+    c.circle(cx, cy + r * 0.55, 0.9 * mm, stroke=0, fill=1)
+    c.restoreState()
+
+
+def _double_rule(c, x1, x2, y):
+    c.saveState()
+    c.setStrokeColorRGB(*ACCENT)
+    c.setLineWidth(1.2)
+    c.line(x1, y, x2, y)
+    c.setLineWidth(0.4)
+    c.line(x1, y - 1.2 * mm, x2, y - 1.2 * mm)
+    c.restoreState()
 
 
 def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_png, verify_url) -> bytes:
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
+    c.setTitle(f"Certificate of Verification - {cert_no}")
+    c.setAuthor("Department of Legal Metrology")
+    c.setSubject("Certificate of Verification (digitally generated)")
     width, height = A4
-    margin = 20 * mm
 
-    # Outer double border, the classic look of an official/govt-issued document
+    outer = 10 * mm
+    inner = outer + 3 * mm
+    pad = 10 * mm                              # border -> content gap
+    left = inner + pad
+    right = width - inner - pad
+    content_w = right - left
+    cx = width / 2
+
+    # ---- Page furniture: paper tint, double border, corner ornaments ------
+    c.setFillColorRGB(*PAPER)
+    c.rect(0, 0, width, height, stroke=0, fill=1)
     c.setStrokeColorRGB(*ACCENT)
-    c.setLineWidth(2.2)
-    c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
+    c.setLineWidth(2.4)
+    c.rect(outer, outer, width - 2 * outer, height - 2 * outer)
     c.setLineWidth(0.6)
-    c.rect(margin + 4 * mm, margin + 4 * mm, width - 2 * margin - 8 * mm, height - 2 * margin - 8 * mm)
-
-    inner_left = margin + 14 * mm
-    inner_right = width - margin - 14 * mm
-
-    # Header block — emblem placeholder circle + authority name
-    top = height - margin - 18 * mm
-    c.setStrokeColorRGB(*ACCENT)
-    c.setLineWidth(1.4)
-    c.circle(width / 2, top + 6 * mm, 9 * mm, stroke=1, fill=0)
-    c.setFont("Helvetica-Bold", 7)
+    c.rect(inner, inner, width - 2 * inner, height - 2 * inner)
     c.setFillColorRGB(*ACCENT)
-    c.drawCentredString(width / 2, top + 5 * mm, "LM")
+    for ox, oy in ((inner, inner), (width - inner, inner), (inner, height - inner), (width - inner, height - inner)):
+        c.circle(ox, oy, 1.4 * mm, stroke=0, fill=1)
 
-    c.setFont("Helvetica-Bold", 9)
+    # ---- Header -------------------------------------------------------------
+    y = height - inner - 9 * mm
+    c.setFont("Times-Roman", 8.5)
     c.setFillColorRGB(*MUTED)
-    c.drawCentredString(width / 2, top - 8 * mm, "GOVERNMENT OF INDIA")
-    c.setFont("Helvetica-Bold", 9)
-    c.drawCentredString(width / 2, top - 13 * mm, "DEPARTMENT OF LEGAL METROLOGY")
+    c.drawString(left, y, f"Certificate No.: {cert_no}")
+    c.drawRightString(right, y, f"Date of Issue: {_fmt_date(issued_at)}")
 
-    c.setStrokeColorRGB(*ACCENT)
-    c.setLineWidth(1)
-    c.line(inner_left, top - 18 * mm, inner_right, top - 18 * mm)
+    logo_size = 23 * mm
+    try:
+        c.drawImage(ImageReader(str(LOGO_PATH)), cx - logo_size / 2, y - 2 * mm - logo_size,
+                    width=logo_size, height=logo_size, mask="auto")
+    except Exception:
+        # Missing/unreadable logo file must never block certificate issuance.
+        logger.warning("Could not draw logo on certificate PDF; using plain seal.", exc_info=True)
+        _draw_emblem(c, cx, y - 12 * mm, 8.5 * mm)
 
-    c.setFont("Helvetica-Bold", 20)
+    y -= 32 * mm
+    c.setFillColorRGB(*ACCENT)
+    c.setFont("Times-Bold", 13)
+    c.drawCentredString(cx, y, "GOVERNMENT OF INDIA")
+    y -= 6.2 * mm
+    ministry = "MINISTRY OF CONSUMER AFFAIRS, FOOD & PUBLIC DISTRIBUTION"
+    # Shrink-to-fit so the long ministry name always stays inside the margins.
+    ministry_size = 15
+    while ministry_size > 9 and stringWidth(ministry, "Times-Bold", ministry_size) > content_w:
+        ministry_size -= 0.25
+    c.setFont("Times-Bold", ministry_size)
+    c.drawCentredString(cx, y, ministry)
+    y -= 4 * mm
+    _double_rule(c, left, right, y)
+
+    y -= 11 * mm
     c.setFillColorRGB(*INK)
-    c.drawCentredString(width / 2, top - 30 * mm, "CERTIFICATE OF VERIFICATION")
-    c.setFont("Helvetica-Oblique", 10)
+    c.setFont("Times-Bold", 23)
+    c.drawCentredString(cx, y, "CERTIFICATE OF VERIFICATION")
+    y -= 6.5 * mm
+    c.setFont("Times-Italic", 10.5)
     c.setFillColorRGB(*MUTED)
-    c.drawCentredString(width / 2, top - 37 * mm, "Issued under the Legal Metrology Act")
+    c.drawCentredString(cx, y, "Issued under the Legal Metrology Act")
 
-    # Field block
-    y = top - 55 * mm
-    row_h = 9 * mm
-    fields = [
+    # ---- Preamble (wrapped, never leaves the margins) ----------------------
+    result = str(inspection.get("result", "") or "").upper() or "-"
+    body = ParagraphStyle("body", fontName="Times-Roman", fontSize=10.5, leading=15.5,
+                          alignment=TA_JUSTIFY, textColor=Color(*INK))
+    preamble = Paragraph(
+        "This is to certify that the weighing / measuring instrument described below has been "
+        "duly inspected and verified by the undersigned authority in accordance with the "
+        f"provisions of the Legal Metrology Act and the rules made thereunder, and the result of "
+        f"verification is recorded as <b>{escape(result)}</b>.",
+        body,
+    )
+    y -= 5 * mm
+    _, ph = preamble.wrap(content_w, 1000)
+    preamble.drawOn(c, left, y - ph)
+    y -= ph + 5 * mm
+
+    # ---- Details table ------------------------------------------------------
+    label_st = ParagraphStyle("lbl", fontName="Times-Bold", fontSize=9.5, leading=12, textColor=Color(*MUTED))
+    value_st = ParagraphStyle("val", fontName="Helvetica-Bold", fontSize=9.5, leading=12.5, textColor=Color(*INK))
+
+    def cell(v):
+        return Paragraph(escape(str(v)) if v else "-", value_st)
+
+    rows = [
         ("Certificate No.", cert_no),
         ("Instrument Type", instrument.get("type")),
-        ("UIID", instrument.get("uiid")),
+        ("Unique Instrument ID (UIID)", instrument.get("uiid")),
         ("Manufacturer", instrument.get("manufacturer")),
         ("Model", instrument.get("model")),
-        ("Owner", owner.get("org_name") if owner else None),
-        ("Location", _safe_location(instrument.get("location"))),
-        ("Inspected On", inspection["inspected_at"].strftime("%d %b %Y") if hasattr(inspection["inspected_at"], "strftime") else inspection["inspected_at"]),
-        ("Result", str(inspection.get("result", "")).upper()),
-        ("Issued On", issued_at.strftime("%d %b %Y")),
-        ("Valid Until", valid_until.strftime("%d %b %Y")),
+        ("Owner / Organisation", owner.get("org_name") if owner else None),
+        ("Location of Instrument", _safe_location(instrument.get("location"))),
+        ("Date of Inspection", _fmt_date(inspection.get("inspected_at"))),
+        ("Result of Verification", result),
+        ("Date of Issue", _fmt_date(issued_at)),
+        ("Valid Until", _fmt_date(valid_until)),
     ]
-    for label, value in fields:
-        _draw_field_row(c, inner_left, y, label, value)
-        y -= row_h
+    data = [[Paragraph(escape(l).upper(), label_st), cell(v)] for l, v in rows]
+    table = Table(data, colWidths=[content_w * 0.34, content_w * 0.66])
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (0, -1), Color(*LABEL_BG)),
+        ("GRID", (0, 0), (-1, -1), 0.5, Color(*ACCENT)),
+        ("BOX", (0, 0), (-1, -1), 1.1, Color(*ACCENT)),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3 * mm),
+        ("TOPPADDING", (0, 0), (-1, -1), 1.7 * mm),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.7 * mm),
+    ]))
+    _, th = table.wrap(content_w, 1000)
+    table.drawOn(c, left, y - th)
+    y -= th + 5 * mm
 
-    # QR code, bottom-right of the field block, with a caption
+    # ---- Validity note ------------------------------------------------------
+    note_st = ParagraphStyle("note", fontName="Times-Italic", fontSize=9.5, leading=13,
+                             alignment=TA_CENTER, textColor=Color(*MUTED))
+    note = Paragraph(
+        f"This certificate is valid until <b>{escape(_fmt_date(valid_until))}</b> unless the "
+        "instrument is repaired, altered or tampered with, or the certificate is suspended or cancelled.",
+        note_st,
+    )
+    _, nh = note.wrap(content_w, 1000)
+    note.drawOn(c, left, y - nh)
+
+    # ---- Bottom block: QR | seal text | signature ---------------------------
+    base = inner + 21 * mm                     # leaves room for the footer
     qr_size = 32 * mm
-    qr_x = inner_right - qr_size
-    qr_y = margin + 30 * mm
     try:
-        c.drawImage(ImageReader(BytesIO(qr_png)), qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
+        c.setFillColorRGB(1, 1, 1)
+        c.setStrokeColorRGB(*ACCENT)
+        c.setLineWidth(0.8)
+        c.rect(left, base, qr_size + 4 * mm, qr_size + 4 * mm, stroke=1, fill=1)
+        c.drawImage(ImageReader(BytesIO(qr_png)), left + 2 * mm, base + 2 * mm,
+                    width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
     except Exception:
         # Certificate is still valid without the QR rendering -- the printed
         # certificate number and the verify link both let anyone confirm it.
         logger.warning("Could not draw QR code on certificate PDF.", exc_info=True)
-    c.setFont("Helvetica", 7)
-    c.setFillColorRGB(*MUTED)
-    c.drawCentredString(qr_x + qr_size / 2, qr_y - 5 * mm, "Scan to verify authenticity")
+    cap = ParagraphStyle("cap", fontName="Times-Roman", fontSize=8, leading=10.5, textColor=Color(*MUTED))
+    capp = Paragraph("Scan the QR code to verify the authenticity of this certificate online.", cap)
+    cap_w = 52 * mm
+    _, cap_h = capp.wrap(cap_w, 100)
+    capp.drawOn(c, left + qr_size + 4 * mm + 5 * mm, base + (qr_size + 4 * mm) / 2 - cap_h / 2)
 
-    # Signature line, bottom-left, opposite the QR
-    sig_x = inner_left
-    sig_y = qr_y + 6 * mm
+    # Signature block (right)
+    sig_w = 62 * mm
+    sig_x2 = right
+    sig_x1 = sig_x2 - sig_w
+    sig_line_y = base + 17 * mm
+    c.setFont("Times-Italic", 8.5)
+    c.setFillColorRGB(*ACCENT)
+    c.drawCentredString((sig_x1 + sig_x2) / 2, sig_line_y + 11 * mm, "Digitally generated & electronically issued")
+    c.setFont("Helvetica", 7.5)
+    c.setFillColorRGB(*MUTED)
+    c.drawCentredString((sig_x1 + sig_x2) / 2, sig_line_y + 6.5 * mm, f"Date: {_fmt_date(issued_at)}")
     c.setStrokeColorRGB(*INK)
     c.setLineWidth(0.7)
-    c.line(sig_x, sig_y, sig_x + 55 * mm, sig_y)
-    c.setFont("Helvetica", 8)
+    c.line(sig_x1, sig_line_y, sig_x2, sig_line_y)
+    c.setFont("Times-Bold", 10)
+    c.setFillColorRGB(*INK)
+    c.drawCentredString((sig_x1 + sig_x2) / 2, sig_line_y - 5 * mm, "Legal Metrology Officer")
+    c.setFont("Times-Roman", 9)
     c.setFillColorRGB(*MUTED)
-    c.drawString(sig_x, sig_y - 5 * mm, "Legal Metrology Officer")
-    c.drawString(sig_x, sig_y - 9.5 * mm, "Authorized Signatory")
+    c.drawCentredString((sig_x1 + sig_x2) / 2, sig_line_y - 9.5 * mm, "Authorised Signatory")
+    c.drawCentredString((sig_x1 + sig_x2) / 2, sig_line_y - 14 * mm, "Department of Legal Metrology")
 
-    # Footer
-    c.setFont("Helvetica-Oblique", 7.5)
-    c.setFillColorRGB(*MUTED)
-    c.drawCentredString(width / 2, margin + 8 * mm, "This is a system-generated certificate and is valid without a physical signature.")
-    c.drawCentredString(width / 2, margin + 4 * mm, f"Verify at: {verify_url}  |  Certificate No. {cert_no}")
+    # ---- Footer -------------------------------------------------------------
+    fy = inner + 12 * mm
+    c.setStrokeColorRGB(*ACCENT)
+    c.setLineWidth(0.5)
+    c.line(left, fy + 5 * mm, right, fy + 5 * mm)
+    foot = ParagraphStyle("foot", fontName="Times-Italic", fontSize=8, leading=10.5,
+                          alignment=TA_CENTER, textColor=Color(*MUTED))
+    fp = Paragraph(
+        "This is a system-generated certificate and is valid without a physical signature or seal.<br/>"
+        f"Verify with Certificate ID <b>{escape(cert_no)}</b> on the MaapSetu app.",
+        foot,
+    )
+    _, fh = fp.wrap(content_w, 100)
+    fp.drawOn(c, left, fy + 3 * mm - fh)
 
+    c.showPage()
     c.save()
     buf.seek(0)
     return buf.getvalue()
