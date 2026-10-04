@@ -61,6 +61,9 @@ jobs:
 
       - name: Type-check + build
         run: npm run build
+        env:
+          # placeholder for github ci checks
+          VITE_SITE_URL: https://example.com
 
   docker-build:
     name: Backend Docker image builds
