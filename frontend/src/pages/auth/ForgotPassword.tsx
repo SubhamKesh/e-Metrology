@@ -90,7 +90,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <AuthLayout
+    <AuthLayout seo="/forgot-password"
       title="Reset your password"
       subtitle={
         step === "email"

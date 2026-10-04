@@ -192,7 +192,7 @@ export default function Register() {
   }
 
   return (
-    <AuthLayout title="Create your account" subtitle="Register instruments, track applications, and manage verifications.">
+    <AuthLayout seo="/register" title="Create your account" subtitle="Register instruments, track applications, and manage verifications.">
       <p className="mb-4 text-sm text-slate-500">
         This form is for business/owner accounts. Legal Metrology Officer and GATC accounts are created by an
         administrator and are not open for self-registration.

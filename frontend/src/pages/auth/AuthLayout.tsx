@@ -1,10 +1,23 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Brand } from "@/components/ui/Brand";
+import { Seo } from "@/seo/Seo";
+import type { SeoRouteKey } from "@/seo/seoConfig";
 
-export function AuthLayout({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+export function AuthLayout({
+  title,
+  subtitle,
+  seo,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  seo: SeoRouteKey;
+  children: ReactNode;
+}) {
   return (
     <div className="grid min-h-screen lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <Seo route={seo} />
       {/* Brand panel — desktop only */}
       <div className="hidden flex-col justify-between bg-ink px-10 py-10 text-paper lg:flex xl:px-16">
         <Link to="/" aria-label="MaapSetu home" className="w-fit rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-paper/60">

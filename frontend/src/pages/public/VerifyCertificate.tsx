@@ -1,11 +1,12 @@
 import { type ReactNode, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useVerifyCertificate } from "@/hooks/useData";
 import { TextInput } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/States";
 import { ApiError } from "@/lib/api";
 import { PublicLayout } from "@/components/layout/PublicLayout";
+import { Seo } from "@/seo/Seo";
 
 export default function VerifyCertificate() {
   const { certId } = useParams();
@@ -38,6 +39,14 @@ export default function VerifyCertificate() {
             Check certificate
           </Button>
         </form>
+        <p className="mt-6 border-t border-line pt-4 text-sm text-slate-600">
+          A genuine MaapSetu Legal Metrology certificate shows the instrument, its owner, the date it was verified and
+          how long it stays valid. Want to know how certificates are issued? Read{" "}
+          <Link to="/how-it-works" className="font-medium text-teal underline underline-offset-2">
+            how Legal Metrology verification works
+          </Link>
+          .
+        </p>
       </Shell>
     );
   }
@@ -109,8 +118,10 @@ export default function VerifyCertificate() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
+  const { certId } = useParams();
   return (
     <PublicLayout>
+      <Seo route={certId ? "/verify/:certId" : "/verify"} />
       <div className="container-page flex justify-center py-8 sm:py-14">
         <div className="w-full max-w-xl">
           <div className="rounded-xl border border-line bg-white p-5 shadow-raised sm:p-8">{children}</div>

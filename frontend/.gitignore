@@ -7,3 +7,8 @@ dist/
 # Editor/OS cruft
 .DS_Store
 .vscode/
+
+# prerender / build output
+dist-ssr/
+
+*.tsbuildinfo

@@ -1,10 +1,12 @@
 import { type FormEvent, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { roleHome } from "@/lib/roleHome";
 import { PublicLayout } from "@/components/layout/PublicLayout";
 import { ButtonLink, Button } from "@/components/ui/Button";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { STEPS } from "@/content/steps";
+import { Seo } from "@/seo/Seo";
 
 const FEATURES: { icon: IconName; title: string; body: string }[] = [
   { icon: "instrument", title: "Instrument registration", body: "Register weighing and measuring instruments once and get a unique instrument ID." },
@@ -13,14 +15,6 @@ const FEATURES: { icon: IconName; title: string; body: string }[] = [
   { icon: "qr", title: "QR-based verification", body: "Every certificate carries a QR code that anyone can scan to confirm it is genuine." },
   { icon: "history", title: "Verification history", body: "Each application keeps a status history so you can see what happened and when." },
   { icon: "clock", title: "Validity tracking", body: "See when a certificate is valid, expiring soon or expired, and plan renewals ahead." },
-];
-
-const STEPS = [
-  { title: "Register instrument", body: "Business owners add instrument details and location." },
-  { title: "Submit verification", body: "Request verification for a registered instrument." },
-  { title: "Inspection", body: "An officer or approved test centre inspects it and records the result." },
-  { title: "Certification", body: "A passed inspection produces a digital certificate." },
-  { title: "Public verification", body: "Anyone can confirm the certificate by ID or QR code." },
 ];
 
 const TRUST: { icon: IconName; title: string; body: string }[] = [
@@ -32,12 +26,14 @@ const TRUST: { icon: IconName; title: string; body: string }[] = [
 
 export default function Landing() {
   const { user, status } = useAuth();
-  // Signed-in users keep the previous behaviour: "/" sends them to their dashboard.
-  if (status === "loading") return null;
-  if (user) return <Navigate to={roleHome(user.role)} replace />;
+  // Signed-in users keep the previous behaviour: "/" sends them to their dashboard,
+  // but only once auth has resolved. While auth is loading (and during prerender / for
+  // crawlers) the public content renders, so the page is never blank.
+  if (status !== "loading" && user) return <Navigate to={roleHome(user.role)} replace />;
 
   return (
     <PublicLayout>
+      <Seo route="/" />
       <Hero />
       <Features />
       <HowItWorks />
@@ -52,13 +48,13 @@ function Hero() {
     <section className="relative overflow-hidden border-b border-line">
       <div className="container-page grid items-center gap-10 py-12 sm:py-16 lg:grid-cols-[1.15fr_1fr] lg:gap-16 lg:py-24">
         <div className="animate-fade-up">
-          <p className="eyebrow">Legal Metrology · Weights &amp; Measures</p>
+          <p className="eyebrow">e-Metrology · Legal Metrology · India</p>
           <h1 className="mt-4 font-display text-4xl font-semibold leading-[1.08] tracking-tight text-ink sm:text-5xl lg:text-6xl">
-            Digital verification &amp; certification for weights and measures.
+            Legal Metrology verification for weighing and measuring instruments.
           </h1>
           <p className="mt-5 max-w-xl text-base text-slate-600 sm:text-lg">
-            Register your instruments, request verification online and receive a digital certificate that anyone can
-            check for authenticity — with every step tracked from registration to renewal.
+            Register your weighing machines and meters in India, request verification online and receive a digital
+            verification certificate with a QR code that anyone can check — with every step tracked from registration to renewal.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <ButtonLink to="/register" size="lg">
@@ -171,6 +167,11 @@ function HowItWorks() {
     <section id="how-it-works" className="scroll-mt-16 border-y border-line bg-paper2/60 py-14 sm:py-20">
       <div className="container-page">
         <SectionHead eyebrow="How it works" title="From instrument to verified certificate in five steps." />
+        <p className="mt-4">
+          <Link to="/how-it-works" className="text-sm font-medium text-teal underline underline-offset-2">
+            Read the full Legal Metrology verification walkthrough and FAQ
+          </Link>
+        </p>
         <ol className="mt-10 grid gap-4 md:grid-cols-5">
           {STEPS.map((s, i) => (
             <li key={s.title} className="relative flex gap-4 rounded-xl border border-line bg-white p-5 shadow-panel md:block">

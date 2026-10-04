@@ -110,7 +110,7 @@ export default function ChangePassword() {
   }
 
   return (
-    <AuthLayout
+    <AuthLayout seo="/change-password"
       title={forced ? "Set your password" : "Change password"}
       subtitle={
         forced

@@ -28,7 +28,7 @@ export default function PendingApproval() {
 
   if (rejected) {
     return (
-      <AuthLayout title="Registration not approved" subtitle="An administrator has declined this account.">
+      <AuthLayout seo="/pending" title="Registration not approved" subtitle="An administrator has declined this account.">
         <div className="rounded-xl border border-danger/20 bg-danger-50 p-4 text-sm text-ink" role="status">
           <p>
             {name ? `${name}, your` : "Your"} registration{email ? ` for ${email}` : ""} was not approved, so this
@@ -44,7 +44,7 @@ export default function PendingApproval() {
   }
 
   return (
-    <AuthLayout title="Account pending approval" subtitle="Your account is awaiting admin approval.">
+    <AuthLayout seo="/pending" title="Account pending approval" subtitle="Your account is awaiting admin approval.">
       <div className="rounded-xl border border-warning/30 bg-warning-50 p-4 text-sm text-ink" role="status">
         <p>
           Thanks for registering{name ? `, ${name}` : ""}. An administrator must approve officer accounts before they

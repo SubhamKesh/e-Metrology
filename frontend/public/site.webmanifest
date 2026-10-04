@@ -1,0 +1,22 @@
+{
+  "name": "MaapSetu",
+  "short_name": "MaapSetu",
+  "description": "Digital Legal Metrology verification and certification for weighing and measuring instruments in India.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F4EE",
+  "theme_color": "#1F5F5B",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

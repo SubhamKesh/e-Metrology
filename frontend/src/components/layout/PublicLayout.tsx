@@ -35,7 +35,8 @@ function PublicHeader() {
         {/* Desktop */}
         <nav aria-label="Main" className="hidden items-center gap-1 md:flex">
           <a href="/#features" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-paper2">Features</a>
-          <a href="/#how-it-works" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-paper2">How it works</a>
+          <Link to="/how-it-works" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-paper2">How it works</Link>
+          <Link to="/about" className="rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-paper2">About</Link>
           <NavLink
             to="/verify"
             className={({ isActive }) =>
@@ -72,7 +73,8 @@ function PublicHeader() {
         <nav aria-label="Mobile" className="border-t border-line bg-paper md:hidden">
           <div className="container-page flex flex-col gap-1 py-3">
             <a href="/#features" onClick={() => setOpen(false)} className="rounded-md px-3 py-3 text-sm font-medium text-ink hover:bg-paper2">Features</a>
-            <a href="/#how-it-works" onClick={() => setOpen(false)} className="rounded-md px-3 py-3 text-sm font-medium text-ink hover:bg-paper2">How it works</a>
+            <Link to="/how-it-works" onClick={() => setOpen(false)} className="rounded-md px-3 py-3 text-sm font-medium text-ink hover:bg-paper2">How it works</Link>
+            <Link to="/about" onClick={() => setOpen(false)} className="rounded-md px-3 py-3 text-sm font-medium text-ink hover:bg-paper2">About MaapSetu</Link>
             <Link to="/login" onClick={() => setOpen(false)} className="rounded-md px-3 py-3 text-sm font-medium text-ink hover:bg-paper2">Sign in</Link>
             <ButtonLink to="/register" className="mt-2 w-full" onClick={() => setOpen(false)}>Create an account</ButtonLink>
           </div>
@@ -105,13 +107,14 @@ function PublicFooter() {
           <p className="font-medium text-paper">Learn more</p>
           <ul className="mt-3 space-y-2 text-paper2/70">
             <li><a className="hover:text-paper" href="/#features">Features</a></li>
-            <li><a className="hover:text-paper" href="/#how-it-works">How it works</a></li>
+            <li><Link className="hover:text-paper" to="/how-it-works">How Legal Metrology verification works</Link></li>
+            <li><Link className="hover:text-paper" to="/about">About MaapSetu</Link></li>
             <li><a className="hover:text-paper" href="/#trust">Security &amp; traceability</a></li>
           </ul>
         </nav>
       </div>
       <div className="border-t border-white/10">
-        <p className="container-page py-4 text-xs text-paper2/60">Legal Metrology · MaapSetu</p>
+        <p className="container-page py-4 text-xs text-paper2/60">© MaapSetu e-Metrology · Digital Legal Metrology verification in India</p>
       </div>
     </footer>
   );

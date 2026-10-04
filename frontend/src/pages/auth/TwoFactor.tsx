@@ -94,7 +94,7 @@ function Verify({ mfaToken, email, from }: { mfaToken: string; email?: string; f
 
   if (recoveryLeft) {
     return (
-      <AuthLayout title="You're signed in" subtitle="You used a recovery code.">
+      <AuthLayout seo="/two-step" title="You're signed in" subtitle="You used a recovery code.">
         <p className="rounded-md bg-teal-50 px-3 py-2 text-sm text-teal-700">
           {recoveryLeft.remaining > 0
             ? `You have ${recoveryLeft.remaining} recovery code${recoveryLeft.remaining === 1 ? "" : "s"} left. `
@@ -110,7 +110,7 @@ function Verify({ mfaToken, email, from }: { mfaToken: string; email?: string; f
   }
 
   return (
-    <AuthLayout
+    <AuthLayout seo="/two-step"
       title="Two-step verification"
       subtitle={email ? `Signing in as ${email}.` : "Confirm it's really you."}
     >
@@ -221,7 +221,7 @@ function Setup({ mfaToken, from }: { mfaToken: string; from?: { pathname: string
   // ---- step 3: save your recovery codes
   if (pending) {
     return (
-      <AuthLayout title="Save your recovery codes" subtitle="Two-step verification is now on.">
+      <AuthLayout seo="/two-step" title="Save your recovery codes" subtitle="Two-step verification is now on.">
         <p className="text-sm text-slate-600">
           If you lose your phone, each of these codes lets you sign in once. They're shown{" "}
           <strong>only now</strong> — save them somewhere safe and private.
@@ -267,7 +267,7 @@ function Setup({ mfaToken, from }: { mfaToken: string; from?: { pathname: string
 
   // ---- steps 1 + 2: scan the QR code, enter a code
   return (
-    <AuthLayout
+    <AuthLayout seo="/two-step"
       title="Set up two-step verification"
       subtitle="Officer and administrator accounts need a code from an authenticator app every time they sign in."
     >
