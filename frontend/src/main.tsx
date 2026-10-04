@@ -16,7 +16,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const app = (
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
@@ -25,16 +25,5 @@ const app = (
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );
-
-const container = document.getElementById("root")!;
-
-// Prerendered pages (/, /verify, /register, /how-it-works, /about, 404) ship real markup in #root:
-// hydrate it so the DOM is kept as-is. Client-only routes and `npm run dev` start with an empty
-// root and render normally.
-if (container.hasChildNodes()) {
-  ReactDOM.hydrateRoot(container, app);
-} else {
-  ReactDOM.createRoot(container).render(app);
-}

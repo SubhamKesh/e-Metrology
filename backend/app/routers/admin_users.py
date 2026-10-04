@@ -48,7 +48,7 @@ def create_officer(payload: OfficerCreate, request: Request, current_user: dict 
     def _refuse(detail: str, message: str, status_code: int = 400):
         log_event(
             "officer_creation_failed", outcome="failure", request=request,
-            email=target_email, actor_id=actor, detail=detail,
+            email=target_email, actor_id=actor, actor_email=current_user["email"], detail=detail,
         )
         raise HTTPException(status_code=status_code, detail=message)
 
@@ -95,6 +95,7 @@ def create_officer(payload: OfficerCreate, request: Request, current_user: dict 
         user_id=str(result.inserted_id),
         role=doc["role"],
         actor_id=actor,
+        actor_email=current_user["email"],
         detail=f"jurisdiction={payload.jurisdiction.state_code}/{payload.jurisdiction.district_code or '*'}",
     )
 
@@ -180,6 +181,7 @@ def approve_user(user_id: str, request: Request, current_user: dict = Depends(ro
         user_id=str(user["_id"]),
         role=user["role"],
         actor_id=str(current_user["_id"]),
+        actor_email=current_user["email"],
         detail=f"from={previous}",
     )
     return _to_user_out(user)
@@ -210,6 +212,7 @@ def reject_user(user_id: str, request: Request, current_user: dict = Depends(rol
         user_id=str(user["_id"]),
         role=user["role"],
         actor_id=str(current_user["_id"]),
+        actor_email=current_user["email"],
         detail=f"from={previous}",
     )
     return _to_user_out(user)
@@ -255,6 +258,7 @@ def admin_reset_officer_mfa(
         user_id=str(user["_id"]),
         role=user["role"],
         actor_id=str(current_user["_id"]),
+        actor_email=current_user["email"],
     )
     user["mfa_enabled"] = False
     return _to_user_out(user)
@@ -304,6 +308,7 @@ def admin_reset_officer_password(
         user_id=str(user["_id"]),
         role=user["role"],
         actor_id=str(current_user["_id"]),
+        actor_email=current_user["email"],
     )
 
     emailed = False

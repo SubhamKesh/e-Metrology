@@ -137,6 +137,30 @@ if IS_PRODUCTION and (
 # worker / local dev, NOT correct for --workers > 1 or multiple containers).
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 
+# MongoDB read preference for READ-HEAVY, staleness-tolerant endpoints only
+# (reference data, public certificate verification, dashboards, the audit-log
+# viewer). Everything that must read its own writes or enforce security —
+# sign-in, token/user checks, lists a user just changed — always reads the
+# primary regardless of this setting.
+#   primary             (default) every read goes to the primary; correct for
+#                       a single node or when you have no replicas to use
+#   secondaryPreferred  use a secondary when one is available, else the primary
+#                       (recommended with a replica set / Atlas cluster)
+# Replica reads can lag the primary by a moment (usually well under a second).
+# Don't also put readPreference in MONGO_URI: that would send EVERY read,
+# including the security-critical ones, to secondaries.
+MONGO_READ_PREFERENCE = os.getenv("MONGO_READ_PREFERENCE", "primary").strip() or "primary"
+_ALLOWED_READ_PREFERENCES = ("primary", "primaryPreferred", "secondaryPreferred", "nearest")
+if MONGO_READ_PREFERENCE not in _ALLOWED_READ_PREFERENCES:
+    raise ValueError(
+        f"MONGO_READ_PREFERENCE={MONGO_READ_PREFERENCE!r} is not supported; use one of {_ALLOWED_READ_PREFERENCES}. "
+        "('secondary' is deliberately not offered: it fails outright when no secondary is available.)"
+    )
+
+# Signup OTP (/otp/send): minimum gap between two codes to the same address,
+# so the endpoint can't be used to flood an inbox the caller doesn't own.
+OTP_SEND_COOLDOWN_SECONDS = int(os.getenv("OTP_SEND_COOLDOWN_SECONDS", "60"))
+
 # Failed-login lockout (Section 1: account lockout / exponential backoff).
 LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_BASE_MINUTES = int(os.getenv("LOGIN_LOCKOUT_BASE_MINUTES", "1"))
@@ -222,6 +246,8 @@ class _Settings:
     REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS = REMEMBER_ME_REFRESH_TOKEN_EXPIRES_DAYS
     PASSWORD_RESET_COOLDOWN_SECONDS = PASSWORD_RESET_COOLDOWN_SECONDS
     SELF_SERVICE_AUTH_ROLES = SELF_SERVICE_AUTH_ROLES
+    MONGO_READ_PREFERENCE = MONGO_READ_PREFERENCE
+    OTP_SEND_COOLDOWN_SECONDS = OTP_SEND_COOLDOWN_SECONDS
     AUDIT_LOG_RETENTION_DAYS = AUDIT_LOG_RETENTION_DAYS
     MFA_REQUIRED_ROLES = MFA_REQUIRED_ROLES
     MFA_TOKEN_EXPIRES_MINUTES = MFA_TOKEN_EXPIRES_MINUTES

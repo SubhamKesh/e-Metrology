@@ -1,0 +1,70 @@
+# Production-SHAPED stack for rehearsing horizontal scaling on one machine:
+#
+#   browser -> nginx (load balancer, :8080) -> 3 x backend  --+--> mongo
+#                                                              +--> redis  (shared state)
+#                                              1 x worker  ---+
+#
+# Everything that must be shared between instances lives in Redis (rate-limit
+# counters, DDoS counters, WebSocket fan-out, job queue, scheduler lock), so
+# you can scale the backend freely. Try it:
+#
+#   export JWT_SECRET=$(openssl rand -hex 32) OTP_PEPPER=$(openssl rand -hex 32) MFA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+#   docker compose -f docker-compose.scale.yml up --build
+#   docker compose -f docker-compose.scale.yml up -d --scale backend=5   # add capacity live
+#
+# then open http://localhost:8080/api/v1/health (point the frontend's
+# VITE_API_BASE_URL at http://localhost:8080). This is NOT how the real
+# deployment is provisioned (Render/Atlas, see docs/deployment-scaling.md); it
+# is for proving the app behaves correctly behind a load balancer.
+
+x-backend-env: &backend-env
+  MONGO_URI: mongodb://mongo:27017
+  DB_NAME: maapsetu
+  ENVIRONMENT: development
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET, e.g. export JWT_SECRET=$(openssl rand -hex 32)}
+  OTP_PEPPER: ${OTP_PEPPER:?set OTP_PEPPER}
+  MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:?set MFA_ENCRYPTION_KEY}
+  COOKIE_SECURE: "false" # plain http on localhost; true behind HTTPS
+  CORS_ALLOWED_ORIGINS: http://localhost:5173
+  REDIS_URL: redis://redis:6379/0
+  # MONGO_READ_PREFERENCE: secondaryPreferred  # only meaningful against a replica set
+
+services:
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+
+  backend:
+    build: ./backend
+    environment: *backend-env
+    depends_on:
+      - mongo
+      - redis
+    deploy:
+      replicas: 3 # no host port: only nginx is reachable from outside
+
+  worker:
+    build: ./backend
+    command: ["python", "run_worker.py"]
+    environment: *backend-env
+    depends_on:
+      - mongo
+      - redis
+    healthcheck:
+      disable: true # the image's HTTP health probe doesn't apply to a queue worker
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:

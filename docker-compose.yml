@@ -13,7 +13,7 @@ services:
       - mongo_data:/data/db
 
   # Optional — only needed to exercise the Redis-backed DDoS-protection
-  # store locally (see backend/app/middleware/ddos_store.py). Not required
+  # store, the shared rate limiter and the job queue locally (see backend/app/middleware/ddos_store.py). Not required
   # for local dev otherwise; the app falls back to in-memory state without
   # it. Uncomment REDIS_URL below (and this service) to opt in.
   redis:
@@ -33,9 +33,33 @@ services:
       JWT_SECRET: dev_secret_change_me
       COOKIE_SECURE: "false" # set true once served over HTTPS
       CORS_ALLOWED_ORIGINS: http://localhost:5173
-     # REDIS_URL: redis://redis:6379/0  # uncomment + `docker compose --profile redis up` to test the Redis-backed DDoS store
+      # Empty by default (in-memory state, no worker). To run with Redis AND the
+      # background worker, set it for this command:
+      #   REDIS_URL=redis://redis:6379/0 docker compose --profile redis up --build
+      # (PowerShell:  $env:REDIS_URL="redis://redis:6379/0"; docker compose --profile redis up --build)
+      REDIS_URL: ${REDIS_URL:-}
     depends_on:
       - mongo
+
+  # Background worker: certificate generation + owner/officer emails (see
+  # backend/app/services/jobs.py). Needs Redis, so it only starts with the
+  # "redis" profile. Without a worker the app falls back to doing that work in
+  # a thread inside the web process, so it is optional for plain local dev.
+  worker:
+    build: ./backend
+    command: ["python", "run_worker.py"]
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      DB_NAME: maapsetu
+      ENVIRONMENT: development
+      JWT_SECRET: dev_secret_change_me
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - mongo
+      - redis
+    healthcheck:
+      disable: true # the image's HTTP health probe doesn't apply to a queue worker
+    profiles: ["redis"]
 
 volumes:
   mongo_data:

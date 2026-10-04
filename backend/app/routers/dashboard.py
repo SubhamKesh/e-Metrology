@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 
 from app.config.db import (
+    read_replica,
     instruments_col,
     applications_col,
     certificates_col,
@@ -30,20 +31,20 @@ def owner_dashboard(current_user: dict = Depends(role_required("owner", allow_ad
     is_admin_view = current_user["role"] == "admin"
     owner_filter: dict = {} if is_admin_view else {"owner_id": current_user["_id"]}
 
-    total_instruments = instruments_col.count_documents(owner_filter)
-    verified = applications_col.count_documents({**owner_filter, "status": {"$in": VERIFIED_STATUSES}})
-    pending = applications_col.count_documents({**owner_filter, "status": {"$in": PENDING_STATUSES}})
-    expired = applications_col.count_documents({**owner_filter, "status": "expired"})
+    total_instruments = read_replica(instruments_col).count_documents(owner_filter)
+    verified = read_replica(applications_col).count_documents({**owner_filter, "status": {"$in": VERIFIED_STATUSES}})
+    pending = read_replica(applications_col).count_documents({**owner_filter, "status": {"$in": PENDING_STATUSES}})
+    expired = read_replica(applications_col).count_documents({**owner_filter, "status": "expired"})
 
-    owner_app_ids = [a["_id"] for a in applications_col.find(owner_filter, {"_id": 1})]
+    owner_app_ids = [a["_id"] for a in read_replica(applications_col).find(owner_filter, {"_id": 1})]
     next_expiry = None
     if owner_app_ids:
-        cert = certificates_col.find(
+        cert = read_replica(certificates_col).find(
             {"application_id": {"$in": owner_app_ids}, "valid_until": {"$gte": datetime.now(timezone.utc)}}
         ).sort("valid_until", 1).limit(1)
         cert = next(cert, None)
         if cert:
-            instrument = instruments_col.find_one({"_id": cert["instrument_id"]})
+            instrument = read_replica(instruments_col).find_one({"_id": cert["instrument_id"]})
             valid_until = cert["valid_until"]
             if valid_until.tzinfo is None:
                 valid_until = valid_until.replace(tzinfo=timezone.utc)
@@ -69,14 +70,14 @@ def _officer_dashboard_data(officer_filter: dict, inspector_filter: dict) -> Off
     applications by assigned_officer_id (a single officer for a normal
     lmo/gatc user, or "any officer of this role" for the admin aggregate
     view below). `inspector_filter` does the same for inspections.officer_id."""
-    assigned = applications_col.count_documents({**officer_filter})
-    pending = applications_col.count_documents({**officer_filter, "status": "scheduled"})
-    completed = applications_col.count_documents(
+    assigned = read_replica(applications_col).count_documents({**officer_filter})
+    pending = read_replica(applications_col).count_documents({**officer_filter, "status": "scheduled"})
+    completed = read_replica(applications_col).count_documents(
         {**officer_filter, "status": {"$in": ["certified", "rejected"]}}
     )
 
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    today_inspections = inspections_col.count_documents(
+    today_inspections = read_replica(inspections_col).count_documents(
         {**inspector_filter, "inspected_at": {"$gte": today_start}}
     )
 
@@ -92,7 +93,7 @@ def _officer_ids_for_role(role: str) -> list:
     """All user _ids currently holding `role` — used to build the
     admin-aggregate filters below (system-wide totals for that role,
     not one arbitrary officer's numbers)."""
-    return [u["_id"] for u in users_col.find({"role": role}, {"_id": 1})]
+    return [u["_id"] for u in read_replica(users_col).find({"role": role}, {"_id": 1})]
 
 
 def _dashboard_for_role(role: str, current_user: dict) -> OfficerDashboard:
@@ -129,10 +130,10 @@ def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
     if cached is not None:
         return cached
 
-    total_instruments = instruments_col.count_documents({})
-    verified = applications_col.count_documents({"status": {"$in": VERIFIED_STATUSES}})
-    pending = applications_col.count_documents({"status": {"$in": PENDING_STATUSES}})
-    expired = applications_col.count_documents({"status": "expired"})
+    total_instruments = read_replica(instruments_col).count_documents({})
+    verified = read_replica(applications_col).count_documents({"status": {"$in": VERIFIED_STATUSES}})
+    pending = read_replica(applications_col).count_documents({"status": {"$in": PENDING_STATUSES}})
+    expired = read_replica(applications_col).count_documents({"status": "expired"})
 
     # Grouping on the canonical state_code (not the old free-text location
     # string) means this no longer fragments on typos/capitalization —
@@ -142,14 +143,14 @@ def admin_dashboard(current_user: dict = Depends(role_required("admin"))):
         {"$group": {"_id": "$location.state_code", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
     ]
-    state_names = {s["code"]: s["name"] for s in states_col.find()}
+    state_names = {s["code"]: s["name"] for s in read_replica(states_col).find()}
     by_location = [
         StateBreakdown(
             state_code=row["_id"] or "unknown",
             state_name=state_names.get(row["_id"], "Unspecified"),
             count=row["count"],
         )
-        for row in instruments_col.aggregate(pipeline)
+        for row in read_replica(instruments_col).aggregate(pipeline)
     ]
 
     result = AdminDashboard(

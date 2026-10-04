@@ -180,3 +180,29 @@ export interface AdminDashboard {
   expired: number;
   by_location: { state_code: string; state_name: string; count: number }[];
 }
+
+// ---- Security audit log (admin only; read-only) ----
+export type AuditOutcome = "success" | "failure" | "blocked" | "ignored";
+
+export interface AuditLogEntry {
+  id: string;
+  event: string;
+  outcome: AuditOutcome;
+  email: string | null;
+  user_id: string | null;
+  role: string | null;
+  actor_id: string | null;
+  actor_email: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  detail: string | null;
+  created_at: string; // ISO 8601, UTC
+}
+
+export interface AuditLogPage {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  page_size: number;
+  events: string[]; // every event name that can appear, for the filter
+}

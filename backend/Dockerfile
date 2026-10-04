@@ -19,6 +19,11 @@ WORKDIR /app
 
 COPY --from=builder /root/.local /home/appuser/.local
 COPY app/ ./app/
+# The background worker (certificates, emails) runs from this same image:
+#   command: ["python", "run_worker.py"]
+# The two operator scripts are included so they can be run from a Render /
+# container shell:  python seed_super_admin.py   |   python reset_mfa.py <email>
+COPY run_worker.py seed_super_admin.py reset_mfa.py ./
 
 RUN chown -R appuser:appuser /app
 USER appuser

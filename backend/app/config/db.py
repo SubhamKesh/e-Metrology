@@ -1,6 +1,6 @@
-from pymongo import MongoClient
+from pymongo import MongoClient, ReadPreference
 from pymongo.errors import OperationFailure
-from app.config.settings import MONGO_URI, DB_NAME
+from app.config.settings import MONGO_URI, DB_NAME, MONGO_READ_PREFERENCE
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
 from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
 
@@ -11,6 +11,30 @@ from app.utils.validators import MAX_SHORT_TEXT, MAX_LONG_TEXT, MAX_CODE_LENGTH
 # burst of requests after an idle period.
 client = MongoClient(MONGO_URI, maxPoolSize=50, minPoolSize=5)
 db = client[DB_NAME]
+
+_READ_PREFERENCES = {
+    "primary": ReadPreference.PRIMARY,
+    "primaryPreferred": ReadPreference.PRIMARY_PREFERRED,
+    "secondaryPreferred": ReadPreference.SECONDARY_PREFERRED,
+    "nearest": ReadPreference.NEAREST,
+}
+
+
+def read_replica(collection):
+    """Returns `collection` configured for reading from a replica-set secondary
+    when MONGO_READ_PREFERENCE allows it (and the collection itself, untouched,
+    when it is "primary" — the default).
+
+    Use it ONLY for reads that can tolerate being a moment behind the primary:
+    reference data, public verification, dashboards, the audit-log viewer.
+    Never for sign-in / token / user-status checks, and never for a list the
+    user has just modified (read-your-writes). Call it at the point of use —
+    `read_replica(states_col).find()` — not once at import time.
+    """
+    if MONGO_READ_PREFERENCE == "primary":
+        return collection
+    return collection.with_options(read_preference=_READ_PREFERENCES[MONGO_READ_PREFERENCE])
+
 
 # Collections — import these directly wherever you need DB access.
 users_col = db["users"]

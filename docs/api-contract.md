@@ -121,11 +121,32 @@ Clears an officer's two-step verification (lost phone, no recovery codes left). 
 - `POST /admin/users/{id}/reject` ("suspend") now also **ends the officer's sessions immediately** (token_version bump + all refresh tokens revoked). Previously it only blocked new sign-ins. `POST /admin/users/{id}/approve` reactivates.
 - `GET /admin/users` / `/admin/users/pending` and every `UserOut` now include `"mfa_enabled": true|false`.
 
+### POST `/otp/send` — public (signup email verification)
+**Body:** `{ "channel": "email", "identifier": "user@example.com" }` → `200 { "sent": true }` (the email is sent in the background). Two limits, so it can't be used to spam an inbox the caller doesn't own:
+- per IP: 5 requests / 15 minutes (`429` from the rate limiter);
+- per address: one code per `OTP_SEND_COOLDOWN_SECONDS` (default 60) — a second request inside that window returns `429 { "detail": "A code was just sent. Please wait 60 seconds before requesting another." }` with a `Retry-After` header. The cooldown applies to every address equally (whether or not it has an account), so it reveals nothing about who is registered.
+`POST /otp/verify` is limited to 15 requests / 15 minutes per IP (and 5 wrong guesses burn a code).
+
+### GET `/admin/audit-logs` — role: `admin`
+Read-only view of the audit log (below). There is deliberately no endpoint that edits or deletes a record; records leave the system only when MongoDB expires them after `AUDIT_LOG_RETENTION_DAYS`. Newest first. All filters are optional and combine with AND.
+
+| Query parameter | Meaning |
+|---|---|
+| `event` | exact event name — must be one of the names in `events` (else `400`) |
+| `outcome` | `success` · `failure` · `blocked` · `ignored` |
+| `role` | `owner` · `lmo` · `gatc` · `admin` — the role of the account the event is about |
+| `search` | text contained in the account's **or** the acting admin's email, case-insensitive, matched literally (not as a pattern); max 100 chars |
+| `date_from`, `date_to` | `YYYY-MM-DD` (UTC), both days inclusive; `date_from` after `date_to` → `400` |
+| `page` (default 1, max 1000), `page_size` (default 50, max 100) | pagination |
+
+**Response:** `{ "items": [ { "id", "event", "outcome", "email", "user_id", "role", "actor_id", "actor_email", "ip", "user_agent", "detail", "created_at" } ], "total", "page", "page_size", "events": [every event name] }`. `created_at` is an ISO 8601 UTC timestamp. `403` for non-admins. When `MONGO_READ_PREFERENCE=secondaryPreferred` this reads from a replica-set secondary (it may trail the newest events by a moment).
+
 ### Audit log
-Security events are written to the `audit_logs` collection (retained `AUDIT_LOG_RETENTION_DAYS`, default 365, minimum 180) and to the `app.audit` log stream. Records hold the event, outcome (`success` / `failure` / `blocked` / `ignored`), account email / id / role, acting admin (if any), client IP, user agent and a short reason — never passwords, reset codes or tokens. Writing a record is best-effort: a logging failure never fails the request.
+Security events are written to the `audit_logs` collection (retained `AUDIT_LOG_RETENTION_DAYS`, default 365, minimum 180) and to the `app.audit` log stream. Admin-initiated events also store `actor_email`, so the history stays readable if that account later changes. Records hold the event, outcome (`success` / `failure` / `blocked` / `ignored`), account email / id / role, acting admin (if any), client IP, user agent and a short reason — never passwords, reset codes or tokens. Writing a record is best-effort: a logging failure never fails the request.
 
 | Event | Outcomes / `detail` values |
 |---|---|
+| `signup_otp_requested` | `success` (`code_sent`), `ignored` (`cooldown`) — signup verification emails, so mail-bombing attempts are visible |
 | `login_success` | `success`; `detail`: `remember_me` (long-lived session granted), `mfa_totp`, `mfa_recovery_code` or `mfa_setup` (officer/admin sign-ins, by how the second step was passed) |
 | `login_failed` | `failure`; `unknown_email`, `wrong_password`, `wrong_password_account_locked` (this attempt triggered the lockout) |
 | `login_blocked` | `blocked`; `account_locked`, `account_pending`, `account_rejected` |

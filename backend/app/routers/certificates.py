@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 
-from app.config.db import certificates_col, applications_col, instruments_col, users_col, inspections_col
+from app.config.db import certificates_col, applications_col, instruments_col, users_col, inspections_col, read_replica
 from app.utils.location_format import format_location
 from app.utils.cache import cache_get, cache_set
 from app.middleware.auth import get_current_user, role_required
@@ -115,7 +115,7 @@ def verify_certificate(cert_id: str):
             cached["certificate"]["is_expired"] = valid_until < datetime.now(timezone.utc)
         return cached
 
-    cert = certificates_col.find_one({"_id": cert_id})
+    cert = read_replica(certificates_col).find_one({"_id": cert_id})
     if not cert:
         result = {"valid": False, "reason": "not_found"}
         # Short TTL — just enough to blunt someone hammering a bad/guessed
@@ -124,9 +124,9 @@ def verify_certificate(cert_id: str):
         cache_set(cache_key, result, ttl_seconds=60)
         return result
 
-    application = applications_col.find_one({"_id": cert["application_id"]})
-    instrument = instruments_col.find_one({"_id": cert["instrument_id"]})
-    owner = users_col.find_one({"_id": application["owner_id"]}) if application else None
+    application = read_replica(applications_col).find_one({"_id": cert["application_id"]})
+    instrument = read_replica(instruments_col).find_one({"_id": cert["instrument_id"]})
+    owner = read_replica(users_col).find_one({"_id": application["owner_id"]}) if application else None
 
     valid_until = _as_utc(cert["valid_until"])
     issued_at = _as_utc(cert["issued_at"])

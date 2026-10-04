@@ -206,6 +206,13 @@ def _get_queue():
     return get_queue()
 
 
+# Seconds to wait before retry #1, #2, #3 of a failed owner email. An immediate
+# retry (the old behaviour) burns all attempts inside a short SMTP outage; this
+# spreads them over ~6 minutes. RQ's Retry takes the number of retries from the
+# length of the interval list.
+EMAIL_RETRY_INTERVALS = [10, 60, 300]
+
+
 def _dispatch(dedupe_key, to, subject, text, html, *, inline: bool = False) -> None:
     args = (dedupe_key, to, subject, text, html)
     if inline:
@@ -221,7 +228,11 @@ def _dispatch(dedupe_key, to, subject, text, html, *, inline: bool = False) -> N
             # job sits in Redis forever -- no email, no error. Only use the
             # queue if a worker is actually registered on it.
             if Worker.count(queue=queue) > 0:
-                queue.enqueue(send_owner_email_job, *args, retry=Retry(max=3))
+                queue.enqueue(
+                    send_owner_email_job,
+                    *args,
+                    retry=Retry(max=len(EMAIL_RETRY_INTERVALS), interval=EMAIL_RETRY_INTERVALS),
+                )
                 logger.info("Owner email %s queued for %s.", dedupe_key, to)
                 return
             logger.warning(

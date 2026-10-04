@@ -78,6 +78,7 @@ export default function AdminDashboardPage() {
         <ActionCard to="/app/admin/applications" title="Applications" description="Every verification application, filterable by status." />
         <ActionCard to="/app/admin/instruments" title="Instruments" description="All registered instruments across the registry." />
         <ActionCard to="/app/admin/certificates" title="Certificates" description="Issued certificates and their validity." />
+        <ActionCard to="/app/admin/audit-log" title="Audit log" description="Sign-ins, password changes and admin actions." />
       </div>
     </div>
   );

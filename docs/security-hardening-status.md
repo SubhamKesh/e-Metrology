@@ -105,12 +105,22 @@ checkbox).
 - Audit events for registration (including blocked self-registration as officer/admin), officer creation, approve and suspend (see `docs/api-contract.md` → "Audit log").
 - Suspending an officer (`/reject`) now ends their sessions immediately; `/auth/refresh` also refuses accounts that are no longer `active`. Before this, a suspended officer could stay signed in indefinitely by letting the browser renew the session.
 
+**OTP abuse limits & rate-limit scaling**
+- `POST /otp/send` is limited per IP (5 / 15 min) **and** per address (one code per 60 s, `OTP_SEND_COOLDOWN_SECONDS`) — the per-address cooldown holds no matter how many IPs ask, and applies to every address equally so it can't be used to learn who has an account. The email is sent in a background task. `POST /otp/verify` is limited too (15 / 15 min / IP). Both are audit-logged (`signup_otp_requested`).
+- Rate-limit counters (slowapi) are stored in Redis when `REDIS_URL` is set, so limits hold across uvicorn workers and container instances (before, "15 per 15 min" silently became 15 × workers × instances). If Redis is unreachable the limiter degrades to per-process memory instead of erroring — covered by a test.
+
+**Audit-log viewer** (`GET /admin/audit-logs`, Admin → Audit log)
+- Admin-only, read-only (no edit/delete route exists), filterable by event / outcome / role / email text / date, paginated. Search text is matched literally, never as a pattern. A source-scanning test fails if a `log_event("…")` name is added without being listed for the viewer's filter. Admin-initiated records carry `actor_email`.
+
+**Read replicas** (`MONGO_READ_PREFERENCE`)
+- Opt-in `secondaryPreferred` reads for staleness-tolerant endpoints only (geo, dashboards, public certificate verification, audit viewer). Sign-in, token/user/suspension checks and read-your-writes lists always use the primary; a test fails if any other module starts using `read_replica`.
+
 **Audit trail** (`app/services/audit.py`, collection `audit_logs`, logger `app.audit`)
 - Login success / failure / blocked (locked, pending, rejected), logout, logout-all, replayed refresh tokens, and all password events including admin-initiated resets. Never records passwords, codes or tokens; best-effort so it can't break a request. TTL-indexed (`AUDIT_LOG_RETENTION_DAYS`, default 365, minimum 180). Event list: `docs/api-contract.md` → "Audit log".
 - This is an application-level log and does not need an M10+ Atlas tier; the Atlas-side audit logging listed under Infra-only is still a separate, infra-level item.
 
 **Still open from this pass**
-- No CAPTCHA on forgot-password; no screen to view the audit log (read it in MongoDB or the host's log stream); no self-service "regenerate recovery codes" screen (an admin resets an officer's two-step verification instead); two-step verification isn't offered to owner accounts.
+- No CAPTCHA on forgot-password; no self-service "regenerate recovery codes" screen (an admin resets an officer's two-step verification instead); two-step verification isn't offered to owner accounts.
 - Safari/privacy browsers block third-party cookies, so "Remember me" may not persist while the frontend and API are on different domains — proxy `/api` through the frontend host or serve both from one domain.
 
 **DevOps**

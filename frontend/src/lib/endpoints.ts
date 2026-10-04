@@ -14,6 +14,7 @@ import type {
   Role,
   StateOption,
   User,
+  AuditLogPage,
 } from "./types";
 
 // ---- Auth ----
@@ -76,6 +77,29 @@ export const AuthApi = {
   logout: () => api.post<void>("/auth/logout"),
   changePassword: (body: { current_password: string; new_password: string }) =>
     api.post<ChangePasswordResponse>("/auth/change-password", body),
+};
+
+// ---- Admin: security audit log (read-only) ----
+export interface AuditLogQuery {
+  event?: string;
+  outcome?: string;
+  role?: string;
+  search?: string;
+  date_from?: string; // YYYY-MM-DD
+  date_to?: string; // YYYY-MM-DD
+  page?: number;
+  page_size?: number;
+}
+
+export const AdminAuditApi = {
+  list: (query: AuditLogQuery = {}) => {
+    const usp = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== "") usp.set(key, String(value));
+    }
+    const qs = usp.toString();
+    return api.get<AuditLogPage>(`/admin/audit-logs${qs ? `?${qs}` : ""}`);
+  },
 };
 
 // ---- Admin: officer accounts (invite-only lmo/gatc) ----

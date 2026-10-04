@@ -116,6 +116,29 @@ Frontend:
 
 ---
 
+## 5) Abuse limits, audit viewer, replicas, worker & deployment config — DONE
+
+OTP send limits, admin audit-log viewer, email retry backoff, MongoDB read replicas, worker in compose, CI deploy hooks, and load-balancer / autoscaling / CDN configuration. Guide: `docs/deployment-scaling.md`. Files touched:
+
+Backend:
+- `backend/app/routers/otp.py` — per-IP and per-address limits, background email, audit events; `backend/app/rate_limit.py` — Redis-backed limiter with in-memory fallback, `RATE_LIMIT_OTP_SEND`
+- `backend/app/routers/admin_audit.py` *(new)*, `backend/app/models/audit.py` *(new)*, `backend/app/services/audit.py` (`KNOWN_AUDIT_EVENTS`, `actor_email`), `backend/app/routers/admin_users.py` (passes `actor_email`), `backend/app/main.py` (router)
+- `backend/app/services/owner_notifications.py` — retry backoff `[10, 60, 300]`
+- `backend/app/config/db.py` (`read_replica`), `config/settings.py` (`MONGO_READ_PREFERENCE`, `OTP_SEND_COOLDOWN_SECONDS`), `routers/geo.py`, `routers/dashboard.py`, `routers/certificates.py` (public verify) — replica reads
+- `backend/Dockerfile` — now includes `run_worker.py`, `seed_super_admin.py`, `reset_mfa.py`; `backend/.env.example`
+- Tests: `backend/tests/test_ops_hardening.py` *(new)*, `backend/tests/test_audit_viewer.py` *(new)*
+
+Frontend:
+- `frontend/src/pages/admin/AuditLog.tsx` *(new)*, route in `App.tsx`, nav entry in `lib/nav.ts`, card in `pages/admin/Dashboard.tsx`; `lib/endpoints.ts`, `lib/types.ts`
+- `frontend/src/pages/auth/Register.tsx` — resend countdown matching the server cooldown; `frontend/vercel.json` — immutable cache headers for `/assets/*`
+
+Infrastructure:
+- `docker-compose.yml` (worker under `--profile redis`), `docker-compose.scale.yml` *(new)*, `deploy/nginx/nginx.conf` *(new)*
+- `.github/workflows/ci.yml` — compose validation + optional deploy job; `render.yaml` — `OTP_PEPPER`, `MFA_ENCRYPTION_KEY`, CDN cache headers
+- `docs/deployment-scaling.md` *(new)*
+
+---
+
 ## Suggested process for the team
 
 1. Implement frontend changes and test locally (Register + Login + RegisterInstrument pages).

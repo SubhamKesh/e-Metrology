@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthLayout } from "./AuthLayout";
 import { TextInput } from "@/components/ui/Field";
@@ -59,6 +59,14 @@ export default function Register() {
   // server-side too; this just lets the "Create account" button reflect
   // it before submitting.
   const [otp, setOtp] = useState<OtpState>({ ...EMPTY_OTP_STATE });
+  // Matches OTP_SEND_COOLDOWN_SECONDS on the server: a second code inside this
+  // window is refused, so the button waits it out instead of showing an error.
+  const [resendIn, setResendIn] = useState(0);
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
   const canCreateAccount = otp.verified;
 
   function updateOtp(patch: Partial<OtpState>) {
@@ -131,6 +139,7 @@ export default function Register() {
     try {
       await api.post("/otp/send", { channel: "email", identifier: form.email }, { public: true });
       updateOtp({ sending: false, sent: true, code: "" });
+      setResendIn(60);
     } catch (err) {
       updateOtp({
         sending: false,
@@ -192,7 +201,7 @@ export default function Register() {
   }
 
   return (
-    <AuthLayout seo="/register" title="Create your account" subtitle="Register instruments, track applications, and manage verifications.">
+    <AuthLayout title="Create your account" subtitle="Register instruments, track applications, and manage verifications.">
       <p className="mb-4 text-sm text-slate-500">
         This form is for business/owner accounts. Legal Metrology Officer and GATC accounts are created by an
         administrator and are not open for self-registration.
@@ -271,8 +280,15 @@ export default function Register() {
                 <Button type="button" size="sm" loading={otp.verifying} onClick={verifyCode}>
                   Verify
                 </Button>
-                <Button type="button" size="sm" variant="secondary" loading={otp.sending} onClick={sendCode}>
-                  Resend code
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  loading={otp.sending}
+                  disabled={resendIn > 0}
+                  onClick={sendCode}
+                >
+                  {resendIn > 0 ? `Resend in ${resendIn}s` : "Resend code"}
                 </Button>
               </div>
             )}

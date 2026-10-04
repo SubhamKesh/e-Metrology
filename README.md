@@ -38,8 +38,8 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 🔐 **Authentication** | JWT access tokens (15 min) + rotating, hashed refresh tokens in HttpOnly cookies; instant revocation via `token_version` (`/auth/logout-all`); self-registration for business owners, invite-only provisioning for officers; strong-password policy; **Remember me** (owners only); changing a password signs out every other session; **mandatory two-step verification** (authenticator app) for officer and admin accounts |
 | 📲 **Two-Step Verification** | Officers (`lmo` / `gatc`) and the super admin must enter a 6-digit code from an authenticator app (Google/Microsoft Authenticator, Authy…) after their password — no token, cookie or user data is released until it passes. TOTP (RFC 6238) built on the standard library; secrets encrypted at rest; one-time recovery codes; replay-proof; shares the account lockout; an admin can reset an officer's, the operator can reset the admin's (see [Account Security](#-account-security--password-recovery)) |
 | 🔑 **Password Recovery** | Owners can reset a forgotten password with an emailed one-time code (anti-enumeration, single-use, attempt-capped, cooldown). Officer and admin accounts can't self-reset — an admin resets officers, and the super admin is recovered via `seed_super_admin.py`. A "your password was changed" email follows every change or reset (see [Account Security](#-account-security--password-recovery)) |
-| ✉️ **Email OTP Verification** | 6-digit, single-use, attempt-capped codes (HMAC-hashed, 10-minute expiry) via `/otp/send` + `/otp/verify` (signup) and `/auth/forgot-password` + `/auth/reset-password` (password reset); verification proof is checked at registration |
-| 🧾 **Security Audit Trail** | Logins (success / failure / blocked), the two-step stages, logouts, replayed refresh tokens, every password event, and account lifecycle (registration, officer creation, approve, suspend) are recorded — never passwords, codes or tokens — and retained for a configurable period (default 365 days) |
+| ✉️ **Email OTP Verification** | 6-digit, single-use, attempt-capped codes (HMAC-hashed, 10-minute expiry) via `/otp/send` + `/otp/verify` (signup) and `/auth/forgot-password` + `/auth/reset-password` (password reset); verification proof is checked at registration. `/otp/send` is limited per IP (5 / 15 min) **and** per address (one code per 60 s), so it can't be used to spam an inbox |
+| 🧾 **Security Audit Trail** | Logins (success / failure / blocked), the two-step stages, logouts, replayed refresh tokens, every password event, and account lifecycle (registration, officer creation, approve, suspend) are recorded — never passwords, codes or tokens — and retained for a configurable period (default 365 days). Admins browse and filter it in the app at **Admin → Audit log** (read-only) |
 | 👥 **Role-based Access** | Four roles — `owner`, `lmo`, `gatc`, `admin` — each with a dedicated dashboard and permission scope |
 | 🗺️ **Jurisdiction Scoping** | States/UTs and districts stored as reference data; officers see only applications in their state/district, validated at write time |
 | 🧰 **Instrument Registry** | Owners register instruments from a controlled list of instrument types, with a unique serial number and auto-generated UIID |
@@ -94,7 +94,7 @@ Business owners register weighing/measuring instruments, submit them for verific
 | Component | Technology |
 |---|---|
 | Containerization | **Docker** (multi-stage, non-root backend image, `/api/v1/health` healthcheck, 2 uvicorn workers) |
-| Local orchestration | **docker-compose** (MongoDB + optional Redis + backend) |
+| Local orchestration | **docker-compose** (MongoDB + optional Redis + background worker + backend); `docker-compose.scale.yml` rehearses a load-balanced multi-instance stack (nginx + 3 backends + worker + Redis) |
 | CI/CD | **GitHub Actions** — lint → test → build for both backend and frontend, plus a Docker build check |
 | Dependency updates | **Dependabot** |
 | Target deployment | MongoDB Atlas + Render/Railway (backend), Vercel-style static host (frontend) |
@@ -153,10 +153,15 @@ Set `REDIS_URL` to switch these on. Without it, the app runs as a single-process
 | DDoS / request-flood counters | Shared Redis sorted-set sliding window (`ddos_store.py`) | Per-worker in-memory counters (threshold effectively multiplied by worker count) |
 | WebSocket notifications | Published to a Redis channel; every instance forwards to its own local clients (`ws_pubsub.py`) | Delivered to clients on the same instance only |
 | Expiry scheduler | `SET NX` run-lock — one instance per tick | Every instance runs the job |
+| Rate-limit counters (`/login`, `/register`, `/otp/*`, forgot/reset password, two-step) | Stored in Redis, so "15 per 15 minutes" means 15 across **all** workers and instances; falls back to per-process memory if Redis is unreachable | Per-process memory (the limit is effectively multiplied by workers x instances) |
 | Public verify + admin dashboard | Read-through cache (300 s / 60 s TTL) | Always queries MongoDB |
 | Certificate generation | Enqueued to RQ worker; owner notified via `certificate_ready` | Runs inline in the inspection request |
 | Officer credential emails | Enqueued to RQ worker (`emailed` in the response means "queued") | Sent inline during officer creation |
-| Owner status emails | Enqueued to RQ worker with `Retry(max=3)` | Sent from a short-lived daemon thread (the expiry cron sends inline) |
+| Owner status emails | Enqueued to RQ worker; a failed send is retried after 10 s, 60 s, then 5 min (`EMAIL_RETRY_INTERVALS`) so a short SMTP outage doesn't use up every attempt | Sent from a short-lived daemon thread (the expiry cron sends inline) |
+
+**MongoDB read replicas.** Set `MONGO_READ_PREFERENCE=secondaryPreferred` (default `primary`) and the read-heavy, staleness-tolerant endpoints — `GET /geo/*`, the dashboards, public certificate verification and the audit-log viewer — read from a replica-set secondary when one is available. Everything that must see its own writes or enforce security (sign-in, token/user/suspension checks, lists a user has just changed) **always** reads the primary; a test enforces which modules may use replica reads. Replica reads can trail the primary by a moment. Don't put `readPreference` in `MONGO_URI` — that would move *every* read, including the security-critical ones.
+
+**Load balancing, autoscaling and CDN.** See [`docs/deployment-scaling.md`](docs/deployment-scaling.md): a working nginx config and `docker-compose.scale.yml` to rehearse several backend instances behind a load balancer, Render autoscaling / worker / Redis templates, and the cache headers that make the CDN effective.
 
 **Running the worker** (separate long-lived process, same venv as uvicorn):
 ```bash
@@ -202,7 +207,7 @@ Owners (the business people who register machines) get an email for every step o
 
 **Design rules**
 - **Never breaks the caller.** Every `notify_*()` swallows and logs its own errors, so a mail problem can't fail a registration or an inspection.
-- **Never blocks the caller.** Mail goes out through the RQ queue when `REDIS_URL` is set (`Retry(max=3)`), otherwise through a short-lived daemon thread. The expiry cron sends inline because it already runs in a background thread.
+- **Never blocks the caller.** Mail goes out through the RQ queue when `REDIS_URL` is set (3 retries, backing off 10 s / 60 s / 5 min), otherwise through a short-lived daemon thread. The expiry cron sends inline because it already runs in a background thread.
 - **Never sent twice.** Before sending, the job atomically claims its dedupe key as the `_id` of a document in the `email_log` collection. A failed SMTP send releases the claim so a retry can succeed; a claim stuck in `sending` for more than 10 minutes (crashed process) can be taken over.
 - **No SMTP configured = silent no-op**, checked before any database work.
 - **Reminders are quiet.** Only the tightest reached milestone is sent (a server that was down for a week won't fire three stale reminders), each milestone is sent once, and no reminder or expired notice is sent if the owner already renewed with a newer certificate.
@@ -265,11 +270,14 @@ Officer accounts (`lmo` / `gatc`) are provisioned exclusively by an admin, who r
 ```
 e-Metrology-main/
 ├── .github/
-│   ├── workflows/ci.yml            # Lint → test → build pipeline (backend + frontend + docker)
+│   ├── workflows/ci.yml            # Lint → test → build → (optional) deploy-hook pipeline; also validates the compose files
 │   └── dependabot.yml
-├── docker-compose.yml              # Local dev: MongoDB (+ optional Redis) + backend container
+├── docker-compose.yml              # Local dev: MongoDB (+ optional Redis) + backend (+ background worker with --profile redis)
+├── docker-compose.scale.yml        # Rehearsal of a load-balanced stack: nginx + 3 backends + worker + Redis + MongoDB
+├── deploy/nginx/nginx.conf         # Load-balancer config (WebSockets, real client IP, flood limit, token-free logs)
 ├── docs/
 │   ├── api-contract.md             # Full REST API reference / endpoint contract
+│   ├── deployment-scaling.md       # Load balancer, autoscaling, CDN, read replicas, deploy hooks
 │   ├── implementation_tasks.md     # Team task breakdown
 │   └── security-hardening-status.md
 │
@@ -299,6 +307,7 @@ e-Metrology-main/
 │   │   │   ├── dashboard.py
 │   │   │   ├── uploads.py
 │   │   │   ├── admin_users.py      # Officer creation, approval queue, suspend, admin-initiated officer password reset and two-step reset
+│   │   │   ├── admin_audit.py      # Read-only, filterable view of the audit log (admin only)
 │   │   │   └── ws.py               # /ws/notifications
 │   │   ├── services/
 │   │   │   ├── cert_generator.py   # PDF certificate generation
@@ -347,7 +356,7 @@ e-Metrology-main/
     │   │   ├── auth/               # Login, Register, ForgotPassword, TwoFactor (code entry + authenticator setup), ChangePassword, PendingApproval
     │   │   ├── owner/              # Dashboard, instruments, applications, certificates
     │   │   ├── officer/            # Queue, inspection workflow, dashboard, certificates
-    │   │   ├── admin/              # Dashboard, users, instruments, applications, certificates
+    │   │   ├── admin/              # Dashboard, users, instruments, applications, certificates, audit log
     │   │   └── public/             # VerifyCertificate.tsx — public QR verification page
     │   ├── components/
     │   │   ├── ui/                 # Reusable primitives (Button, Card, DataTable, Field, StatusBadge...)
@@ -437,9 +446,10 @@ This starts MongoDB and the backend container (`http://localhost:8000`). Add `--
 docker compose --profile redis up --build
 ```
 > Notes:
-> - To use Redis from the backend container, uncomment `REDIS_URL: redis://redis:6379/0` in `docker-compose.yml`.
-> - `docker-compose.yml` does not include the RQ worker or the frontend. Run the worker with `python run_worker.py` (same `REDIS_URL`, reachable MongoDB) and the frontend with `npm run dev` inside `frontend/`.
-> - The compose file is for local development only; it is not the production deployment shape.
+> - To run with Redis **and** the background worker, set `REDIS_URL` for the command: `REDIS_URL=redis://redis:6379/0 docker compose --profile redis up --build` (PowerShell: `$env:REDIS_URL="redis://redis:6379/0"; docker compose --profile redis up --build`). The `worker` service (certificates + emails) starts with the `redis` profile.
+> - `docker-compose.yml` does not include the frontend; run it with `npm run dev` inside `frontend/`.
+> - To rehearse several backend instances behind a load balancer, use `docker-compose.scale.yml` — see [`docs/deployment-scaling.md`](docs/deployment-scaling.md).
+> - The compose files are for local development and rehearsal; they are not how the real deployment is provisioned.
 
 ---
 
@@ -464,6 +474,8 @@ docker compose --profile redis up --build
 | `MFA_TOKEN_EXPIRES_MINUTES` | How long the "password accepted, enter your code" step stays valid | `10` |
 | `MFA_ISSUER` | Name shown in the authenticator app next to the account | `MaapSetu` |
 | `MFA_RECOVERY_CODE_COUNT` | One-time recovery codes issued at enrolment | `8` |
+| `MONGO_READ_PREFERENCE` | Where read-heavy, staleness-tolerant endpoints read from: `primary` or `secondaryPreferred` (also `primaryPreferred`, `nearest`). Security-critical reads always use the primary. See "MongoDB read replicas" under Scaling | `primary` |
+| `OTP_SEND_COOLDOWN_SECONDS` | Minimum gap between two signup codes sent to the same address | `60` |
 | `AUDIT_LOG_RETENTION_DAYS` | How long audit-log records are kept before MongoDB expires them (values below 180 are raised to 180) | `365` |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated allowed frontend origins | `http://localhost:5173` |
 | `LOGIN_MAX_ATTEMPTS` | Failed logins before lockout begins | `5` |
@@ -502,14 +514,14 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | Resource | Examples |
 |---|---|
 | **Auth** | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/logout-all` · `GET /auth/me` · `POST /auth/change-password` · `POST /auth/forgot-password` **(public)** · `POST /auth/reset-password` **(public)** · `POST /auth/mfa/setup` · `POST /auth/mfa/confirm-setup` · `POST /auth/mfa/verify` *(the three `mfa` calls take the short-lived `mfa_token` from `/auth/login`, not a Bearer token)* |
-| **OTP** | `POST /otp/send` · `POST /otp/verify` **(public)** |
+| **OTP** | `POST /otp/send` (5 per IP / 15 min, one per address / 60 s → `429`) · `POST /otp/verify` **(public)** |
 | **Geo** | `GET /geo/states` · `GET /geo/states/{state_code}/districts` |
 | **Instruments** | `POST /instruments` · `GET /instruments` · `GET /instruments/{id}` · `GET /instruments/by-uiid/{uiid}` · `GET /instruments/meta/types` |
 | **Applications** | `POST /applications` · `GET /applications` · `GET /applications/{id}` · `POST /applications/{id}/claim` |
 | **Inspections** | `POST /inspections` · `GET /inspections/{id}` |
 | **Certificates** | `GET /certificates/` · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
 | **Uploads** | `POST /uploads/photo` |
-| **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` |
+| **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` · `GET /admin/audit-logs` *(read-only; filters: event, outcome, role, email text, date range; paginated)* |
 | **Dashboard** | `GET /dashboard/owner` · `/lmo` · `/gatc` · `/admin` |
 | **WebSocket** | `/ws/notifications?token=<access token>` — live application, queue, and certificate updates |
 | **Health** | `GET /api/v1/health` |
@@ -534,7 +546,8 @@ Transitions are enforced centrally in `backend/app/services/status_transition.py
 - Password reset is owner-only and anti-enumeration; officer/admin passwords are reset by an admin (or the operator for the super admin). "Remember me" is owner-only and enforced server-side.
 - Mandatory two-step verification (TOTP) for officer and admin accounts: password alone never yields a token, cookie or user data; codes are single-use, attempt-capped (shared lockout) and replay-proof; authenticator secrets are encrypted at rest and recovery codes stored only as keyed hashes; officer/admin refresh tokens must carry the "second step done" mark.
 - Suspending an officer revokes their sessions at once; refresh also refuses accounts that are no longer active.
-- Security audit trail (`audit_logs` collection + `app.audit` log stream): login success/failure/lockout/blocked, the two-step stages, logout, replayed refresh tokens, all password events, and account lifecycle (registration, officer creation, approve, suspend) — never passwords, codes or tokens. Best-effort (never breaks a request) and expires after `AUDIT_LOG_RETENTION_DAYS`.
+- Security audit trail (`audit_logs` collection + `app.audit` log stream): login success/failure/lockout/blocked, the two-step stages, logout, replayed refresh tokens, all password events, and account lifecycle (registration, officer creation, approve, suspend) — never passwords, codes or tokens. Best-effort (never breaks a request) and expires after `AUDIT_LOG_RETENTION_DAYS`. Admins read it at **Admin → Audit log** (filter by event, outcome, role, email, date); the API offers no way to edit or delete a record.
+- Signup OTP (`/otp/send`) is rate-limited per IP and per address and sends its email in the background; `/otp/verify` is rate-limited too. Rate-limit counters live in Redis when `REDIS_URL` is set, so limits hold across workers and instances.
 - Account lockout with exponential backoff after repeated failed logins; `slowapi` rate limit on `/login` and `/register`.
 - Email OTPs and password-reset codes are HMAC-hashed with a server-side pepper, single-use, expire after 10 minutes, and are capped at 5 attempts (counted atomically, so parallel guesses can't exceed the cap).
 - DDoS/request-flood protection middleware (in-memory or Redis-backed across workers).
@@ -563,7 +576,7 @@ npm run lint
 npm run build     # type-checks and builds
 ```
 
-The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
+The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), the audit-log viewer (admin-only, filters, pagination, read-only, event list can't drift from the code), OTP send/verify limits, email retry backoff, read-replica routing (and that security-critical modules never use it), the Redis-backed limiter setting, production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 1. **Backend** — lint (`ruff`) → test (`pytest` against `mongomock`, no live DB required)
@@ -576,13 +589,9 @@ Handy manual checks: `python burst_test.py` fires a burst of requests to exercis
 
 ## 🗺️ Roadmap / Notes
 
-- **Scaling — done:** Redis-backed DDoS state, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications, and certificate generation, officer emails, and owner status emails moved to a background worker.
-- **Scaling — still to do:** MongoDB read replicas (`secondaryPreferred` for read-heavy paths), and deployment-level work — load balancer with multiple backend instances, autoscaling, and a CDN.
-- Owner status emails retry immediately (`Retry(max=3)`); consider backoff (`Retry(max=3, interval=[10, 60, 300])`) so a short SMTP outage doesn't burn all retries at once.
-- The RQ worker is not yet part of `docker-compose.yml`, and a deploy job is intentionally not wired into CI — pending target environment secrets (Render/Railway/Vercel).
-- Certificate listing (`GET /certificates/`) is currently unscoped by role server-side; see `docs/api-contract.md` for current vs. expected behavior.
-- `POST /otp/send` does not yet have its own rate limit, so it should be limited before it is exposed publicly.
-- **Account security — still to do:** CAPTCHA on forgot-password and an admin screen to view the audit log. Two-step verification is in place for officers/admin (owners don't need it; it could be offered to them as an option later), with a self-service "regenerate recovery codes" screen as a possible follow-up. For a real government deployment, a CERT-In-empanelled security audit, hosting on NIC / MeitY-empanelled cloud, and GIGW 3.0 / DPDP Act compliance are outside this repo's code.
+- **Scaling — done:** Redis-backed DDoS state, rate-limit counters, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications; certificate generation, officer emails and owner status emails on a background worker (now also in `docker-compose.yml`, with retry backoff); MongoDB read replicas for read-heavy paths (`MONGO_READ_PREFERENCE`); a load-balancer config and multi-instance rehearsal stack; CDN cache headers; an optional CI deploy step.
+- **Scaling — what the repo can't do:** actually provisioning a load balancer, autoscaling and a CDN is done in your hosting provider (Render/Atlas/Cloudflare/NIC…). [`docs/deployment-scaling.md`](docs/deployment-scaling.md) has the configuration and templates; autoscaling and background workers need a paid Render plan, and more than one backend instance needs `REDIS_URL`.
+- **Account security — still to do:** CAPTCHA on forgot-password. Two-step verification is in place for officers/admin (owners don't need it; it could be offered to them as an option later), with a self-service "regenerate recovery codes" screen as a possible follow-up. For a real government deployment, a CERT-In-empanelled security audit, hosting on NIC / MeitY-empanelled cloud, and GIGW 3.0 / DPDP Act compliance are outside this repo's code.
 - See [`docs/implementation_tasks.md`](docs/implementation_tasks.md) for the team task breakdown.
 
 ---
