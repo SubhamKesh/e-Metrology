@@ -5,6 +5,8 @@ export default {
     extend: {
       colors: {
         ink: "#14181C",
+        // MaapSetu logo palette (wordmark colours)
+        brand: { navy: "#0a366b", green: "#1a7a2e", "green-light": "#8fd69b" },
         paper: "#F6F4EE",
         paper2: "#EDE9DE",
         slate: {

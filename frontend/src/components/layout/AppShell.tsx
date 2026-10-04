@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useState, useEffect, useRef } from "react";
+import { type ReactNode, useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -6,12 +6,11 @@ import { ROLE_NAV } from "@/lib/nav";
 import { ROLE_LABEL } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
+import { BrandMark, BrandWordmark } from "@/components/ui/Brand";
 import { LogoutConfirmationDialog } from "@/components/ui/LogoutConfirmationDialog";
 import { useApplications } from "@/hooks/useData";
 
 function BrandButton({ onClick, className }: { onClick: () => void; className?: string }) {
-  const brandId = useId();
-
   return (
     <button
       type="button"
@@ -22,31 +21,8 @@ function BrandButton({ onClick, className }: { onClick: () => void; className?: 
       )}
       aria-label="Go to home page"
     >
-      <svg viewBox="0 0 80 80" className="h-9 w-9 shrink-0 drop-shadow-sm" aria-hidden="true">
-        <defs>
-          <linearGradient id={`brandRing-${brandId}`} x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="#0d3a59" />
-            <stop offset="100%" stopColor="#0d4d73" />
-          </linearGradient>
-        </defs>
-        <circle cx="40" cy="40" r="36" fill="#f7f3eb" stroke={`url(#brandRing-${brandId})`} strokeWidth="5" />
-        <circle cx="40" cy="40" r="30" fill="none" stroke="#c9a15f" strokeWidth="2.5" opacity="0.9" />
-        <g stroke="#b88f4b" strokeLinecap="round" strokeWidth="2.5">
-          <path d="M21 26 L40 50 L59 26" fill="none" />
-          <path d="M40 50 L40 27" fill="none" />
-          <path d="M15 52 H65" stroke="#0d3a59" strokeWidth="3" />
-          <path d="M18 58 L28 52 H52 L62 58" fill="none" stroke="#0d3a59" strokeWidth="3" />
-          <path d="M25 62 H55" stroke="#c9a15f" strokeWidth="2.5" />
-        </g>
-        <g fill="#0d3a59">
-          <rect x="36" y="18" width="8" height="10" rx="1.5" />
-          <path d="M40 12 L42.8 18 H37.2 Z" />
-        </g>
-        <path d="M40 18 L40 62" stroke="#0d3a59" strokeWidth="1.5" opacity="0.7" />
-      </svg>
-      <span className="font-display text-[1.05rem] leading-none tracking-[-0.06em] text-ink sm:text-[1.15rem]">
-        MaapSetu
-      </span>
+      <BrandMark />
+      <BrandWordmark className="text-[1.05rem] tracking-[-0.04em] sm:text-[1.15rem]" />
     </button>
   );
 }

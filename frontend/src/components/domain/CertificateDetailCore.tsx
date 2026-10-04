@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
+import { useRef, useState } from "react";
+import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { CertificateApi } from "@/lib/endpoints";
 import { Panel } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/StatusBadge";
@@ -10,6 +10,33 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
   const verifyUrl = `${window.location.origin}/verify/${certificate.id}`;
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // Off-screen, print-resolution copy of the QR (with a quiet zone) used only for the PNG download.
+  const qrCanvasRef = useRef<HTMLDivElement>(null);
+
+  // Saves just the QR code (no certificate text) as a PNG, generated entirely in the browser.
+  function downloadQr() {
+    setDownloadError(null);
+    const canvas = qrCanvasRef.current?.querySelector("canvas");
+    if (!canvas) {
+      setDownloadError("Couldn't download the QR code. Please try again.");
+      return;
+    }
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setDownloadError("Couldn't download the QR code. Please try again.");
+        return;
+      }
+      const name = String(certificate.cert_no ?? certificate.id).replace(/[^A-Za-z0-9._-]+/g, "_");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `maapsetu-qr-${name}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    }, "image/png");
+  }
 
   // PDF held by the API (external storage was unavailable when it was issued):
   // fetch it with the auth header and open it, since a plain <a href> can't send it.
@@ -85,6 +112,9 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
               PDF not available
             </Button>
           )}
+          <Button size="sm" variant="secondary" onClick={downloadQr}>
+            Download QR
+          </Button>
           <a href={verifyUrl} target="_blank" rel="noreferrer">
             <Button size="sm" variant="secondary">
               Open public verification page
@@ -92,6 +122,16 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
           </a>
         </div>
         {downloadError && <p className="px-6 pb-4 text-sm text-danger">{downloadError}</p>}
+        <div ref={qrCanvasRef} className="hidden" aria-hidden="true">
+          <QRCodeCanvas
+            value={verifyUrl}
+            size={1024}
+            level="M"
+            includeMargin
+            bgColor="#ffffff"
+            fgColor="#000000"
+          />
+        </div>
       </Panel>
     </div>
   );

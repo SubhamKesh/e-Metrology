@@ -1,10 +1,12 @@
 /**
- * One-off generator for the files in public/ (favicon set, touch icons, og-image.png).
+ * One-off generator for the icon files in public/ (favicon set, touch icons, manifest).
  * The generated files are committed, so this is NOT part of `npm run build`.
  *
  *   npm i --no-save sharp && node scripts/generate-assets.mjs
  *
- * Colours come from tailwind.config.js (paper, ink, teal, brass, slate).
+ * Source artwork: public/logo-mark.png (the MaapSetu logo mark, transparent background).
+ * public/logo-full.png (full lock-up) and public/og-image.png (1200x630 social preview) are
+ * static design assets: replace them by hand when the logo changes.
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -22,42 +24,35 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const out = (f) => resolve(root, "public", f);
 mkdirSync(resolve(root, "public"), { recursive: true });
 
-const C = { paper: "#F6F4EE", ink: "#14181C", teal: "#1F5F5B", brass: "#B08D3E", slate: "#3D4A52", navy: "#0d3a59", gold: "#b88f4b", cream: "#f7f1e6" };
+const MARK = out("logo-mark.png");
+const WHITE = { r: 255, g: 255, b: 255, alpha: 1 };
+const CLEAR = { r: 0, g: 0, b: 0, alpha: 0 };
 
-// Same artwork as src/components/ui/Brand.tsx (BrandMark), viewBox 0 0 100 100.
-const markInner = `
-  <circle cx="50" cy="50" r="44" fill="${C.cream}" stroke="${C.navy}" stroke-width="7"/>
-  <circle cx="50" cy="50" r="36" fill="none" stroke="${C.gold}" stroke-width="3" opacity="0.9"/>
-  <g stroke="${C.gold}" stroke-linecap="round" stroke-width="2.5">
-    <path d="M25 36 L50 60 L75 36" fill="none"/>
-    <path d="M50 60 L50 33" fill="none"/>
-    <path d="M15 68 H85" stroke="${C.navy}" stroke-width="4"/>
-    <path d="M20 76 L33 68 H67 L80 76" fill="none" stroke="${C.navy}" stroke-width="4"/>
-  </g>
-  <g fill="${C.navy}">
-    <rect x="46" y="18" width="8" height="12" rx="2"/>
-    <path d="M50 10 L54 18 H46 Z"/>
-  </g>
-  <path d="M50 18 L50 82" stroke="${C.navy}" stroke-width="2" opacity="0.7"/>`;
-
-const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${markInner}</svg>\n`;
-writeFileSync(out("favicon.svg"), faviconSvg);
-
-const markOnPaper = (size, pad) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" fill="${C.paper}"/>
-  <g transform="translate(${pad} ${pad}) scale(${(size - pad * 2) / 100})">${markInner}</g>
-</svg>`;
-
-const png = (svg, size) => sharp(Buffer.from(svg)).resize(size, size).png().toBuffer();
+/** The mark centred on a square canvas, `padRatio` of the side kept free on every edge. */
+async function squareIcon(size, padRatio, background) {
+  const inner = Math.round(size * (1 - 2 * padRatio));
+  const mark = await sharp(MARK).resize(inner, inner, { fit: "contain", background: CLEAR }).png().toBuffer();
+  return sharp({ create: { width: size, height: size, channels: 4, background } })
+    .composite([{ input: mark, gravity: "center" }])
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+}
 
 // Touch / manifest icons
-writeFileSync(out("apple-touch-icon.png"), await png(markOnPaper(180, 18), 180));
-writeFileSync(out("icon-192.png"), await png(markOnPaper(192, 20), 192));
-writeFileSync(out("icon-512.png"), await png(markOnPaper(512, 52), 512));
+writeFileSync(out("apple-touch-icon.png"), await squareIcon(180, 0.1, WHITE));
+writeFileSync(out("icon-192.png"), await squareIcon(192, 0.1, WHITE));
+writeFileSync(out("icon-512.png"), await squareIcon(512, 0.12, WHITE));
+
+// favicon.svg: wraps the PNG mark so it always matches the logo exactly.
+const faviconPng = await squareIcon(128, 0.03, CLEAR);
+writeFileSync(
+  out("favicon.svg"),
+  `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 128 128"><image width="128" height="128" xlink:href="data:image/png;base64,${faviconPng.toString("base64")}"/></svg>\n`,
+);
 
 // favicon.ico: PNG-compressed 16/32/48 images in an ICO container.
 const sizes = [16, 32, 48];
-const imgs = await Promise.all(sizes.map((s) => sharp(Buffer.from(faviconSvg)).resize(s, s).png().toBuffer()));
+const imgs = await Promise.all(sizes.map((s) => squareIcon(s, 0.03, CLEAR)));
 const header = Buffer.alloc(6);
 header.writeUInt16LE(0, 0);
 header.writeUInt16LE(1, 2);
@@ -76,23 +71,6 @@ const entries = imgs.map((buf, i) => {
 });
 writeFileSync(out("favicon.ico"), Buffer.concat([header, ...entries, ...imgs]));
 
-// Open Graph / Twitter preview, 1200x630
-const serif = "'Source Serif 4', Georgia, 'Liberation Serif', serif";
-const sans = "Inter, 'Liberation Sans', Arial, sans-serif";
-const ogSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="${C.paper}"/>
-  <rect x="0" y="0" width="16" height="630" fill="${C.teal}"/>
-  <rect x="0" y="600" width="1200" height="30" fill="${C.ink}"/>
-  <rect x="80" y="568" width="120" height="4" fill="${C.brass}"/>
-  <g transform="translate(80 70) scale(1.3)">${markInner}</g>
-  <text x="232" y="158" font-family="${serif}" font-size="64" font-weight="600" fill="${C.ink}">MaapSetu</text>
-  <text x="80" y="330" font-family="${serif}" font-size="70" font-weight="600" fill="${C.ink}">Legal Metrology verification</text>
-  <text x="80" y="412" font-family="${serif}" font-size="56" font-weight="400" fill="${C.teal}">for weighing and measuring instruments</text>
-  <text x="80" y="500" font-family="${sans}" font-size="30" fill="${C.slate}">Register online. Get a QR-verifiable digital certificate. Check it in seconds.</text>
-  <text x="80" y="548" font-family="${sans}" font-size="26" fill="${C.slate}" opacity="0.85">Digital Legal Metrology platform for India</text>
-</svg>`;
-writeFileSync(out("og-image.png"), await sharp(Buffer.from(ogSvg)).png({ compressionLevel: 9 }).toBuffer());
-
 writeFileSync(
   out("site.webmanifest"),
   JSON.stringify(
@@ -103,8 +81,8 @@ writeFileSync(
       start_url: "/",
       scope: "/",
       display: "standalone",
-      background_color: C.paper,
-      theme_color: C.teal,
+      background_color: "#F6F4EE",
+      theme_color: "#1F5F5B",
       icons: [
         { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
@@ -114,4 +92,4 @@ writeFileSync(
     2,
   ) + "\n",
 );
-console.log("public/ assets written");
+console.log("public/ icon assets written");
