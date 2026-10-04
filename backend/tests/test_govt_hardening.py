@@ -38,7 +38,7 @@ def outbox(client, monkeypatch):
     monkeypatch.setattr(admin_mod, "refresh_tokens_col", dbmod.db["refresh_tokens"])
     box: list[dict] = []
 
-    def fake_send_email(to, subject, body, html=None):
+    def fake_send_email(to, subject, body, html=None, sender=None):
         box.append({"to": to, "subject": subject, "body": body})
         return True
 

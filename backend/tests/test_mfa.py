@@ -32,7 +32,7 @@ NEW_PASSWORD = "Brand-New-Pass1!"
 def no_real_email(client, monkeypatch):
     import app.services.mailer as mailer_mod
 
-    monkeypatch.setattr(mailer_mod, "send_email", lambda to, subject, body, html=None: True)
+    monkeypatch.setattr(mailer_mod, "send_email", lambda to, subject, body, html=None, sender=None: True)
 
 
 def _seed(role="lmo", email="officer@example.com", mfa=False, **extra) -> dict:

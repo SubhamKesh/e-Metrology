@@ -7,8 +7,9 @@ from app.config.settings import OTP_SEND_COOLDOWN_SECONDS
 from app.models.otp import OtpSendRequest, OtpVerifyRequest
 from app.rate_limit import RATE_LIMIT_AUTH, RATE_LIMIT_OTP_SEND, limiter
 from app.services.audit import log_event
-from app.services.mailer import send_email
-from app.services.otp import generate_and_store_otp, otp_sent_within, verify_otp
+from app.services.email_templates import render_otp
+from app.services.mailer import noreply_sender, send_email
+from app.services.otp import OTP_EXPIRY_MINUTES, generate_and_store_otp, otp_sent_within, verify_otp
 
 logger = logging.getLogger("app.otp")
 
@@ -39,12 +40,14 @@ def send_otp(payload: OtpSendRequest, request: Request, background_tasks: Backgr
         )
 
     code = generate_and_store_otp(identifier=payload.identifier, purpose=PURPOSE)
+    subject, text, html = render_otp("signup", code, OTP_EXPIRY_MINUTES)
     background_tasks.add_task(
         send_email,
         to=payload.identifier,
-        subject="Your MaapSetu verification code",
-        body=f"Your verification code is {code}. It expires in 10 minutes.\n\n"
-        "If you didn't request this, you can ignore this email.",
+        subject=subject,
+        body=text,
+        html=html,
+        sender=noreply_sender(),
     )
     log_event("signup_otp_requested", outcome="success", request=request, email=payload.identifier, detail="code_sent")
     # Deliberately doesn't reveal whether an account with this email exists.

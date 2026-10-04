@@ -28,7 +28,7 @@ def sent_emails(client, monkeypatch):
 
     outbox: list[dict] = []
 
-    def fake_send_email(to, subject, body, html=None):
+    def fake_send_email(to, subject, body, html=None, sender=None):
         outbox.append({"to": to, "subject": subject, "body": body})
         return True
 

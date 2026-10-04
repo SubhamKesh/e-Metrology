@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import formataddr, parseaddr
 
 from app.config.settings import (
     SMTP_HOST,
@@ -18,6 +18,7 @@ from app.config.settings import (
     SMTP_USER,
     SMTP_PASSWORD,
     SMTP_FROM,
+    NOREPLY_FROM,
     SMTP_USE_TLS,
     BREVO_API_KEY,
     FRONTEND_LOGIN_URL,
@@ -37,12 +38,24 @@ def _smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_FROM)
 
 
-def _send_via_brevo(to: str, subject: str, body: str, html: str | None) -> bool:
+def noreply_sender() -> str:
+    """From-header for system-generated mails nobody should reply to (OTP codes).
+    Uses NOREPLY_FROM when set; otherwise falls back to the normal sender's
+    address under a clear "No-Reply" display name, so it works with no extra
+    config on a provider that only allows one verified sender."""
+    if NOREPLY_FROM:
+        return NOREPLY_FROM
+    _, addr = parseaddr(SMTP_FROM)
+    return formataddr(("MaapSetu (No-Reply)", addr)) if addr else SMTP_FROM
+
+
+def _send_via_brevo(to: str, subject: str, body: str, html: str | None, sender_header: str | None = None) -> bool:
     """Send through Brevo's HTTP API (HTTPS/443) -- works on hosts that block
     outbound SMTP ports. SMTP_FROM must be a sender verified in Brevo; it may
     be a bare address or 'Name <address>'."""
-    sender_name, sender_email = parseaddr(SMTP_FROM)
-    sender = {"email": sender_email or SMTP_FROM}
+    from_header = sender_header or SMTP_FROM
+    sender_name, sender_email = parseaddr(from_header)
+    sender = {"email": sender_email or from_header}
     if sender_name:
         sender["name"] = sender_name
     payload = {
@@ -86,13 +99,16 @@ def is_configured() -> bool:
     return _brevo_configured() or _smtp_configured()
 
 
-def send_email(to: str, subject: str, body: str, html: str | None = None) -> bool:
+def send_email(to: str, subject: str, body: str, html: str | None = None, sender: str | None = None) -> bool:
     """Best-effort send. Returns True if actually sent, False if SMTP isn't
     configured or the send failed — callers should never let a False here
     block the calling request, since the account creation itself already
-    succeeded by the time this runs."""
+    succeeded by the time this runs.
+
+    `sender` overrides the From header for this one mail (e.g. noreply_sender()
+    for OTP codes); default is SMTP_FROM."""
     if _brevo_configured():
-        return _send_via_brevo(to, subject, body, html)
+        return _send_via_brevo(to, subject, body, html, sender)
 
     if not _smtp_configured():
         logger.warning("Email not configured; skipping email to %s (subject: %s)", to, subject)
@@ -100,7 +116,7 @@ def send_email(to: str, subject: str, body: str, html: str | None = None) -> boo
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = SMTP_FROM
+    msg["From"] = sender or SMTP_FROM
     msg["To"] = to
     msg.set_content(body)
     if html:

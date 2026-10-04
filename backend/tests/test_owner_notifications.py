@@ -17,7 +17,7 @@ def env(monkeypatch):
     db = mongomock.MongoClient()["t"]
     sent = []
 
-    def fake_send(to, subject, body, html=None):
+    def fake_send(to, subject, body, html=None, sender=None):
         sent.append({"to": to, "subject": subject, "body": body, "html": html})
         return True
 

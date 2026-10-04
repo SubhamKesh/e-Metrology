@@ -54,7 +54,8 @@ from app.utils.mfa import (
 )
 from app.middleware.auth import get_current_user
 from app.services.audit import log_event
-from app.services.mailer import send_email, send_password_changed_notice
+from app.services.email_templates import render_otp
+from app.services.mailer import noreply_sender, send_email, send_password_changed_notice
 from app.services.otp import (
     OTP_EXPIRY_MINUTES,
     consume_verification_proof,
@@ -547,14 +548,14 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, background
         return generic
 
     code = generate_and_store_otp(identifier=email, purpose=PASSWORD_RESET_PURPOSE)
+    subject, text, html = render_otp("password_reset", code, OTP_EXPIRY_MINUTES)
     background_tasks.add_task(
         send_email,
         to=email,
-        subject="Your MaapSetu password reset code",
-        body=(
-            f"Your password reset code is {code}. It expires in {OTP_EXPIRY_MINUTES} minutes.\n\n"
-            "If you didn't request this, you can ignore this email — your password won't change."
-        ),
+        subject=subject,
+        body=text,
+        html=html,
+        sender=noreply_sender(),
     )
     log_event("password_reset_requested", outcome="success", request=request, detail="code_sent", **who)
     return generic

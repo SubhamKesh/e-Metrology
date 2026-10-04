@@ -53,14 +53,24 @@ def _build(
     tone: str = "info",
     cta: Optional[tuple[str, str]] = None,
     closing: Optional[str] = None,
+    greeting: Optional[str] = None,
+    code: Optional[tuple[str, str]] = None,
+    footer: str = "This is an automated status update. Please do not reply to this email.",
 ) -> tuple[str, str, str]:
+    # `greeting`, `code` and `footer` are only used by the OTP mails; every
+    # existing caller leaves them at the defaults and renders exactly as before.
+    # code = (label, value), shown as a large boxed block in the HTML.
+    greeting = greeting or f"Hello {owner_name},"
     # ---- plain text ----
-    text_lines = [f"Hello {owner_name},", "", heading, ""]
+    text_lines = [greeting, "", heading, ""]
     for p in paragraphs:
         text_lines += [p, ""]
+    if code:
+        text_lines += [f"{code[0]}: {code[1]}", ""]
     for label, value in rows:
         text_lines.append(f"{label}: {value}")
-    text_lines.append("")
+    if rows:
+        text_lines.append("")
     if cta:
         text_lines += [f"{cta[0]}: {cta[1]}", ""]
     if closing:
@@ -68,7 +78,7 @@ def _build(
     text_lines += [
         "-- ",
         f"{BRAND} | Legal Metrology",
-        "This is an automated status update. Please do not reply to this email.",
+        footer,
     ]
     text = "\n".join(text_lines)
 
@@ -85,6 +95,22 @@ def _build(
         f'border-bottom:1px solid #eef0f3;">{escape(str(value))}</td></tr>'
         for label, value in rows
     )
+    table_html = (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="margin-top:6px;border:1px solid #eef0f3;border-radius:6px;">{row_html}</table>'
+        if rows
+        else ""
+    )
+    code_html = ""
+    if code:
+        code_html = (
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 18px;">'
+            f'<tr><td align="center" style="background:#f9fafb;border:1px dashed {color};border-radius:6px;padding:16px;">'
+            f'<div style="font-size:12px;color:#6b7280;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px;">{escape(code[0])}</div>'
+            f'<div style="font-size:32px;font-weight:700;letter-spacing:10px;color:#111827;font-family:Consolas,Menlo,monospace;-webkit-user-select:all;user-select:all;">{escape(code[1])}</div>'
+            '<div style="font-size:12px;color:#6b7280;margin-top:8px;">Tip: tap and hold (or double-click) the code to select and copy it.</div>'
+            "</td></tr></table>"
+        )
     cta_html = ""
     if cta:
         cta_html = (
@@ -106,13 +132,14 @@ def _build(
 <tr><td style="background:{color};padding:16px 24px;color:#ffffff;font-size:13px;letter-spacing:.06em;font-weight:700;">{escape(BRAND.upper())} &middot; LEGAL METROLOGY</td></tr>
 <tr><td style="padding:24px;">
 <h1 style="margin:0 0 14px;font-size:20px;color:#111827;">{escape(heading)}</h1>
-<p style="margin:0 0 14px;font-size:15px;color:#1f2937;">Hello {escape(owner_name)},</p>
+<p style="margin:0 0 14px;font-size:15px;color:#1f2937;">{escape(greeting)}</p>
 {para_html}
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:6px;border:1px solid #eef0f3;border-radius:6px;">{row_html}</table>
+{code_html}
+{table_html}
 {cta_html}
 {closing_html}
 </td></tr>
-<tr><td style="padding:14px 24px;background:#f9fafb;font-size:12px;color:#6b7280;">This is an automated status update. Please do not reply to this email.</td></tr>
+<tr><td style="padding:14px 24px;background:#f9fafb;font-size:12px;color:#6b7280;">{escape(footer)}</td></tr>
 </table>
 </td></tr></table>
 </body></html>"""
@@ -292,6 +319,72 @@ def _certificate_expired(ctx: dict):
         ],
         tone="danger",
         cta=("Renew now", ctx["renew_url"]),
+    )
+
+
+# --------------------------------------------------------------------------
+# OTP mails (signup verification + password reset). Sent from the no-reply
+# sender (see mailer.noreply_sender). The plain-text part is kept simple on
+# purpose: the 6-digit code is the only 6-digit number in it.
+# --------------------------------------------------------------------------
+
+_NOREPLY_FOOTER = (
+    "This is a system-generated email from an unmonitored no-reply address. "
+    "Please do not reply to this message."
+)
+
+_OTP_SECURITY_NOTE = (
+    "Do not share this OTP with anyone. MaapSetu officials will never ask for it "
+    "over phone, email or message."
+)
+
+_OTP_COPY = {
+    "signup": {
+        "subject": "Your MaapSetu verification code",
+        "heading": "Verify your email address",
+        "intro": (
+            "Thank you for registering on MaapSetu, the Legal Metrology digital platform. "
+            "Please use the One-Time Password (OTP) below to verify your email address "
+            "and continue your registration."
+        ),
+        "closing": (
+            "If you did not request this verification, you may safely ignore this email. "
+            "No account will be created without it."
+        ),
+    },
+    "password_reset": {
+        "subject": "Your MaapSetu password reset code",
+        "heading": "Reset your password",
+        "intro": (
+            "We received a request to reset the password of your MaapSetu account. "
+            "Please use the One-Time Password (OTP) below to proceed with the reset."
+        ),
+        "closing": (
+            "If you did not request a password reset, you may safely ignore this email. "
+            "Your password will remain unchanged."
+        ),
+    },
+}
+
+
+def render_otp(purpose: str, code: str, expiry_minutes: int) -> tuple[str, str, str]:
+    """purpose: 'signup' or 'password_reset'. Returns (subject, plain_text, html).
+    Raises KeyError for an unknown purpose."""
+    c = _OTP_COPY[purpose]
+    return _build(
+        subject=c["subject"],
+        owner_name="User",
+        greeting="Dear User,",
+        heading=c["heading"],
+        paragraphs=[
+            c["intro"],
+            f"This OTP is valid for {expiry_minutes} minutes and can be used only once. {_OTP_SECURITY_NOTE}",
+        ],
+        rows=[],
+        code=("Your verification code (OTP)", code),
+        tone="info",
+        closing=c["closing"],
+        footer=_NOREPLY_FOOTER,
     )
 
 

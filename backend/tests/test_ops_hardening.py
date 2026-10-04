@@ -30,7 +30,7 @@ def otp_env(client, monkeypatch):
     monkeypatch.setattr(otp_mod, "otp_verifications_col", dbmod.db["otp_verifications"])
     monkeypatch.setattr(otp_router, "users_col", dbmod.db["users"])
     sent: list[dict] = []
-    monkeypatch.setattr(otp_router, "send_email", lambda to, subject, body, html=None: sent.append({"to": to, "body": body}) or True)
+    monkeypatch.setattr(otp_router, "send_email", lambda to, subject, body, html=None, sender=None: sent.append({"to": to, "body": body}) or True)
     return sent
 
 
@@ -257,3 +257,32 @@ print([c.get("/ping").status_code for _ in range(5)])
     res = subprocess.run([sys.executable, "-c", script], cwd=BACKEND_DIR, capture_output=True, text=True, timeout=120,
                          env={**os.environ, "REDIS_URL": "redis://127.0.0.1:1/0"})
     assert res.stdout.strip().splitlines()[-1] == "[200, 200, 200, 429, 429]", res.stdout + res.stderr
+
+
+# ---------------------------------------------------------- OTP mail format
+
+
+def test_otp_mails_are_noreply_and_carry_the_code():
+    import re
+
+    from app.services.email_templates import render_otp
+
+    for purpose in ("signup", "password_reset"):
+        subject, text, html = render_otp(purpose, "482913", 10)
+        assert "MaapSetu" in subject
+        assert re.findall(r"\b\d{6}\b", text) == ["482913"]
+        assert "482913" in html and "10 minutes" in text
+        assert "do not reply" in text.lower() and "do not reply" in html.lower()
+        assert "Do not share this OTP" in text
+
+
+def test_noreply_sender_falls_back_to_smtp_from_address(monkeypatch):
+    import app.services.mailer as mailer_mod
+
+    monkeypatch.setattr(mailer_mod, "NOREPLY_FROM", "")
+    monkeypatch.setattr(mailer_mod, "SMTP_FROM", "MaapSetu <alerts@example.gov.in>")
+    from email.utils import parseaddr
+
+    assert parseaddr(mailer_mod.noreply_sender()) == ("MaapSetu (No-Reply)", "alerts@example.gov.in")
+    monkeypatch.setattr(mailer_mod, "NOREPLY_FROM", "MaapSetu <noreply@example.gov.in>")
+    assert mailer_mod.noreply_sender() == "MaapSetu <noreply@example.gov.in>"

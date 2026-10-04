@@ -19,7 +19,7 @@ T0 = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 def no_real_email(client, monkeypatch):
     import app.services.mailer as mailer_mod
 
-    monkeypatch.setattr(mailer_mod, "send_email", lambda to, subject, body, html=None: True)
+    monkeypatch.setattr(mailer_mod, "send_email", lambda to, subject, body, html=None, sender=None: True)
 
 
 def _seed(role, email, mfa=True) -> dict:

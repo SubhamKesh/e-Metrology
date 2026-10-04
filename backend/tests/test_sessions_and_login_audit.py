@@ -21,7 +21,7 @@ def no_real_email(client, monkeypatch):
     import app.services.mailer as mailer_mod
 
     sent = []
-    monkeypatch.setattr(mailer_mod, "send_email", lambda to, subject, body, html=None: sent.append(to) or True)
+    monkeypatch.setattr(mailer_mod, "send_email", lambda to, subject, body, html=None, sender=None: sent.append(to) or True)
     return sent
 
 
