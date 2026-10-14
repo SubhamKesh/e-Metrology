@@ -42,5 +42,13 @@ export default [
       globals: { ...globals.node },
     },
   },
+  {
+    files: ["public/sw.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: { ...globals.serviceworker },
+    },
+  },
   { ignores: ["dist"] },
 ];
