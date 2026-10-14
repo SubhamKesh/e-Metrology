@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { BrandMark, BrandWordmark } from "@/components/ui/Brand";
 import { LogoutConfirmationDialog } from "@/components/ui/LogoutConfirmationDialog";
 import { useApplications } from "@/hooks/useData";
+import { InstallBanner } from "@/components/ui/InstallBanner";
 
 function BrandButton({ onClick, className }: { onClick: () => void; className?: string }) {
   return (
@@ -289,7 +290,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
 
         <main id="main" className="flex-1 px-4 py-5 pb-28 sm:px-6 md:px-6 md:py-8 md:pb-10 lg:px-8">
-          <div className="mx-auto w-full max-w-6xl">{children}</div>
+          <div className="mx-auto w-full max-w-6xl">
+            <InstallBanner />
+            {children}
+          </div>
         </main>
       </div>
 

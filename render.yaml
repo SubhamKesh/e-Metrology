@@ -78,3 +78,13 @@ services:
       - path: /index.html
         name: Cache-Control
         value: no-cache
+      # Service worker must always be re-fetched so new releases reach installed apps.
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /offline.html
+        name: Cache-Control
+        value: no-cache
+      - path: /site.webmanifest
+        name: Cache-Control
+        value: public, max-age=3600

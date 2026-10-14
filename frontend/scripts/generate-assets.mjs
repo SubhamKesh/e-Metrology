@@ -42,6 +42,8 @@ async function squareIcon(size, padRatio, background) {
 writeFileSync(out("apple-touch-icon.png"), await squareIcon(180, 0.1, WHITE));
 writeFileSync(out("icon-192.png"), await squareIcon(192, 0.1, WHITE));
 writeFileSync(out("icon-512.png"), await squareIcon(512, 0.12, WHITE));
+// Maskable icon: mark kept inside the central 60% so Android adaptive-icon masks never crop it.
+writeFileSync(out("icon-maskable-512.png"), await squareIcon(512, 0.2, WHITE));
 
 // favicon.svg: wraps the PNG mark so it always matches the logo exactly.
 const faviconPng = await squareIcon(128, 0.03, CLEAR);
@@ -78,14 +80,23 @@ writeFileSync(
       name: "MaapSetu",
       short_name: "MaapSetu",
       description: "Digital Legal Metrology verification and certification for weighing and measuring instruments in India.",
+      id: "/",
       start_url: "/",
       scope: "/",
       display: "standalone",
+      orientation: "portrait-primary",
+      lang: "en-IN",
+      categories: ["business", "utilities"],
       background_color: "#F6F4EE",
       theme_color: "#1F5F5B",
       icons: [
-        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+      ],
+      shortcuts: [
+        { name: "Verify a certificate", short_name: "Verify", url: "/verify" },
+        { name: "Sign in", short_name: "Sign in", url: "/login" },
       ],
     },
     null,
