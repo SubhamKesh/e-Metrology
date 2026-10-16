@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { Panel } from "@/components/ui/Card";
@@ -10,6 +10,9 @@ import { QrScanner } from "@/components/domain/QrScanner";
 import { getGpsFix, type GpsFix } from "@/lib/geo";
 import { useApplication, useInstrument, useSubmitInspection } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import { useQueuedInspections } from "@/hooks/useOfflineSync";
+import { enqueueInspection } from "@/lib/offlineQueue";
 import type { IdentityMethod, InspectionResult, Role } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
@@ -19,6 +22,12 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
   const { data: application, isLoading, isError, error, refetch } = useApplication(id);
   const { data: instrument } = useInstrument(application?.instrument_id);
   const submit = useSubmitInspection();
+  const { user } = useAuth();
+  const queued = useQueuedInspections(user?.id);
+  // One id per inspection attempt: a retry (or a later sync of a queued copy) can never create a duplicate.
+  const clientId = useRef<string>(crypto.randomUUID());
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
+  const [savedOffline, setSavedOffline] = useState(false);
 
   const [serialConfirmed, setSerialConfirmed] = useState(false);
   const [enteredSerial, setEnteredSerial] = useState("");
@@ -51,8 +60,26 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
   }, []);
 
   if (isLoading) return <Skeleton className="h-64 w-full max-w-2xl" />;
-  if (isError || !application) {
+  if (!application) {
     return <ErrorState message={error instanceof ApiError ? error.message : "Application not found."} onRetry={refetch} />;
+  }
+
+  const alreadyQueued = savedOffline || queued.some((q) => q.application_id === id && q.status === "pending");
+  if (alreadyQueued) {
+    return (
+      <div className="max-w-2xl">
+        <PageHeader title="Saved on this device" />
+        <Panel className="p-5">
+          <p className="text-sm text-ink">
+            This inspection is saved on your device and will be sent automatically as soon as you're back online. You don't need
+            to submit it again. Keep this device signed in to MaapSetu until it has been sent.
+          </p>
+          <Button type="button" className="mt-4" onClick={() => navigate(`/app/${role}`)}>
+            Back to dashboard
+          </Button>
+        </Panel>
+      </div>
+    );
   }
 
   if (application.status !== "scheduled") {
@@ -78,14 +105,51 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
         setSubmitError("Location is required to submit. Turn on location services for this site, then try again.");
         return;
       }
-      await submit.mutateAsync({
-        application_id: id,
-        observations,
-        result: finalResult,
-        photos,
-        identity_method: identityMethod,
-        location: fix,
-      });
+      const capturedAt = new Date().toISOString();
+
+      async function saveOnDevice() {
+        if (!user) throw new Error("not signed in");
+        await enqueueInspection({
+          client_id: clientId.current,
+          user_id: user.id,
+          application_id: id!,
+          label: instrument ? `${instrument.type} · ${instrument.manufacturer} ${instrument.model}` : `Application ${id}`,
+          observations,
+          result: finalResult,
+          photos,
+          pending_photos: pendingPhotos.map((f) => ({ name: f.name, type: f.type, blob: f })),
+          identity_method: identityMethod,
+          location: fix!,
+          captured_at: capturedAt,
+        });
+        setSavedOffline(true);
+      }
+
+      // Offline already (or photos still waiting to upload): keep it on the device and send it later.
+      if (!navigator.onLine || pendingPhotos.length > 0) {
+        await saveOnDevice();
+        return;
+      }
+      try {
+        await submit.mutateAsync({
+          application_id: id,
+          observations,
+          result: finalResult,
+          photos,
+          identity_method: identityMethod,
+          location: fix,
+          client_id: clientId.current,
+          captured_at: capturedAt,
+        });
+      } catch (err) {
+        // Connection dropped mid-submit. The server may or may not have received it; the
+        // client_id makes the later sync safe either way.
+        if (err instanceof ApiError && err.status === 0) {
+          await saveOnDevice();
+          return;
+        }
+        throw err;
+      }
       navigate(`/app/${role}/applications/${id}`);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Couldn't submit this inspection. Try again.");
@@ -150,7 +214,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
       <fieldset disabled={identityBlocked || !serialConfirmed} className="disabled:pointer-events-none disabled:opacity-40">
         <Panel className="mb-5 p-5">
           <h2 className="mb-3 text-sm font-medium text-ink">2. Evidence photographs</h2>
-          <PhotoUploader photos={photos} onChange={setPhotos} />
+          <PhotoUploader photos={photos} onChange={setPhotos} pending={pendingPhotos} onPendingChange={setPendingPhotos} />
         </Panel>
 
         <Panel className="mb-5 p-5">

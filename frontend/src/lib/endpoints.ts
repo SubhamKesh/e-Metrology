@@ -173,6 +173,8 @@ export const InspectionApi = {
     photos: string[];
     identity_method?: "qr" | "manual";
     location: { lat: number; lng: number; accuracy_m?: number };
+    client_id?: string; // idempotency key: resending the same one never creates a duplicate
+    captured_at?: string; // ISO time the officer pressed Submit (differs from receipt time when queued offline)
   }) =>
     api.post<Inspection>("/inspections", body),
   get: (id: string) => api.get<Inspection>(`/inspections/${id}`),

@@ -9,7 +9,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 |---|------|--------|
 | 1 | PWA foundation: service worker, offline page, install prompt, richer manifest, maskable icon | ✅ (code complete; needs device test) |
 | 2 | In-app QR scanner on officer inspection page (+ GPS stamp) | ✅ (code complete; needs device test) |
-| 3 | Offline-capable inspection with background sync | ⬜ |
+| 3 | Offline-capable inspection with background sync | ✅ (code complete; needs device test and a backend `pytest` run) |
 | 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ⬜ |
 | 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ⬜ |
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ⬜ |
@@ -82,3 +82,24 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - Checked with `scripts/preview-prod.mjs` (follows vercel.json): `/`, `/login`, `/verify` serve their own titles; `/verify/<id>` and `/app/*` serve the generic noindex shell; unknown URL → 404; sitemap and robots generated. Not tested on Render itself: after deploying, open `/`, `/verify`, `/login`, a deep `/app/owner/instruments`, and a nonsense URL.
 - The frontend is actually hosted on Vercel, so `frontend/vercel.json` is the live routing config (the `render.yaml` frontend block is only for a Render deploy). Set `VITE_SITE_URL` in Vercel (Project → Settings → Environment Variables) before relying on canonical URLs/sitemap.
 - The built pages replace themselves when the app boots (client uses `createRoot`, not hydration), so crawlers see full content and users get the normal app.
+
+### 2026-10-16 — #3 Offline-capable inspection with automatic sync
+**Added**
+- `frontend/src/lib/offlineQueue.ts` — IndexedDB queue (`maapsetu-offline` / `inspections`) for finished inspections that couldn't be sent. Stores the form, GPS fix, `captured_at`, already-uploaded photo URLs and photos taken offline (as blobs). Entries are tagged with the officer's user id.
+- `frontend/src/lib/offlineSync.ts` — `syncQueue(userId)`: oldest first, one run at a time; uploads queued photos (progress saved per photo), then `POST /inspections`. Network/server trouble or sign-out → keep everything and retry later; a definite rejection (403/404/409/422…) → mark that item "failed" with a plain-language reason and continue.
+- `frontend/src/hooks/useOfflineSync.ts` — `useOnlineStatus`, `useQueuedInspections`, and the sync engine hook. Syncs on app open, on reconnect, on tab refocus and every 60 s while items wait; refreshes applications/dashboard data after a send.
+- `frontend/src/components/ui/OfflineSyncBanner.tsx` — officer-only strip in `AppShell`: offline notice, "N inspections saved on this device" with **Send now**, and rejected items with **Discard**.
+- Backend: `client_id` (idempotency key) and `captured_at` on `InspectionCreate`; `submitted_offline` on the response; partial unique index on `inspections(officer_id, client_id)` in `init_indexes`.
+
+**Changed**
+- `frontend/src/pages/officer/Inspection.tsx` — generates one `client_id` per inspection and sends it with `captured_at`; if offline, or the connection drops mid-submit, saves to the queue and shows "Saved on this device" (also shown if this application is already queued). A failed background refetch no longer replaces the loaded form with an error.
+- `frontend/src/components/domain/PhotoUploader.tsx` — optional `pending` / `onPendingChange`: a photo whose upload fails for lack of connection is kept (labelled "Saved offline") instead of being lost.
+- `backend/app/routers/inspections.py` — replaying the same `(officer, client_id)` returns the original with `200` before any status check, so no second transition, email or certificate; a concurrent duplicate is caught by the unique index. `captured_at` becomes `inspected_at` only if not in the future (5 min skew) and not older than 14 days, else server time; `received_at` is always stored.
+- `README.md` — new Offline Inspections section; features, stack, project structure, API table, testing and roadmap now cover the PWA, QR scanner, GPS stamp and offline sync. `docs/api-contract.md` — documents `location`, `identity_method`, `client_id`, `captured_at`, `submitted_offline`.
+- `backend/tests/test_inspections.py` — 9 new tests: replay returns the original and applies once, no `client_id` still 409s, `client_id` is per officer, invalid ids → 422, `captured_at` used and flagged offline, future/too-old `captured_at` falls back to server time.
+
+**Notes**
+- **Not run:** the authoring environment had no access to the npm/PyPI registries, so `npm run build`/`lint` and `pytest` were not run. Checked instead: the two new library files type-check (`tsc --strict`), all edited Python files parse, and the `captured_at` rule was exercised on its own. Run `cd backend && pytest tests/test_inspections.py` and `cd frontend && npm ci && npm run lint && npm run build` before merging.
+- Test on a phone: open an inspection, switch to airplane mode, take photos, submit (expect "Saved on this device"), switch back and watch the banner clear and the application become certified/rejected.
+- Known limits: sync runs while the app is open (no service-worker background sync — iOS lacks it and the access token lives in page storage); a page *reloaded* offline shows `offline.html`, so the inspection must be opened while online first; signing out leaves the queue on the device until the same officer signs in again.
+- Free-text observations and photos wait in the browser profile until sent. On a shared device, sign out only after the queue is empty.

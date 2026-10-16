@@ -245,10 +245,18 @@ Submit an inspection result for an application assigned to you.
   "application_id": "...",
   "observations": "Accurate to spec, no discrepancy found",
   "result": "pass",
-  "photos": ["https://res.cloudinary.com/.../photo1.jpg"]
+  "photos": ["https://res.cloudinary.com/.../photo1.jpg"],
+  "identity_method": "qr",
+  "location": { "lat": 24.1, "lng": 88.25, "accuracy_m": 12 },
+  "client_id": "6f1c2e0a-3b7d-4c55-9a52-1d2f8e7b9c01",
+  "captured_at": "2026-10-16T09:41:00Z"
 }
 ```
 `result` is `"pass"` or `"fail"`. `photos` is a list of URLs — upload each photo first via `POST /uploads/photo` to get these URLs.
+
+`location` is **required** (`lat` −90…90, `lng` −180…180, `accuracy_m` optional) — a missing or out-of-range value returns `422`. `identity_method` is `"qr"` or `"manual"` (default `"manual"`).
+
+**Offline / retry support (optional fields).** `client_id` (8–64 chars, letters, digits, `-`, `_`) is an idempotency key: if the same officer sends the same `client_id` again, the original inspection is returned with `200` and nothing is applied twice (no second status change, email or certificate). `captured_at` (ISO 8601) is when the officer really submitted on the device; it is used as the inspection time only when it is not in the future (5 min skew allowed) and not older than 14 days, otherwise the server time is used. The response's `submitted_offline` is `true` when the inspection reached the server more than a minute after it was captured.
 
 **Requirements:** the application must currently be `scheduled` and assigned to you, or this returns `409` / `403`.
 

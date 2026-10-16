@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pymongo.errors import DuplicateKeyError
 
 from app.config.db import inspections_col, applications_col
 from app.models.inspection import InspectionCreate, InspectionOut
@@ -16,6 +17,25 @@ from app.services.owner_notifications import notify_inspection_result
 
 router = APIRouter(prefix="/api/v1/inspections", tags=["inspections"])
 
+# An offline inspection may reach the server late. captured_at is trusted as the
+# inspection time only inside this window (never in the future, never ancient);
+# otherwise the server clock is used. The server receipt time is always kept.
+MAX_OFFLINE_AGE = timedelta(days=14)
+CLOCK_SKEW = timedelta(minutes=5)
+
+
+def _inspection_time(captured_at: datetime | None, now: datetime) -> tuple[datetime, bool]:
+    """Returns (inspected_at, submitted_offline)."""
+    if captured_at is None:
+        return now, False
+    if captured_at.tzinfo is None:
+        captured_at = captured_at.replace(tzinfo=timezone.utc)
+    captured_at = captured_at.astimezone(timezone.utc)
+    if captured_at > now + CLOCK_SKEW or captured_at < now - MAX_OFFLINE_AGE:
+        return now, False
+    captured_at = min(captured_at, now)
+    return captured_at, (now - captured_at) > timedelta(seconds=60)
+
 
 def to_inspection_out(doc: dict) -> InspectionOut:
     return InspectionOut(
@@ -27,6 +47,7 @@ def to_inspection_out(doc: dict) -> InspectionOut:
         photos=doc.get("photos", []),
         identity_method=doc.get("identity_method", "manual"),
         location=doc.get("location"),
+        submitted_offline=doc.get("submitted_offline", False),
         created_at=doc["inspected_at"],
     )
 
@@ -34,12 +55,22 @@ def to_inspection_out(doc: dict) -> InspectionOut:
 @router.post("", response_model=InspectionOut, status_code=201)
 def submit_inspection(
     payload: InspectionCreate,
+    response: Response,
     current_user: dict = Depends(role_required("lmo", "gatc")),
 ):
     try:
         app_oid = ObjectId(payload.application_id)
     except InvalidId:
         raise HTTPException(status_code=400, detail="Invalid application_id")
+
+    # Idempotent replay: the same officer re-sending the same client_id (a retry after a
+    # lost response, or a queued offline inspection syncing twice) gets the original
+    # record back and nothing is applied again.
+    if payload.client_id:
+        existing = inspections_col.find_one({"officer_id": current_user["_id"], "client_id": payload.client_id})
+        if existing:
+            response.status_code = 200
+            return to_inspection_out(existing)
 
     application = applications_col.find_one({"_id": app_oid})
     if not application:
@@ -57,6 +88,8 @@ def submit_inspection(
             detail=f"Application must be in 'scheduled' status to inspect (currently '{application['status']}')",
         )
 
+    now = datetime.now(timezone.utc)
+    inspected_at, offline = _inspection_time(payload.captured_at, now)
     doc = {
         "application_id": app_oid,
         "officer_id": current_user["_id"],
@@ -65,9 +98,21 @@ def submit_inspection(
         "photos": payload.photos,
         "identity_method": payload.identity_method,
         "location": payload.location.model_dump(),
-        "inspected_at": datetime.now(timezone.utc),
+        "inspected_at": inspected_at,
+        "received_at": now,
+        "submitted_offline": offline,
     }
-    result = inspections_col.insert_one(doc)
+    if payload.client_id:
+        doc["client_id"] = payload.client_id
+    try:
+        result = inspections_col.insert_one(doc)
+    except DuplicateKeyError:
+        # Two concurrent syncs of the same inspection: the unique index let one through.
+        existing = inspections_col.find_one({"officer_id": current_user["_id"], "client_id": payload.client_id})
+        if not existing:
+            raise
+        response.status_code = 200
+        return to_inspection_out(existing)
     doc["_id"] = result.inserted_id
 
     # Two-step transition: scheduled -> inspected -> certified/rejected.

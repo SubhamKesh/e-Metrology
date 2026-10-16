@@ -87,6 +87,18 @@ def init_indexes():
             "(duplicate certificates for one application already exist?).", exc_info=True,
         )
 
+    # Offline-synced inspections are idempotent per (officer, client_id). Partial, so the
+    # many records without a client_id are unaffected.
+    try:
+        inspections_col.create_index(
+            [("officer_id", 1), ("client_id", 1)],
+            unique=True,
+            partialFilterExpression={"client_id": {"$type": "string"}},
+        )
+    except Exception:
+        import logging
+        logging.getLogger("maapsetu").warning("Could not create the inspections client_id index.", exc_info=True)
+
     # Geo reference lookups.
     states_col.create_index("code", unique=True)
     districts_col.create_index([("state_code", 1), ("code", 1)], unique=True)

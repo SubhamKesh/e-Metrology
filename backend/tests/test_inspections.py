@@ -180,3 +180,73 @@ def test_legacy_inspection_without_location_still_readable(client, env):
     r = client.get(f"{URL}/{legacy}", headers=_headers(client, officer))
     assert r.status_code == 200
     assert r.json()["location"] is None and r.json()["identity_method"] == "manual"
+
+
+# ---- Offline sync: idempotency (client_id) and capture time (captured_at) ----
+
+def test_replayed_client_id_returns_original_and_applies_once(client, env):
+    officer = _seed_officer()
+    app_id = _scheduled_app(env, officer["_id"])
+    h = _headers(client, officer)
+    first = client.post(URL, json=_body(app_id, client_id="abc12345-uuid"), headers=h)
+    assert first.status_code == 201, first.text
+    # The application is now 'certified', so without idempotency this retry would be a 409.
+    again = client.post(URL, json=_body(app_id, client_id="abc12345-uuid"), headers=h)
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == first.json()["id"]
+    assert env["db"]["inspections"].count_documents({}) == 1
+    assert env["notified"] == ["pass"] and len(env["generated"]) == 1
+
+
+def test_without_client_id_a_repeat_is_still_a_conflict(client, env):
+    officer = _seed_officer()
+    app_id = _scheduled_app(env, officer["_id"])
+    h = _headers(client, officer)
+    assert client.post(URL, json=_body(app_id), headers=h).status_code == 201
+    assert client.post(URL, json=_body(app_id), headers=h).status_code == 409
+
+
+def test_client_id_is_scoped_to_the_officer(client, env):
+    a = _seed_officer("a@example.com")
+    b = _seed_officer("b@example.com")
+    app_a = _scheduled_app(env, a["_id"])
+    app_b = _scheduled_app(env, b["_id"])
+    assert client.post(URL, json=_body(app_a, client_id="shared-id-1234"), headers=_headers(client, a)).status_code == 201
+    # Another officer reusing the id gets their own record, never the first officer's.
+    r = client.post(URL, json=_body(app_b, client_id="shared-id-1234"), headers=_headers(client, b))
+    assert r.status_code == 201
+    assert env["db"]["inspections"].count_documents({}) == 2
+
+
+@pytest.mark.parametrize("bad", ["short", "has space in it", "x" * 65, "bad/chars!!"])
+def test_invalid_client_id_is_rejected(client, env, bad):
+    officer = _seed_officer()
+    app_id = _scheduled_app(env, officer["_id"])
+    r = client.post(URL, json=_body(app_id, client_id=bad), headers=_headers(client, officer))
+    assert r.status_code == 422
+
+
+def test_captured_at_is_used_as_inspection_time_and_flagged_offline(client, env):
+    from datetime import timedelta
+    officer = _seed_officer()
+    app_id = _scheduled_app(env, officer["_id"])
+    captured = datetime.now(timezone.utc) - timedelta(hours=5)
+    r = client.post(URL, json=_body(app_id, captured_at=captured.isoformat()), headers=_headers(client, officer))
+    assert r.status_code == 201, r.text
+    assert r.json()["submitted_offline"] is True
+    stored = env["db"]["inspections"].find_one({"application_id": app_id})
+    assert abs((stored["inspected_at"].replace(tzinfo=timezone.utc) - captured).total_seconds()) < 2
+    assert stored["received_at"] > stored["inspected_at"]
+
+
+@pytest.mark.parametrize("delta_hours", [24, -24 * 30])
+def test_implausible_captured_at_falls_back_to_server_time(client, env, delta_hours):
+    from datetime import timedelta
+    officer = _seed_officer()
+    app_id = _scheduled_app(env, officer["_id"])
+    bogus = datetime.now(timezone.utc) + timedelta(hours=delta_hours)  # future, or older than the window
+    r = client.post(URL, json=_body(app_id, captured_at=bogus.isoformat()), headers=_headers(client, officer))
+    assert r.status_code == 201, r.text
+    assert r.json()["submitted_offline"] is False
+    stored = env["db"]["inspections"].find_one({"application_id": app_id})
+    assert abs((stored["inspected_at"].replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)).total_seconds()) < 30

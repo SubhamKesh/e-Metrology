@@ -44,7 +44,9 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 🗺️ **Jurisdiction Scoping** | States/UTs and districts stored as reference data; officers see only applications in their state/district, validated at write time |
 | 🧰 **Instrument Registry** | Owners register instruments from a controlled list of instrument types, with a unique serial number and auto-generated UIID |
 | 📝 **Application Lifecycle** | State machine enforced server-side: `submitted → scheduled → inspected → certified/rejected → expiring → expired` |
-| 🔎 **Inspection Workflow** | Officers claim applications, scan a QR/UIID, review instrument details, and record outcomes with photo evidence |
+| 🔎 **Inspection Workflow** | Officers claim applications, scan the instrument's QR with the in-app camera scanner (or type the UIID), review instrument details, and record outcomes with photo evidence. A GPS fix is **mandatory** and stored with every inspection, along with how the instrument was identified (`qr` / `manual`) |
+| 📴 **Offline Inspections** | If the connection drops, a finished inspection (and any photos taken) is saved on the officer's device and sent automatically when they're back online. Each inspection carries an idempotency key, so a retry or double sync can never create a duplicate, and the time the officer actually pressed Submit is kept (see [Offline Inspections](#-offline-inspections)) |
+| 📱 **Installable App (PWA)** | Installable on phones and desktops (manifest, maskable icon, install banner, iOS "Add to Home Screen" hint). The service worker caches only static app files — never API responses, certificates or personal data |
 | 📜 **Digital Certificates** | PDF certificates (ReportLab) with embedded QR codes linking to a public verification page; generated off the request path when Redis is available |
 | ✅ **Public Verification** | Anyone can verify a certificate at `GET /api/v1/certificates/verify/{cert_id}` (frontend route `/verify/:certId`) — no login required; responses are cached |
 | ⏰ **Expiry Automation** | Hourly APScheduler jobs move certificates to `expiring` / `expired` and email owners at 30 / 15 / 7 / 1 days before expiry, guarded by a Redis run-lock so only one instance runs each tick |
@@ -87,7 +89,8 @@ Business owners register weighing/measuring instruments, submit them for verific
 | Routing | **React Router v6** |
 | Data fetching / caching | **TanStack Query (React Query) v5** |
 | Styling | **Tailwind CSS 3** |
-| QR rendering | `qrcode.react` |
+| QR rendering / scanning | `qrcode.react` (render) · native `BarcodeDetector` with a `jsqr` fallback (scan) |
+| Offline | Service worker (static files only) · IndexedDB queue for inspections |
 | Linting | ESLint 9 (`typescript-eslint`) |
 
 ### Infrastructure & DevOps
@@ -223,6 +226,25 @@ SMTP_PASSWORD=<app password>
 SMTP_FROM=your.account@gmail.com
 SMTP_USE_TLS=true
 ```
+
+---
+
+## 📴 Offline Inspections
+
+Field inspections often happen where there is no signal. The officer inspection page works like this:
+
+1. **Open the inspection while you still have a connection** (the page and the application details must be loaded), then walk to the site. Location (GPS) and the camera work without a network.
+2. Fill in the form and submit. If the device is offline, or the connection drops mid-submit, the inspection — including photos taken offline — is saved in the browser's **IndexedDB** and the page confirms "Saved on this device".
+3. A status strip at the top of the officer screens shows the offline state and how many inspections are waiting. They are sent **automatically** when the connection returns, when the app is opened or refocused, and every minute while anything is waiting. There is also a **Send now** button.
+4. If the server rejects a saved inspection (for example the application was reassigned or already inspected) it is kept and shown with the reason, and the officer can discard it. Network or server trouble never discards anything.
+
+How it stays safe:
+
+- **No duplicates.** Each inspection gets a random `client_id` when the form opens. `POST /inspections` returns the original record (`200`) when the same officer sends the same `client_id` again, and a unique index on `(officer_id, client_id)` covers simultaneous syncs.
+- **Real inspection time.** The app sends `captured_at`. The server uses it as the inspection time only if it is not in the future and not older than 14 days; otherwise it uses its own clock. The server's receipt time is always stored (`received_at`) and `submitted_offline` flags late arrivals.
+- **Scoped to the officer.** Queued items are tagged with the officer's user id and only that officer's session sends them. The service worker never touches this data.
+
+Limits to know about: the browser must stay signed in to MaapSetu until the queue is empty; sending happens while the app is open (browsers' true background sync isn't available everywhere, notably iOS); and a page that is *reloaded* while offline shows the offline screen, so open the inspection first and then go offline. On a shared device, sign out only after the queue has been sent.
 
 ---
 
@@ -364,8 +386,10 @@ e-Metrology-main/
     │   │   └── layout/AppShell.tsx
     │   ├── context/AuthContext.tsx
     │   ├── routes/ProtectedRoute.tsx
-    │   ├── hooks/useData.ts        # React Query hooks
-    │   └── lib/                    # api.ts, endpoints.ts, types.ts, validation.ts, nav.ts, roleHome.ts
+    │   ├── hooks/                  # useData.ts (React Query hooks), useOfflineSync.ts (offline queue sync engine)
+    │   └── lib/                    # api.ts, endpoints.ts, types.ts, validation.ts, nav.ts, roleHome.ts,
+    │                               # geo.ts (GPS), pwa.ts (install prompt), offlineQueue.ts (IndexedDB), offlineSync.ts
+    ├── public/                     # sw.js (service worker), offline.html, site.webmanifest, icons
     ├── package.json
     ├── tailwind.config.js
     ├── vite.config.ts
@@ -518,7 +542,7 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | **Geo** | `GET /geo/states` · `GET /geo/states/{state_code}/districts` |
 | **Instruments** | `POST /instruments` · `GET /instruments` · `GET /instruments/{id}` · `GET /instruments/by-uiid/{uiid}` · `GET /instruments/meta/types` |
 | **Applications** | `POST /applications` · `GET /applications` · `GET /applications/{id}` · `POST /applications/{id}/claim` |
-| **Inspections** | `POST /inspections` · `GET /inspections/{id}` |
+| **Inspections** | `POST /inspections` *(requires a GPS `location`; optional `client_id` makes it idempotent, optional `captured_at` records when it was really done)* · `GET /inspections/{id}` |
 | **Certificates** | `GET /certificates/` · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
 | **Uploads** | `POST /uploads/photo` |
 | **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` · `GET /admin/audit-logs` *(read-only; filters: event, outcome, role, email text, date range; paginated)* |
@@ -576,7 +600,7 @@ npm run lint
 npm run build     # type-checks and builds
 ```
 
-The backend suite covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), the audit-log viewer (admin-only, filters, pagination, read-only, event list can't drift from the code), OTP send/verify limits, email retry backoff, read-replica routing (and that security-critical modules never use it), the Redis-backed limiter setting, production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
+The backend suite also covers inspections (mandatory GPS location, identity method, access rules, and offline-sync idempotency and capture-time handling). It covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), the audit-log viewer (admin-only, filters, pagination, read-only, event list can't drift from the code), OTP send/verify limits, email retry backoff, read-replica routing (and that security-critical modules never use it), the Redis-backed limiter setting, production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 1. **Backend** — lint (`ruff`) → test (`pytest` against `mongomock`, no live DB required)
@@ -592,6 +616,7 @@ Handy manual checks: `python burst_test.py` fires a burst of requests to exercis
 - **Scaling — done:** Redis-backed DDoS state, rate-limit counters, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications; certificate generation, officer emails and owner status emails on a background worker (now also in `docker-compose.yml`, with retry backoff); MongoDB read replicas for read-heavy paths (`MONGO_READ_PREFERENCE`); a load-balancer config and multi-instance rehearsal stack; CDN cache headers; an optional CI deploy step.
 - **Scaling — what the repo can't do:** actually provisioning a load balancer, autoscaling and a CDN is done in your hosting provider (Render/Atlas/Cloudflare/NIC…). [`docs/deployment-scaling.md`](docs/deployment-scaling.md) has the configuration and templates; autoscaling and background workers need a paid Render plan, and more than one backend instance needs `REDIS_URL`.
 - **Account security — still to do:** CAPTCHA on forgot-password. Two-step verification is in place for officers/admin (owners don't need it; it could be offered to them as an option later), with a self-service "regenerate recovery codes" screen as a possible follow-up. For a real government deployment, a CERT-In-empanelled security audit, hosting on NIC / MeitY-empanelled cloud, and GIGW 3.0 / DPDP Act compliance are outside this repo's code.
+- **Field readiness:** installable PWA, in-app QR scanning, GPS stamping and offline inspections with automatic sync are in; they need testing on real phones. Offline *page reload* (serving the app shell with no network) is a possible follow-up. The remaining gap-closing items are tracked in [`docs/CHANGELOG-requirements.md`](docs/CHANGELOG-requirements.md).
 - See [`docs/implementation_tasks.md`](docs/implementation_tasks.md) for the team task breakdown.
 
 ---

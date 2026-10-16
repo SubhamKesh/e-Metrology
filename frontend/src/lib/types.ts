@@ -119,6 +119,7 @@ export interface Inspection {
   photos: string[];
   identity_method?: IdentityMethod;
   location?: InspectionLocation | null; // required on submit; optional here for pre-existing records
+  submitted_offline?: boolean; // captured on the device before the server received it
   created_at?: string;
 }
 
