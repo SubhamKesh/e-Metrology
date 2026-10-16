@@ -1,8 +1,12 @@
 {
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/app/(.*)",
+      "destination": "/app-shell.html"
+    },
+    {
+      "source": "/verify/(.*)",
+      "destination": "/app-shell.html"
     }
   ],
   "headers": [
@@ -37,5 +41,6 @@
         }
       ]
     }
-  ]
+  ],
+  "cleanUrls": true
 }

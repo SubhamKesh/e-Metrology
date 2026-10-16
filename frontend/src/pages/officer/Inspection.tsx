@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { Panel } from "@/components/ui/Card";
@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { TextArea } from "@/components/ui/Field";
 import { ErrorState, Skeleton } from "@/components/ui/States";
 import { PhotoUploader } from "@/components/domain/PhotoUploader";
+import { QrScanner } from "@/components/domain/QrScanner";
+import { getGpsFix, type GpsFix } from "@/lib/geo";
 import { useApplication, useInstrument, useSubmitInspection } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
-import type { InspectionResult, Role } from "@/lib/types";
+import type { IdentityMethod, InspectionResult, Role } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
@@ -24,6 +26,29 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
   const [observations, setObservations] = useState("");
   const [result, setResult] = useState<InspectionResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [identityMethod, setIdentityMethod] = useState<IdentityMethod>("manual");
+  const [gps, setGps] = useState<GpsFix | null>(null);
+  const [locating, setLocating] = useState(false);
+
+  const captureGps = useCallback(async () => {
+    setLocating(true);
+    const fix = await getGpsFix(12000);
+    setGps(fix);
+    setLocating(false);
+    return fix;
+  }, []);
+
+  // GPS is mandatory: start locating as soon as the page opens so a fix is ready by submit time.
+  useEffect(() => {
+    captureGps();
+  }, [captureGps]);
+
+  const handleScan = useCallback((uiid: string) => {
+    setEnteredSerial(uiid);
+    setIdentityMethod("qr");
+    setScanning(false);
+  }, []);
 
   if (isLoading) return <Skeleton className="h-64 w-full max-w-2xl" />;
   if (isError || !application) {
@@ -46,14 +71,28 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
     if (!id) return;
     setSubmitError(null);
     try {
-      await submit.mutateAsync({ application_id: id, observations, result: finalResult, photos });
+      // Location is mandatory: take a fresh fix, fall back to the one already captured.
+      const fix = (await getGpsFix(8000)) ?? gps;
+      if (!fix) {
+        setGps(null);
+        setSubmitError("Location is required to submit. Turn on location services for this site, then try again.");
+        return;
+      }
+      await submit.mutateAsync({
+        application_id: id,
+        observations,
+        result: finalResult,
+        photos,
+        identity_method: identityMethod,
+        location: fix,
+      });
       navigate(`/app/${role}/applications/${id}`);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Couldn't submit this inspection. Try again.");
     }
   }
 
-  const canSubmit = serialConfirmed && serialMatches && observations.trim().length > 0;
+  const canSubmit = serialConfirmed && serialMatches && observations.trim().length > 0 && !!gps;
 
   return (
     <div className="max-w-2xl">
@@ -74,12 +113,19 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
             <input
               id="entered-serial"
               value={enteredSerial}
-              onChange={(e) => setEnteredSerial(e.target.value)}
+              onChange={(e) => {
+                setEnteredSerial(e.target.value);
+                setIdentityMethod("manual");
+              }}
               placeholder="Enter what you see on the plate"
               className="mt-1.5 h-10 w-full rounded-md border border-line px-3 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-teal/30"
             />
+            <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={() => setScanning((v) => !v)}>
+              {scanning ? "Hide scanner" : "Scan QR with camera"}
+            </Button>
           </div>
         </div>
+        {scanning && <QrScanner onScan={handleScan} onClose={() => setScanning(false)} />}
         {enteredSerial.length > 0 && (
           <div
             className={cn(
@@ -87,7 +133,9 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
               serialMatches ? "bg-success-50 text-success" : "bg-danger-50 text-danger",
             )}
           >
-            {serialMatches ? "✓ Identity matched" : "✕ Identity mismatch — do not proceed"}
+            {serialMatches
+              ? `✓ Identity matched${identityMethod === "qr" ? " (scanned)" : ""}`
+              : "✕ Identity mismatch — do not proceed"}
           </div>
         )}
         {serialMatches && (
@@ -118,6 +166,20 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
 
         <Panel className="p-5">
           <h2 className="mb-3 text-sm font-medium text-ink">4. Result</h2>
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-md border border-line px-4 py-2.5 text-sm">
+            <span className={gps ? "text-success" : "text-danger"}>
+              {locating
+                ? "Getting your location…"
+                : gps
+                  ? `✓ Location captured (±${gps.accuracy_m} m)`
+                  : "✕ Location not available — required to submit"}
+            </span>
+            {!gps && !locating && (
+              <Button type="button" variant="secondary" size="sm" onClick={captureGps}>
+                Retry
+              </Button>
+            )}
+          </div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               type="button"
@@ -147,7 +209,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
           </div>
           {!canSubmit && (
             <p className="mt-3 text-sm text-slate-500">
-              Confirm identity and add observations before submitting.
+              Confirm identity, add observations and allow location access before submitting.
             </p>
           )}
           {submitError && <p className="mt-3 text-sm text-danger">{submitError}</p>}

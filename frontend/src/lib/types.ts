@@ -104,6 +104,12 @@ export interface Application {
 }
 
 export type InspectionResult = "pass" | "fail";
+export type IdentityMethod = "qr" | "manual";
+export interface InspectionLocation {
+  lat: number;
+  lng: number;
+  accuracy_m?: number;
+}
 
 export interface Inspection {
   id: string;
@@ -111,6 +117,8 @@ export interface Inspection {
   observations: string;
   result: InspectionResult;
   photos: string[];
+  identity_method?: IdentityMethod;
+  location?: InspectionLocation | null; // required on submit; optional here for pre-existing records
   created_at?: string;
 }
 

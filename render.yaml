@@ -63,10 +63,50 @@ services:
     envVars:
       - key: VITE_API_BASE_URL
         value: https://maapsetu-api.onrender.com
+      # Public canonical origin for SEO (canonical URLs, sitemap, robots). Set it to your real domain;
+      # until then the build falls back to the Render URL with a warning.
+      - key: VITE_SITE_URL
+        sync: false
+    # `npm run build` prerenders the public pages (scripts/prerender.mjs), so Render serves real files
+    # for them. Authenticated app routes and /verify/<id> use the generic noindex shell. Unknown URLs
+    # get dist/404.html with a real 404 (no catch-all rewrite). Keep in sync with vercel.json.
     routes:
-      - type: rewrite            # SPA fallback (same as vercel.json)
-        source: /*
-        destination: /index.html
+      - type: rewrite
+        source: /app/*
+        destination: /app-shell.html
+      - type: rewrite
+        source: /verify/*
+        destination: /app-shell.html
+      - type: rewrite
+        source: /verify
+        destination: /verify/index.html
+      - type: rewrite
+        source: /register
+        destination: /register/index.html
+      - type: rewrite
+        source: /how-it-works
+        destination: /how-it-works/index.html
+      - type: rewrite
+        source: /about
+        destination: /about/index.html
+      - type: rewrite
+        source: /login
+        destination: /login.html
+      - type: rewrite
+        source: /forgot-password
+        destination: /forgot-password.html
+      - type: rewrite
+        source: /two-step
+        destination: /two-step.html
+      - type: rewrite
+        source: /pending
+        destination: /pending.html
+      - type: rewrite
+        source: /change-password
+        destination: /change-password.html
+      - type: rewrite
+        source: /unauthorized
+        destination: /unauthorized.html
     # CDN: Render serves static sites through its CDN. These headers tell the CDN
     # and browsers that Vite's hashed files (/assets/*, renamed on every build)
     # can be cached for a year, while index.html is always re-checked so a new

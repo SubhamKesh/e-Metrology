@@ -32,9 +32,17 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+// `initialStatus` is only set by the build-time prerender (entry-server.tsx) so public pages render as a
+// signed-out visitor sees them; the browser always starts at "loading" and restores the session.
+export function AuthProvider({
+  children,
+  initialStatus = "loading",
+}: {
+  children: ReactNode;
+  initialStatus?: AuthState["status"];
+}) {
   const [user, setUser] = useState<User | null>(null);
-  const [status, setStatus] = useState<AuthState["status"]>("loading");
+  const [status, setStatus] = useState<AuthState["status"]>(initialStatus);
 
   useEffect(() => {
     let cancelled = false;

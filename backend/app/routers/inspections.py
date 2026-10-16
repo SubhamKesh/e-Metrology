@@ -25,6 +25,8 @@ def to_inspection_out(doc: dict) -> InspectionOut:
         observations=doc["observations"],
         result=doc["result"],
         photos=doc.get("photos", []),
+        identity_method=doc.get("identity_method", "manual"),
+        location=doc.get("location"),
         created_at=doc["inspected_at"],
     )
 
@@ -61,6 +63,8 @@ def submit_inspection(
         "observations": payload.observations,
         "result": payload.result,
         "photos": payload.photos,
+        "identity_method": payload.identity_method,
+        "location": payload.location.model_dump(),
         "inspected_at": datetime.now(timezone.utc),
     }
     result = inspections_col.insert_one(doc)

@@ -59,7 +59,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Type-check + build
+      - name: Type-check + build + prerender
+        env:
+          # Required by the SEO prerender step (canonical URLs, sitemap). Placeholder for CI only.
+          VITE_SITE_URL: https://ci.example.com
         run: npm run build
 
   docker-build:

@@ -29,6 +29,13 @@ function fail(msg) {
   throw new Error(msg);
 }
 
+/** Host-provided public URL used when VITE_SITE_URL is unset: Render's, or Vercel's production domain. */
+function hostOrigin() {
+  if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL;
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  return "";
+}
+
 const escAttr = (v) => String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 const escXml = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -37,6 +44,19 @@ async function main() {
 
   const { loadEnv, createServer } = await import("vite");
   const env = loadEnv("production", root, "VITE_");
+
+  // A plain local `npm run build` has no canonical domain to put in canonical URLs / sitemap. Skip the
+  // prerender there (the SPA build in dist/ is still complete and usable) instead of failing. On a host
+  // or CI (Render, Vercel, CI) a missing origin is a misconfiguration and still fails the build below.
+  const hasOrigin = (env.VITE_SITE_URL ?? process.env.VITE_SITE_URL ?? "").trim() || hostOrigin();
+  const onHost = process.env.CI || process.env.RENDER || process.env.VERCEL;
+  if (!hasOrigin && !onHost) {
+    console.warn(
+      "\n[seo] VITE_SITE_URL is not set: skipping prerender (dist/ is a plain SPA build, no sitemap/robots).\n" +
+        "      To test the full output locally: set VITE_SITE_URL=https://www.example.com and run `npm run build`.\n",
+    );
+    return;
+  }
 
   const vite = await createServer({
     root,
@@ -54,7 +74,13 @@ async function main() {
 
     let origin;
     try {
-      origin = assertValidOrigin(env.VITE_SITE_URL);
+      // VITE_SITE_URL wins. Otherwise fall back to the host's own URL (RENDER_EXTERNAL_URL on Render,
+      // VERCEL_PROJECT_PRODUCTION_URL on Vercel) so a deploy without the variable still builds; originWarnings() then nags about it.
+      const raw = (env.VITE_SITE_URL ?? process.env.VITE_SITE_URL ?? "").trim() || hostOrigin();
+      if (!(env.VITE_SITE_URL ?? process.env.VITE_SITE_URL ?? "").trim() && raw) {
+        console.warn(`[seo] VITE_SITE_URL is not set; using ${raw} from the host (Render/Vercel). Set VITE_SITE_URL to your real domain.`);
+      }
+      origin = assertValidOrigin(raw);
     } catch (err) {
       fail(`[seo] ${err.message}`);
     }

@@ -5,11 +5,19 @@ from pydantic import BaseModel, Field
 from app.utils.validators import MAX_NOTE_TEXT
 
 
+class InspectionLocation(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0, le=100000)
+
+
 class InspectionCreate(BaseModel):
     application_id: str
     observations: str = Field(max_length=MAX_NOTE_TEXT)
     result: Literal["pass", "fail"]
     photos: list[str] = []  # Cloudinary URLs, uploaded separately via Kiran's /uploads/photo first
+    identity_method: Literal["qr", "manual"] = "manual"  # how the instrument UIID was captured
+    location: InspectionLocation  # officer's GPS fix at submission (mandatory)
 
 
 class InspectionOut(BaseModel):
@@ -19,4 +27,6 @@ class InspectionOut(BaseModel):
     observations: str
     result: str
     photos: list[str] = []
+    identity_method: str = "manual"
+    location: InspectionLocation | None = None
     created_at: datetime  # frontend field name — stored internally as inspected_at

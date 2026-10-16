@@ -163,7 +163,14 @@ export const ApplicationApi = {
 
 // ---- Inspections ----
 export const InspectionApi = {
-  create: (body: { application_id: string; observations: string; result: "pass" | "fail"; photos: string[] }) =>
+  create: (body: {
+    application_id: string;
+    observations: string;
+    result: "pass" | "fail";
+    photos: string[];
+    identity_method?: "qr" | "manual";
+    location: { lat: number; lng: number; accuracy_m?: number };
+  }) =>
     api.post<Inspection>("/inspections", body),
   get: (id: string) => api.get<Inspection>(`/inspections/${id}`),
 };
