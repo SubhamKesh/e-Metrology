@@ -6,6 +6,7 @@ from pymongo.errors import DuplicateKeyError
 from app.config.db import users_col, states_col, districts_col, refresh_tokens_col, otp_verifications_col
 from app.middleware.auth import role_required
 from app.models.user import UserOut, OfficerCreate, OfficerCreatedOut
+from app.models.geo import JurisdictionIn
 from app.utils.security import hash_password, generate_temp_password
 from app.services.audit import log_event
 from app.services.mailer import (
@@ -34,6 +35,30 @@ def _to_user_out(doc: dict) -> UserOut:
     )
 
 
+def _check_scope(role: str, jurisdiction: JurisdictionIn):
+    """Role-vs-scope rules. Returns (audit_detail, message) when the scope is
+    wrong for the role, else None.
+
+    * LMO  -> district-level: must be tied to exactly one district.
+    * GATC -> state-level: covers the whole state, so no district.
+    """
+    if role == "lmo" and not jurisdiction.district_code:
+        return ("lmo_needs_district", "A Legal Metrology Officer is district-level - pick the district they are assigned to.")
+    if role == "gatc" and jurisdiction.district_code:
+        return ("gatc_is_state_level", "A GATC account is state-level - leave the district empty.")
+    return None
+
+
+def _check_geo(jurisdiction: JurisdictionIn):
+    if not states_col.find_one({"code": jurisdiction.state_code}):
+        return ("unknown_state", f"Unknown state_code '{jurisdiction.state_code}'")
+    if jurisdiction.district_code and not districts_col.find_one(
+        {"code": jurisdiction.district_code, "state_code": jurisdiction.state_code}
+    ):
+        return ("unknown_district", f"Unknown district_code '{jurisdiction.district_code}'")
+    return None
+
+
 @router.post("/create-officer", response_model=OfficerCreatedOut, status_code=201)
 def create_officer(payload: OfficerCreate, request: Request, current_user: dict = Depends(role_required("admin"))):
     """The only way an lmo/gatc account comes into existence. There is no
@@ -55,12 +80,12 @@ def create_officer(payload: OfficerCreate, request: Request, current_user: dict 
     if payload.role not in ("lmo", "gatc"):
         _refuse("invalid_role", "role must be 'lmo' or 'gatc'")
 
-    if not states_col.find_one({"code": payload.jurisdiction.state_code}):
-        _refuse("unknown_state", f"Unknown state_code '{payload.jurisdiction.state_code}'")
-    if payload.jurisdiction.district_code and not districts_col.find_one(
-        {"code": payload.jurisdiction.district_code, "state_code": payload.jurisdiction.state_code}
-    ):
-        _refuse("unknown_district", f"Unknown district_code '{payload.jurisdiction.district_code}'")
+    geo_problem = _check_geo(payload.jurisdiction)
+    if geo_problem:
+        _refuse(*geo_problem)
+    scope_problem = _check_scope(payload.role, payload.jurisdiction)
+    if scope_problem:
+        _refuse(*scope_problem)
 
     temp_password = generate_temp_password()
 
@@ -162,6 +187,55 @@ def list_all_officers(current_user: dict = Depends(role_required("admin"))):
     """All lmo/gatc accounts regardless of status, for the minister's oversight view."""
     docs = users_col.find({"role": {"$in": ["lmo", "gatc"]}})
     return [_to_user_out(d) for d in docs]
+
+
+@router.patch("/{user_id}/jurisdiction", response_model=UserOut)
+def change_officer_jurisdiction(
+    user_id: str,
+    jurisdiction: JurisdictionIn,
+    request: Request,
+    current_user: dict = Depends(role_required("admin")),
+):
+    """Re-assign an officer's scope: an LMO to one district, a GATC to a state.
+    Mainly for LMO accounts created before district scope was enforced.
+    The officer is signed out so live sessions pick up the new scope."""
+    user = _get_pending_or_processed_user(user_id)
+
+    def _refuse(detail: str, message: str):
+        log_event(
+            "officer_jurisdiction_change_failed", outcome="failure", request=request,
+            email=user["email"], user_id=str(user["_id"]), role=user["role"],
+            actor_id=str(current_user["_id"]), actor_email=current_user["email"], detail=detail,
+        )
+        raise HTTPException(status_code=400, detail=message)
+
+    problem = _check_geo(jurisdiction) or _check_scope(user["role"], jurisdiction)
+    if problem:
+        _refuse(*problem)
+
+    previous = user.get("jurisdiction") or {}
+    users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"jurisdiction": jurisdiction.dict()}, "$inc": {"token_version": 1}},
+    )
+    refresh_tokens_col.update_many({"user_id": str(user["_id"]), "revoked": False}, {"$set": {"revoked": True}})
+    user["jurisdiction"] = jurisdiction.dict()
+
+    log_event(
+        "officer_jurisdiction_changed",
+        outcome="success",
+        request=request,
+        email=user["email"],
+        user_id=str(user["_id"]),
+        role=user["role"],
+        actor_id=str(current_user["_id"]),
+        actor_email=current_user["email"],
+        detail=(
+            f"from={previous.get('state_code', '-')}/{previous.get('district_code') or '*'} "
+            f"to={jurisdiction.state_code}/{jurisdiction.district_code or '*'}"
+        ),
+    )
+    return _to_user_out(user)
 
 
 @router.post("/{user_id}/approve", response_model=UserOut)

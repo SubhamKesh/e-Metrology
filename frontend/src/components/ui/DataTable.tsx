@@ -34,11 +34,12 @@ export function DataTable<T>({
 
   return (
     <>
-      <table className="hidden w-full text-left text-sm md:table">
+      <div className="hidden overflow-x-auto md:block">
+      <table className="w-full text-left text-sm">
         <thead>
           <tr className="border-b border-line bg-paper/60 text-xs uppercase tracking-wide text-slate-500">
             {columns.map((c, i) => (
-              <th key={i} className={`px-4 py-2.5 font-medium ${c.className ?? ""}`}>
+              <th key={i} className={`whitespace-nowrap px-3 py-2.5 font-medium ${c.className ?? ""}`}>
                 {c.header}
               </th>
             ))}
@@ -52,7 +53,7 @@ export function DataTable<T>({
               className={onRowClick ? "cursor-pointer transition-colors hover:bg-teal-50/50" : ""}
             >
               {columns.map((c, i) => (
-                <td key={i} className={`px-4 py-3 align-middle ${c.className ?? ""}`}>
+                <td key={i} className={`px-3 py-3 align-middle ${c.className ?? ""}`}>
                   {c.cell(row)}
                 </td>
               ))}
@@ -60,6 +61,7 @@ export function DataTable<T>({
           ))}
         </tbody>
       </table>
+      </div>
 
       <div className="flex flex-col gap-3 md:hidden">
         {rows.map((row) => (

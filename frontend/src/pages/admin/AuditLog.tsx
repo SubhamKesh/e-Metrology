@@ -106,7 +106,7 @@ export default function AdminAuditLog() {
       />
 
       <Panel className="p-5">
-        <form onSubmit={onApply} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <form onSubmit={onApply} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <SelectInput
             label="Event"
             value={draft.event}
@@ -144,7 +144,7 @@ export default function AdminAuditLog() {
             value={draft.date_to}
             onChange={(e) => set("date_to", e.target.value)}
           />
-          <div className="flex gap-2 sm:col-span-2 lg:col-span-3">
+          <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-4">
             <Button type="submit" loading={isFetching && !isLoading}>
               Apply filters
             </Button>
@@ -177,8 +177,27 @@ export default function AdminAuditLog() {
               emptyTitle="No events match these filters"
               emptyDescription="Try widening the date range or clearing a filter."
               columns={[
-                { header: "Time (IST)", cell: (r: AuditLogEntry) => <span className="whitespace-nowrap">{formatIst(r.created_at)}</span> },
-                { header: "Event", cell: (r: AuditLogEntry) => <span title={r.event}>{humanize(r.event)}</span> },
+                {
+                  header: "Time (IST)",
+                  cell: (r: AuditLogEntry) => {
+                    const [date, time] = formatIst(r.created_at).split(", ");
+                    return (
+                      <div className="whitespace-nowrap leading-tight">
+                        <p className="text-ink">{date}</p>
+                        <p className="text-xs text-slate-500">{time}</p>
+                      </div>
+                    );
+                  },
+                },
+                {
+                  header: "Event",
+                  cell: (r: AuditLogEntry) => (
+                    <div className="min-w-[9rem] leading-tight" title={r.event}>
+                      <p className="text-ink">{humanize(r.event)}</p>
+                      {r.detail && <p className="mt-0.5 break-words text-xs text-slate-500">{r.detail}</p>}
+                    </div>
+                  ),
+                },
                 {
                   header: "Outcome",
                   cell: (r: AuditLogEntry) => (
@@ -189,10 +208,10 @@ export default function AdminAuditLog() {
                   header: "Account",
                   cell: (r: AuditLogEntry) =>
                     r.email ? (
-                      <span>
-                        {r.email}
-                        {r.role && <span className="ml-1 text-xs text-slate-500">({r.role})</span>}
-                      </span>
+                      <div className="leading-tight">
+                        <p className="break-all text-ink">{r.email}</p>
+                        {r.role && <p className="mt-0.5 text-xs uppercase tracking-wide text-slate-500">{r.role}</p>}
+                      </div>
                     ) : (
                       <span className="text-slate-400">—</span>
                     ),
@@ -200,10 +219,19 @@ export default function AdminAuditLog() {
                 {
                   header: "Done by",
                   cell: (r: AuditLogEntry) =>
-                    r.actor_email ?? (r.actor_id ? <span title={r.actor_id}>{r.actor_id}</span> : <span className="text-slate-400">—</span>),
+                    r.actor_email ? (
+                      <span className="break-all">{r.actor_email}</span>
+                    ) : r.actor_id ? (
+                      <span title={r.actor_id}>{r.actor_id}</span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    ),
                 },
-                { header: "Detail", cell: (r: AuditLogEntry) => r.detail ?? <span className="text-slate-400">—</span> },
-                { header: "IP address", cell: (r: AuditLogEntry) => r.ip ?? <span className="text-slate-400">—</span> },
+                {
+                  header: "IP address",
+                  cell: (r: AuditLogEntry) =>
+                    r.ip ? <span className="whitespace-nowrap tabular">{r.ip}</span> : <span className="text-slate-400">—</span>,
+                },
               ]}
             />
           )}

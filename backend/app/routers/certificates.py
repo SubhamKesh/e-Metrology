@@ -83,7 +83,9 @@ def _can_view_cert(user: dict, cert: dict) -> bool:
         if application.get("state_code") != jurisdiction["state_code"]:
             return False
         district = jurisdiction.get("district_code")
-        return not district or application.get("district_code") == district
+        if not district:
+            return role == "gatc"  # only GATC is state-wide; an LMO without a district sees nothing
+        return application.get("district_code") == district
     return False
 
 
@@ -232,6 +234,8 @@ def list_certificates(user=Depends(get_current_user)):
             app_filter = {"state_code": jurisdiction["state_code"]}
             if jurisdiction.get("district_code"):
                 app_filter["district_code"] = jurisdiction["district_code"]
+            elif role == "lmo":
+                app_filter = None  # LMO is district-level; no district -> nothing
         else:
             app_filter = None  # no jurisdiction -> sees nothing
     else:

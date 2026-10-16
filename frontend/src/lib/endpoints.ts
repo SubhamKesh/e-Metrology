@@ -128,6 +128,9 @@ export const AdminUsersApi = {
   resetPassword: (id: string) => api.post<CreateOfficerResponse>(`/admin/users/${id}/reset-password`),
   // Clears an officer's authenticator so they can enrol a new one at next sign-in.
   resetMfa: (id: string) => api.post<User>(`/admin/users/${id}/reset-mfa`),
+  // LMO -> one district, GATC -> whole state (district_code null).
+  changeJurisdiction: (id: string, jurisdiction: { state_code: string; district_code: string | null }) =>
+    api.patch<User>(`/admin/users/${id}/jurisdiction`, jurisdiction),
 };
 
 // ---- Instruments ----

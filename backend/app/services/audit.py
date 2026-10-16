@@ -48,6 +48,8 @@ KNOWN_AUDIT_EVENTS = (
     "signup_otp_requested",
     "officer_created",
     "officer_creation_failed",
+    "officer_jurisdiction_changed",
+    "officer_jurisdiction_change_failed",
     "account_approved",
     "account_suspended",
     "password_reset_requested",

@@ -87,4 +87,9 @@ def jurisdiction_filter(current_user: dict) -> dict:
     district_code = jurisdiction.get("district_code")
     if district_code:
         filt["district_code"] = district_code
+    elif current_user.get("role") == "lmo":
+        # An LMO is district-level by definition. One with no district on file
+        # (created before this was enforced) must see nothing rather than the
+        # whole state, until an admin assigns a district.
+        filt["district_code"] = "__no_district_assigned__"
     return filt

@@ -43,12 +43,6 @@ export default function AdminUsers() {
     state_code: "",
     district_code: "",
   });
-  // Separate from district_code="" (nothing picked yet) — this is an
-  // intentional choice to scope the officer to the whole state, matching
-  // jurisdiction.district_code=null on the backend (the shape a
-  // GATC/state-controller account uses; see middleware/auth.py's
-  // jurisdiction_filter()).
-  const [stateLevelOnly, setStateLevelOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; temp_password: string; emailed: boolean } | null>(
     null,
@@ -64,7 +58,6 @@ export default function AdminUsers() {
     onSuccess: (res) => {
       setCreated({ email: res.user.email, temp_password: res.temp_password, emailed: res.emailed });
       setForm({ name: "", email: "", role: "lmo", org_name: "", contact: "", state_code: "", district_code: "" });
-      setStateLevelOnly(false);
       qc.invalidateQueries({ queryKey: ["admin", "officers"] });
     },
     onError: (err) => {
@@ -135,18 +128,68 @@ export default function AdminUsers() {
     setForm((f) => ({ ...f, state_code: stateCode, district_code: "" }));
   }
 
+  const isLmo = form.role === "lmo";
+
+  function setRole(role: CreateOfficerPayload["role"]) {
+    // A GATC covers the whole state, so a district picked for an LMO is dropped.
+    setForm((f) => ({ ...f, role, district_code: role === "gatc" ? "" : f.district_code }));
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
     setCreated(null);
-    if (!stateLevelOnly && !form.district_code) {
-      setFormError("Pick a district, or check \"state-level officer\" if this account isn't scoped to one.");
+    if (isLmo && !form.district_code) {
+      setFormError("A Legal Metrology Officer is district-level. Pick the district they are assigned to.");
       return;
     }
     const { state_code, district_code, ...rest } = form;
     createOfficer.mutate({
       ...rest,
-      jurisdiction: { state_code, district_code: stateLevelOnly ? null : district_code },
+      jurisdiction: { state_code, district_code: isLmo ? district_code : null },
+    });
+  }
+
+  // Re-assign scope (mainly: give older LMO accounts their district).
+  const [editing, setEditing] = useState<User | null>(null);
+  const [editState, setEditState] = useState("");
+  const [editDistrict, setEditDistrict] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const { data: editDistricts, isLoading: editDistrictsLoading } = useGeoDistricts(editState || undefined);
+  const editDistrictOptions = useMemo(
+    () => (editDistricts ?? []).map((d) => ({ value: d.code, label: d.name })),
+    [editDistricts],
+  );
+  const changeJurisdiction = useMutation({
+    mutationFn: ({ id, state_code, district_code }: { id: string; state_code: string; district_code: string | null }) =>
+      AdminUsersApi.changeJurisdiction(id, { state_code, district_code }),
+    onSuccess: (res) => {
+      setEditing(null);
+      setEditError(null);
+      setMfaNotice(`Jurisdiction updated for ${res.email}. They've been signed out so the new scope applies at next sign-in.`);
+      qc.invalidateQueries({ queryKey: ["admin", "officers"] });
+    },
+    onError: (err) => setEditError(err instanceof ApiError ? err.message : "Couldn't update the jurisdiction. Try again."),
+  });
+
+  function startEdit(u: User) {
+    setEditing(u);
+    setEditError(null);
+    setEditState(u.jurisdiction?.state_code ?? "");
+    setEditDistrict(u.jurisdiction?.district_code ?? "");
+  }
+
+  function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editing) return;
+    if (editing.role === "lmo" && !editDistrict) {
+      setEditError("Pick the district this officer is assigned to.");
+      return;
+    }
+    changeJurisdiction.mutate({
+      id: editing.id,
+      state_code: editState,
+      district_code: editing.role === "lmo" ? editDistrict : null,
     });
   }
 
@@ -155,8 +198,8 @@ export default function AdminUsers() {
       <div>
         <h1 className="font-display text-2xl text-ink">Officer accounts</h1>
         <p className="mt-1 text-sm text-slate-500">
-          lmo and gatc accounts are invite-only. Create an account here to let a specific officer sign in — there's
-          no public sign-up for these roles.
+          LMO and GATC accounts are invite-only. An LMO is district-level and only sees their own district; a GATC is
+          state-level and covers the whole state.
         </p>
       </div>
 
@@ -175,7 +218,7 @@ export default function AdminUsers() {
             label="Role"
             required
             value={form.role}
-            onChange={(e) => set("role", e.target.value as CreateOfficerPayload["role"])}
+            onChange={(e) => setRole(e.target.value as CreateOfficerPayload["role"])}
             options={ROLE_OPTIONS}
           />
           <TextInput
@@ -198,11 +241,12 @@ export default function AdminUsers() {
             value={form.state_code}
             onChange={(e) => setStateCode(e.target.value)}
           />
-          <div>
+          {isLmo ? (
             <SelectInput
               label="District"
-              required={!stateLevelOnly}
-              disabled={stateLevelOnly || !form.state_code}
+              required
+              disabled={!form.state_code}
+              hint="An LMO only has access to this one district."
               placeholder={
                 !form.state_code ? "Select a state first" : districtsLoading ? "Loading districts…" : "Select a district"
               }
@@ -210,15 +254,13 @@ export default function AdminUsers() {
               value={form.district_code}
               onChange={(e) => set("district_code", e.target.value)}
             />
-            <label className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-              <input
-                type="checkbox"
-                checked={stateLevelOnly}
-                onChange={(e) => setStateLevelOnly(e.target.checked)}
-              />
-              State-level officer (e.g. GATC) — not scoped to one district
-            </label>
-          </div>
+          ) : (
+            <div className="flex items-end">
+              <p className="rounded-md bg-paper px-3 py-2.5 text-sm text-slate-600">
+                GATC accounts are state-level: they cover every district in the selected state.
+              </p>
+            </div>
+          )}
           <div className="flex items-end sm:col-span-2">
             <Button type="submit" loading={createOfficer.isPending} className="w-full sm:w-auto">
               Create account
@@ -282,17 +324,69 @@ export default function AdminUsers() {
             </p>
           </div>
         )}
+        {editing && (
+          <form onSubmit={saveEdit} className="mt-4 rounded-md border border-line bg-paper/60 p-4">
+            <p className="text-sm font-medium text-ink">
+              {editing.role === "lmo" ? "Assign district" : "Change state"} for {editing.name}
+            </p>
+            <div className="mt-3 grid gap-4 sm:grid-cols-2">
+              <SelectInput
+                label="State / UT"
+                required
+                options={stateOptions}
+                value={editState}
+                onChange={(e) => {
+                  setEditState(e.target.value);
+                  setEditDistrict("");
+                }}
+              />
+              {editing.role === "lmo" && (
+                <SelectInput
+                  label="District"
+                  required
+                  disabled={!editState}
+                  placeholder={editDistrictsLoading ? "Loading districts…" : "Select a district"}
+                  options={editDistrictOptions}
+                  value={editDistrict}
+                  onChange={(e) => setEditDistrict(e.target.value)}
+                />
+              )}
+            </div>
+            {editError && <p className="mt-3 text-sm text-danger">{editError}</p>}
+            <div className="mt-4 flex gap-2">
+              <Button type="submit" size="sm" loading={changeJurisdiction.isPending}>
+                Save
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
         <div className="mt-4">
           {error ? (
             <ErrorState message="Couldn't load officer accounts." onRetry={() => refetch()} />
           ) : (
             <DataTable
               columns={[
-                { header: "Name", cell: (u: User) => u.name },
-                { header: "Email", cell: (u: User) => u.email },
-                { header: "Role", cell: (u: User) => u.role.toUpperCase() },
-                { header: "Organisation", cell: (u: User) => u.org_name ?? "—" },
-                { header: "Jurisdiction", cell: (u: User) => <JurisdictionText jurisdiction={u.jurisdiction} /> },
+                {
+                  header: "Officer",
+                  cell: (u: User) => (
+                    <div className="min-w-[10rem] leading-tight">
+                      <p className="font-medium text-ink">{u.name}</p>
+                      <p className="mt-0.5 break-all text-xs text-slate-500">{u.email}</p>
+                    </div>
+                  ),
+                },
+                {
+                  header: "Role",
+                  cell: (u: User) => <Badge tone="info">{u.role === "lmo" ? "LMO" : u.role.toUpperCase()}</Badge>,
+                },
+                { header: "Organisation", cell: (u: User) => <span className="break-words">{u.org_name ?? "—"}</span>, className: "max-w-[11rem]" },
+                {
+                  header: "Jurisdiction",
+                  cell: (u: User) => <JurisdictionText jurisdiction={u.jurisdiction} role={u.role} />,
+                },
                 { header: "Status", cell: (u: User) => <UserStatusBadge status={u.status} /> },
                 {
                   header: "2-step",
@@ -306,61 +400,59 @@ export default function AdminUsers() {
                     ),
                 },
                 {
-                  header: "",
+                  header: "Actions",
                   cell: (u: User) => (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      loading={resetPassword.isPending && resetPassword.variables === u.id}
-                      onClick={() => onResetPassword(u)}
-                    >
-                      Reset password
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => startEdit(u)}>
+                        {u.role === "lmo" ? "Change district" : "Change state"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={resetPassword.isPending && resetPassword.variables === u.id}
+                        onClick={() => onResetPassword(u)}
+                      >
+                        Reset password
+                      </Button>
+                      {u.mfa_enabled && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={resetMfa.isPending && resetMfa.variables === u.id}
+                          onClick={() => onResetMfa(u)}
+                        >
+                          Reset 2-step
+                        </Button>
+                      )}
+                      {u.status === "rejected" ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={toggleStatus.isPending}
+                          onClick={() => toggleStatus.mutate({ id: u.id, action: "approve" })}
+                        >
+                          Reactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          loading={toggleStatus.isPending}
+                          onClick={() => toggleStatus.mutate({ id: u.id, action: "reject" })}
+                        >
+                          Suspend
+                        </Button>
+                      )}
+                    </div>
                   ),
-                },
-                {
-                  header: "",
-                  cell: (u: User) =>
-                    u.mfa_enabled ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        loading={resetMfa.isPending && resetMfa.variables === u.id}
-                        onClick={() => onResetMfa(u)}
-                      >
-                        Reset 2-step
-                      </Button>
-                    ) : null,
-                },
-                {
-                  header: "",
-                  cell: (u: User) =>
-                    u.status === "rejected" ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        loading={toggleStatus.isPending}
-                        onClick={() => toggleStatus.mutate({ id: u.id, action: "approve" })}
-                      >
-                        Reactivate
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        loading={toggleStatus.isPending}
-                        onClick={() => toggleStatus.mutate({ id: u.id, action: "reject" })}
-                      >
-                        Suspend
-                      </Button>
-                    ),
+                  className: "min-w-[15rem]",
                 },
               ]}
               rows={officers ?? []}
               rowKey={(u) => u.id}
               isLoading={isLoading}
               emptyTitle="No officer accounts yet"
-              emptyDescription="Create the first lmo or gatc account above."
+              emptyDescription="Create the first LMO or GATC account above."
             />
           )}
         </div>

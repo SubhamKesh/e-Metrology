@@ -169,8 +169,11 @@ def _should_deliver(identity: dict, audience: Optional[dict]) -> bool:
         if state_code is None or state_code != audience.get("state_code"):
             return False  # includes officers with no jurisdiction on file
         district_code = identity.get("district_code")
-        # district_code None on the officer = state-level scope
-        return district_code is None or district_code == audience.get("district_code")
+        # district_code None = state-level scope, which only GATC has; an LMO
+        # with no district on file receives nothing.
+        if district_code is None:
+            return role == "gatc"
+        return district_code == audience.get("district_code")
 
     return False
 

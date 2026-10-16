@@ -636,3 +636,36 @@ def test_registration_is_audited(client, monkeypatch):
 
     failures = [(e["outcome"], e["detail"]) for e in _audit("account_registration_failed")]
     assert failures == [("failure", "email_not_verified"), ("blocked", "role_not_allowed:admin"), ("failure", "email_exists")]
+
+
+def test_officer_scope_is_district_for_lmo_state_for_gatc(client, admin_headers, monkeypatch):
+    import app.config.db as dbmod
+    import app.routers.admin_users as admin_mod
+
+    monkeypatch.setattr(admin_mod, "states_col", dbmod.db["states"])
+    monkeypatch.setattr(admin_mod, "districts_col", dbmod.db["districts"])
+    monkeypatch.setattr(admin_mod, "smtp_is_configured", lambda: False)
+    dbmod.db["states"].insert_one({"code": "WB", "name": "West Bengal"})
+    dbmod.db["districts"].insert_one({"code": "319", "state_code": "WB", "name": "Kolkata"})
+    _, h = admin_headers
+    base = {"name": "Some Officer", "contact": "9876543210"}
+    url = "/api/v1/admin/users/create-officer"
+
+    r = client.post(url, headers=h, json={**base, "email": "a@example.com", "role": "lmo", "jurisdiction": {"state_code": "WB"}})
+    assert r.status_code == 400
+    r = client.post(url, headers=h, json={**base, "email": "b@example.com", "role": "gatc",
+                                          "jurisdiction": {"state_code": "WB", "district_code": "319"}})
+    assert r.status_code == 400
+    r = client.post(url, headers=h, json={**base, "email": "c@example.com", "role": "gatc", "jurisdiction": {"state_code": "WB"}})
+    assert r.status_code == 201, r.text
+    r = client.post(url, headers=h, json={**base, "email": "d@example.com", "role": "lmo",
+                                          "jurisdiction": {"state_code": "WB", "district_code": "319"}})
+    assert r.status_code == 201, r.text
+
+    # re-assigning: an LMO needs a district, and the change signs them out
+    lmo_id = r.json()["user"]["id"]
+    bad = client.patch(f"/api/v1/admin/users/{lmo_id}/jurisdiction", headers=h, json={"state_code": "WB"})
+    assert bad.status_code == 400
+    ok = client.patch(f"/api/v1/admin/users/{lmo_id}/jurisdiction", headers=h,
+                      json={"state_code": "WB", "district_code": "319"})
+    assert ok.status_code == 200 and ok.json()["jurisdiction"]["district_code"] == "319"
