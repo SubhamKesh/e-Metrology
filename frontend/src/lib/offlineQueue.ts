@@ -46,7 +46,7 @@ function openDb(): Promise<IDBDatabase> {
   return p;
 }
 
-function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+function run<T>(mode: "readonly" | "readwrite", fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {

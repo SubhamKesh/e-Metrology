@@ -19,7 +19,7 @@ import { cn } from "@/lib/cn";
 export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { data: application, isLoading, isError, error, refetch } = useApplication(id);
+  const { data: application, isLoading, error, refetch } = useApplication(id);
   const { data: instrument } = useInstrument(application?.instrument_id);
   const submit = useSubmitInspection();
   const { user } = useAuth();
