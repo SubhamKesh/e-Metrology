@@ -14,7 +14,12 @@ from app.services.mailer import (
     send_admin_password_reset,
     is_configured as smtp_is_configured,
 )
-from app.services.jobs import get_queue, send_officer_credentials_job, send_admin_password_reset_job
+from app.services.jobs import (
+    get_queue,
+    _worker_available,
+    send_officer_credentials_job,
+    send_admin_password_reset_job,
+)
 
 router = APIRouter(prefix="/api/v1/admin/users", tags=["admin"])
 
@@ -137,6 +142,12 @@ def create_officer(payload: OfficerCreate, request: Request, current_user: dict 
     emailed = False
     if smtp_is_configured():
         queue = get_queue()
+        # REDIS_URL set but no RQ worker running (e.g. a single web service)
+        # means enqueue() "succeeds" and the job sits in Redis forever, so
+        # the email never goes out. Only use the queue if a worker is
+        # listening; otherwise send inline.
+        if queue is not None and not _worker_available(queue):
+            queue = None
         if queue is not None:
             try:
                 queue.enqueue(
@@ -388,6 +399,12 @@ def admin_reset_officer_password(
     emailed = False
     if smtp_is_configured():
         queue = get_queue()
+        # REDIS_URL set but no RQ worker running (e.g. a single web service)
+        # means enqueue() "succeeds" and the job sits in Redis forever, so
+        # the email never goes out. Only use the queue if a worker is
+        # listening; otherwise send inline.
+        if queue is not None and not _worker_available(queue):
+            queue = None
         if queue is not None:
             try:
                 queue.enqueue(
