@@ -4,8 +4,11 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pymongo.errors import DuplicateKeyError
 
-from app.config.db import inspections_col, applications_col
+from app.config.db import inspections_col, applications_col, instruments_col
+from app.config.inspection_forms import form_spec
+from app.config.instrument_specs import INSTRUMENT_SPECS
 from app.models.inspection import InspectionCreate, InspectionOut
+from app.services.inspection_form import build_form_fields
 from app.middleware.auth import role_required, get_current_user
 from app.services.status_transition import (
     transition_status,
@@ -37,19 +40,62 @@ def _inspection_time(captured_at: datetime | None, now: datetime) -> tuple[datet
     return captured_at, (now - captured_at) > timedelta(seconds=60)
 
 
-def to_inspection_out(doc: dict) -> InspectionOut:
+def to_inspection_out(doc: dict, *, for_owner: bool = False) -> InspectionOut:
+    form = doc.get("form")
     return InspectionOut(
         id=str(doc["_id"]),
         application_id=str(doc["application_id"]),
-        officer_id=str(doc["officer_id"]),
+        # An owner sees the result and the evidence, not who the officer was or where they stood.
+        officer_id=None if for_owner else str(doc["officer_id"]),
         observations=doc["observations"],
         result=doc["result"],
         photos=doc.get("photos", []),
         identity_method=doc.get("identity_method", "manual"),
-        location=doc.get("location"),
+        location=None if for_owner else doc.get("location"),
+        seal_number=doc.get("seal_number"),
+        test_points=doc.get("test_points", []),
+        checks=doc.get("checks", []),
+        form={k: form[k] for k in ("instrument_type", "unit", "test_title", "reference_label", "indicated_label")} if form else None,
         submitted_offline=doc.get("submitted_offline", False),
         created_at=doc["inspected_at"],
     )
+
+
+@router.get("/form-spec")
+def get_form_spec(
+    type: str,
+    current_user: dict = Depends(role_required("lmo", "gatc", "admin")),
+):
+    """What to record for one instrument type: test readings, checks, seal number."""
+    if type not in INSTRUMENT_SPECS:
+        raise HTTPException(status_code=404, detail="Unknown instrument type")
+    return form_spec(type)
+
+
+@router.get("/by-application/{application_id}", response_model=InspectionOut)
+def get_inspection_for_application(
+    application_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """The latest inspection of an application. Officer (own inspection) and admin see everything;
+    the instrument's owner sees the result and evidence without the officer or GPS position."""
+    try:
+        app_oid = ObjectId(application_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Invalid application id")
+    application = applications_col.find_one({"_id": app_oid})
+    doc = inspections_col.find_one({"application_id": app_oid}, sort=[("inspected_at", -1)])
+    if not application or not doc:
+        raise HTTPException(status_code=404, detail="No inspection recorded for this application")
+
+    role = current_user["role"]
+    if role == "admin":
+        return to_inspection_out(doc)
+    if role in ("lmo", "gatc") and doc["officer_id"] == current_user["_id"]:
+        return to_inspection_out(doc)
+    if role == "owner" and application.get("owner_id") == current_user["_id"]:
+        return to_inspection_out(doc, for_owner=True)
+    raise HTTPException(status_code=403, detail="Not authorized to view this inspection")
 
 
 @router.post("", response_model=InspectionOut, status_code=201)
@@ -88,6 +134,11 @@ def submit_inspection(
             detail=f"Application must be in 'scheduled' status to inspect (currently '{application['status']}')",
         )
 
+    instrument = instruments_col.find_one({"_id": application.get("instrument_id")}, {"type": 1})
+    form_fields = build_form_fields(payload, instrument.get("type") if instrument else None)
+    if form_fields.get("seal_number") and inspections_col.find_one({"seal_number": form_fields["seal_number"]}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="Seal number already used on another inspection. Check the number on the seal.")
+
     now = datetime.now(timezone.utc)
     inspected_at, offline = _inspection_time(payload.captured_at, now)
     doc = {
@@ -101,6 +152,7 @@ def submit_inspection(
         "inspected_at": inspected_at,
         "received_at": now,
         "submitted_offline": offline,
+        **form_fields,
     }
     if payload.client_id:
         doc["client_id"] = payload.client_id
@@ -108,11 +160,17 @@ def submit_inspection(
         result = inspections_col.insert_one(doc)
     except DuplicateKeyError:
         # Two concurrent syncs of the same inspection: the unique index let one through.
-        existing = inspections_col.find_one({"officer_id": current_user["_id"], "client_id": payload.client_id})
-        if not existing:
-            raise
-        response.status_code = 200
-        return to_inspection_out(existing)
+        existing = (
+            inspections_col.find_one({"officer_id": current_user["_id"], "client_id": payload.client_id})
+            if payload.client_id else None
+        )
+        if existing:
+            response.status_code = 200
+            return to_inspection_out(existing)
+        if form_fields.get("seal_number"):
+            # Lost a race for the same seal number to another officer.
+            raise HTTPException(status_code=409, detail="Seal number already used on another inspection. Check the number on the seal.")
+        raise
     doc["_id"] = result.inserted_id
 
     # Two-step transition: scheduled -> inspected -> certified/rejected.

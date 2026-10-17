@@ -109,6 +109,7 @@ export default function VerifyCertificate() {
           value={certificate ? new Date(certificate.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" }) : "—"}
         />
         <Row label="Certificate ID" value={certificate?.cert_no ?? certificate?.id} className="font-mono text-xs" />
+        {certificate?.seal_number && <Row label="Seal / stamp number" value={certificate.seal_number} className="font-mono text-xs" />}
       </div>
       {isExpired && reverification?.in_progress && (
         <p className="mt-4 rounded-md bg-info-50 px-4 py-3 text-sm text-info" role="status">

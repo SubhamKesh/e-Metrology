@@ -8,6 +8,7 @@ import {
   InstrumentApi,
   UploadApi,
 } from "@/lib/endpoints";
+import type { InspectionFormSpec } from "@/lib/types";
 import type { AdminDashboard, OfficerDashboard, OwnerDashboard, Role, ScheduleInput } from "@/lib/types";
 
 // ---- Dashboards ----
@@ -175,8 +176,50 @@ export function useSubmitInspection() {
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["applications"] });
       qc.invalidateQueries({ queryKey: ["application", vars.application_id] });
+      qc.invalidateQueries({ queryKey: ["inspection-of", vars.application_id] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
     },
+  });
+}
+
+// What to record for this instrument type. Remembered on the device (the last copy is shown at once and
+// refreshed in the background), so the form still opens if the signal drops after the officer first loaded it.
+const specKey = (type: string) => `maapsetu:form-spec:${type}`;
+function readSavedSpec(type?: string): InspectionFormSpec | undefined {
+  if (!type) return undefined;
+  try {
+    const raw = localStorage.getItem(specKey(type));
+    return raw ? (JSON.parse(raw) as InspectionFormSpec) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+export function useInspectionFormSpec(type?: string) {
+  return useQuery({
+    queryKey: ["inspection-form-spec", type],
+    enabled: !!type,
+    queryFn: async () => {
+      const spec = await InspectionApi.formSpec(type!);
+      try {
+        localStorage.setItem(specKey(type!), JSON.stringify(spec));
+      } catch {
+        // storage full or blocked: the form still works while online
+      }
+      return spec;
+    },
+    initialData: () => readSavedSpec(type),
+    initialDataUpdatedAt: 0,
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
+// The recorded inspection of an application (officer, admin, or the instrument's owner).
+export function useApplicationInspection(applicationId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["inspection-of", applicationId],
+    queryFn: () => InspectionApi.forApplication(applicationId!),
+    enabled: !!applicationId && enabled,
+    retry: false,
   });
 }
 

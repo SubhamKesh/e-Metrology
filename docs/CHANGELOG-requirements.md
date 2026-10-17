@@ -12,7 +12,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 3 | Offline-capable inspection with background sync | ✅ (code complete; needs device test and a backend `pytest` run) |
 | 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ✅ (code complete; backend `pytest` and frontend build pass) |
 | 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ✅ (backend `pytest` 322 passed; frontend lint and build pass; not tried in a browser) |
-| 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ⬜ |
+| 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ✅ (backend `pytest` 345 passed; frontend lint and build pass; not tried in a browser or on a device) |
 | 7 | Search + CSV/PDF report export | ⬜ |
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ⬜ |
 | 9 | Configurable validity per instrument type | ⬜ |
@@ -174,3 +174,28 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - Run here: `npm ci && npm run lint` (clean) and `npm run build:spa` (passes, and no `.js` reappears in `src/`); backend `pytest tests` 322 passed (was 278 at #4).
 - Not tried in a browser or on a device. Suggested check: claim an application with a date and slot, reschedule it, assign one from the admin page, and use both Add to calendar options.
 - If this reappears: someone ran `tsc` without `--noEmit` (for example `npx tsc` from `frontend/`). Use `npm run build`, which already uses `tsc -b` with `noEmit`.
+
+### 2026-10-17 — #6 Richer inspection form (per-instrument readings and checks, seal number)
+**What an officer now records**
+- **Test readings** — reference standard vs what the instrument showed, at least N per instrument type (3 loads for scales and weighbridges, 2 deliveries for a fuel dispenser, 1 for weights, and so on). The server works out `error` and `error_pct`; it deliberately does **not** judge them against a permitted limit, because limits depend on each instrument's class and rules and are not in this codebase. The officer decides Pass/Fail; the numbers are the evidence.
+- **Checks** — yes/no items per type (zero reading, display, leaks, tamper signs, markings…). A Pass needs every check answered and every *required* one "Yes".
+- **Seal / stamp number** — required for a Pass, not allowed on a Fail, normalised (trim, upper-case, 3-32 chars) and **unique** (partial unique index `inspections.seal_number`; reuse → 409, including the race between two officers).
+
+**Added**
+- `backend/app/config/inspection_forms.py` — the form for each of the 18 instrument types (units come from `instrument_specs.py`; a test fails if a new type has no form). `backend/app/services/inspection_form.py` — validation and the stored shape.
+- Endpoints: `GET /inspections/form-spec?type=`, `GET /inspections/by-application/{id}` (officer/admin full; the owner gets result, readings, checks, seal and notes without `officer_id` or GPS).
+- `frontend/src/components/domain/InspectionRecord.tsx` — "Inspection record" on the application page for owner, officer and admin (readings table with error, checks, seal, notes).
+- Tests: 23 new (`test_inspections.py`, `test_certificate_pipeline.py`) — every type has a form, form-spec access, stored error values and zero reference, missing/bad/duplicate seal, too few readings, unanswered or unmet required check, unknown check, out-of-range readings, Fail rules, per-type forms, strict vs non-strict, replay of a queued inspection, owner redaction, seal on certificate / verify page / PDF.
+
+**Changed**
+- `POST /inspections` — new optional `test_points`, `checks`, `seal_number`; the response and `GET /inspections/{id}` return them plus a `form` snapshot (labels are stored with the record, so old records read the same if wording changes later). Idempotent replay by `client_id` is still checked first.
+- Certificates — `seal_number` is copied onto the certificate, printed on the PDF ("Seal / Stamp No.", omitted for older certificates), returned by the certificate API and the public verify endpoint, and shown on the verify page and the certificate page so anyone can compare it with the seal on the instrument.
+- `frontend/src/pages/officer/Inspection.tsx` — steps 3 (test readings with live error) and 4 (checks) added, seal number in the result step; the Pass button lists what is still missing. Drafts and the offline queue (`offlineDrafts.ts`, `offlineQueue.ts`, `offlineSync.ts`) carry the new fields; the form for an instrument type is kept in `localStorage` after the first load so the page still opens if the signal drops. If it can't be loaded at all, a Fail with notes is still possible and a Pass is not.
+- `backend/app/config/settings.py`, `render.yaml`, `README.md`, `docs/api-contract.md` — new `INSPECTION_FORM_STRICT` (default `true`) and the endpoint/field docs.
+
+**Notes**
+- **Breaking for older clients:** with the default `INSPECTION_FORM_STRICT=true`, a Pass without the new fields is a 422. The bundled frontend sends them. An inspection queued on a phone **before** this deploy is rejected on sync with a plain message ("saved before the new form… discard and record it again"). To let those through temporarily, set `INSPECTION_FORM_STRICT=false` on the backend, then turn it back on.
+- The partial unique index on `seal_number` is created at startup; if duplicate seal numbers ever existed it logs a warning instead of failing.
+- The "what to test" lists (test counts, check wording) are sensible field defaults, not statutory text. Have a Legal Metrology officer review `inspection_forms.py` before real use; it is the only file to edit.
+- Checked here: backend `pytest` 345 passed (was 322), `ruff check` clean; frontend `tsc -b`, `eslint .`, `npm run build` pass. Not tried in a browser or on a phone. Suggested check: open an inspection, fill readings and checks, try Pass without a seal (blocked), pass with one, open the application as the owner, then re-use the seal number on another inspection (expect the 409 message).
+

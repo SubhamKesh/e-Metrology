@@ -154,9 +154,46 @@ export interface InspectionLocation {
   accuracy_m?: number;
 }
 
+// What the officer records per instrument type (served by GET /inspections/form-spec).
+export interface InspectionFormSpec {
+  form_version: number;
+  instrument_type: string;
+  test: {
+    title: string;
+    reference_label: string;
+    indicated_label: string;
+    min_points: number;
+    max_points: number;
+    hint: string;
+    unit: string;
+  };
+  checks: { key: string; label: string; required: boolean }[];
+  seal: { label: string; required_on_pass: boolean };
+}
+
+export interface TestPoint {
+  reference: number;
+  indicated: number;
+}
+export interface TestPointResult extends TestPoint {
+  error: number; // indicated - reference, worked out by the server
+  error_pct: number | null; // of the reference; null when the reference is zero
+}
+export interface InspectionCheck {
+  key: string;
+  label: string;
+  ok: boolean;
+}
+
 export interface Inspection {
   id: string;
   application_id: string;
+  officer_id?: string | null; // not sent to owners
+  seal_number?: string | null;
+  test_points?: TestPointResult[];
+  checks?: InspectionCheck[];
+  // Null on inspections recorded before the detailed form existed.
+  form?: { instrument_type: string; unit: string; test_title: string; reference_label: string; indicated_label: string } | null;
   observations: string;
   result: InspectionResult;
   photos: string[];
@@ -169,6 +206,7 @@ export interface Inspection {
 export interface CertificateSummary {
   id: string;
   cert_no?: string | null;
+  seal_number?: string | null; // the stamp / seal number fixed on the instrument
   verified_on: string;
   valid_from?: string; // later than verified_on when a renewal was issued before the old certificate expired
   valid_until: string;
@@ -192,6 +230,7 @@ export interface Certificate extends CertificateSummary {
   application_type?: "initial" | "renewal";
   previous_certificate_id?: string | null;
   previous_cert_no?: string | null;
+  seal_number?: string | null;
   application_id?: string;
   instrument?: {
     type: string | null;

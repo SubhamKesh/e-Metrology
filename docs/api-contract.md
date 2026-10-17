@@ -269,12 +269,26 @@ Submit an inspection result for an application assigned to you.
   "identity_method": "qr",
   "location": { "lat": 24.1, "lng": 88.25, "accuracy_m": 12 },
   "client_id": "6f1c2e0a-3b7d-4c55-9a52-1d2f8e7b9c01",
-  "captured_at": "2026-10-16T09:41:00Z"
+  "captured_at": "2026-10-16T09:41:00Z",
+  "test_points": [
+    { "reference": 10, "indicated": 10.02 },
+    { "reference": 20, "indicated": 20.01 },
+    { "reference": 30, "indicated": 30.03 }
+  ],
+  "checks": { "zero_ok": true, "display_ok": true, "level_stable": true, "markings_ok": true, "no_tampering": true },
+  "seal_number": "WB/2026-0042"
 }
 ```
 `result` is `"pass"` or `"fail"`. `photos` is a list of URLs — upload each photo first via `POST /uploads/photo` to get these URLs.
 
 `location` is **required** (`lat` −90…90, `lng` −180…180, `accuracy_m` optional) — a missing or out-of-range value returns `422`. `identity_method` is `"qr"` or `"manual"` (default `"manual"`).
+
+**Detailed form — `test_points`, `checks`, `seal_number`.** What to record depends on the instrument type; `GET /inspections/form-spec?type=…` returns it (test title and unit, minimum number of readings, the checks and which are required). The server works out each reading's `error` (`indicated − reference`) and `error_pct` (of the reference; `null` when the reference is `0`). It does **not** decide pass/fail from the error: permitted errors depend on the instrument's class and rules, so the officer decides `result` and the numbers are the evidence.
+- **Pass** needs at least `min_points` readings, an answer for every check with every `required` check `true`, and a `seal_number`. Otherwise `422` with a plain message (a required check that is not met means the officer should record a Fail).
+- **Fail** needs none of these; anything sent is validated and stored. A `seal_number` on a Fail → `422` (no seal is fixed on a failed instrument).
+- `seal_number`: trimmed, upper-cased, 3–32 characters (letters, digits, space, `/ . _ -`), **unique** across inspections — reuse → `409`. It is copied onto the certificate, printed on the PDF and returned by the verify endpoint.
+- Readings: finite numbers within ±1,000,000,000, at most 12. Unknown check keys → `422`.
+- With `INSPECTION_FORM_STRICT=false` the server also accepts a Pass without any of these (old app versions, inspections queued on phones before the upgrade). The default is strict: a Pass without them → `422` "This inspection form is out of date…". A replayed `client_id` always returns the stored record first, before any of this is checked.
 
 **Offline / retry support (optional fields).** `client_id` (8–64 chars, letters, digits, `-`, `_`) is an idempotency key: if the same officer sends the same `client_id` again, the original inspection is returned with `200` and nothing is applied twice (no second status change, email or certificate). `captured_at` (ISO 8601) is when the officer really submitted on the device; it is used as the inspection time only when it is not in the future (5 min skew allowed) and not older than 14 days, otherwise the server time is used. The response's `submitted_offline` is `true` when the inspection reached the server more than a minute after it was captured.
 
@@ -282,8 +296,25 @@ Submit an inspection result for an application assigned to you.
 
 **Effect:** automatically transitions the application `scheduled → inspected → certified` (if `pass`) or `→ rejected` (if `fail`). On a pass, a certificate is generated and stored (see Certificates below). If certificate generation fails (e.g. Cloudinary is down), the inspection still succeeds and the application stays `certified` — the certificate can be regenerated separately, this endpoint won't fail because of it.
 
+### GET `/inspections/form-spec?type={instrument type}` — role: `lmo`, `gatc`, `admin`
+The form for one instrument type (`404` for an unknown type):
+```json
+{
+  "form_version": 1,
+  "instrument_type": "Fuel Dispensing Unit",
+  "test": { "title": "Delivery test", "reference_label": "Quantity in the test measure", "indicated_label": "Quantity shown on the dispenser",
+            "min_points": 2, "max_points": 12, "hint": "Deliver into a calibrated test measure. Record at least two deliveries.", "unit": "L" },
+  "checks": [ { "key": "display_ok", "label": "Display or scale is clear and fully readable", "required": true } ],
+  "seal": { "label": "Verification stamp / seal number", "required_on_pass": true }
+}
+```
+The wording and the list per type live in `backend/app/config/inspection_forms.py`.
+
+### GET `/inspections/by-application/{application_id}`
+The latest inspection of an application (`404` if none). The officer who made it and admins see everything; the **instrument's owner** sees the result, readings, checks, seal number and notes, but `officer_id` and `location` are `null`. Anyone else → `403`.
+
 ### GET `/inspections/{inspection_id}`
-Returns one inspection. Visible to the officer who submitted it, or an admin.
+Returns one inspection. Visible to the officer who submitted it, or an admin. The response now also carries `seal_number`, `test_points[]` (`reference`, `indicated`, `error`, `error_pct`), `checks[]` (`key`, `label`, `ok`) and `form` (`instrument_type`, `unit`, `test_title`, `reference_label`, `indicated_label`). On inspections made before the detailed form these are empty / `null`.
 
 ---
 
@@ -341,6 +372,7 @@ Powers verify-page's `[certId].jsx`. This is the locked response contract confir
   "valid": true,
   "certificate": {
     "id": "...",
+    "seal_number": "WB/2026-0042",
     "verified_on": "2026-08-05T13:00:00+00:00",
     "valid_until": "2027-08-05T13:00:00+00:00",
     "is_expired": false

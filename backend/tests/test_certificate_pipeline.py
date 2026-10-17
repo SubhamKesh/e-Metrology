@@ -248,3 +248,42 @@ def test_cached_entry_with_a_naive_timestamp_still_verifies(world, monkeypatch):
     cached = {"valid": True, "certificate": {"id": "cert-a", "verified_on": naive, "valid_until": naive, "is_expired": False}}
     monkeypatch.setattr(certs, "cache_get", lambda k: cached)
     assert certs.verify_certificate("cert-a")["certificate"]["is_expired"] is False
+
+
+# ---- seal number: from the inspection onto the certificate, the verify page and the PDF ----
+
+def test_seal_number_is_exposed_on_the_certificate_and_the_public_verify_page(world):
+    world["db"]["certificates"].update_one({"_id": "cert-a"}, {"$set": {"seal_number": "WB/2026 0042"}})
+    cert = certs.get_certificate("cert-a", user={"_id": world["owner_a"], "role": "owner"})
+    assert cert["seal_number"] == "WB/2026 0042"
+    assert certs.verify_certificate("CERT-A")["certificate"]["seal_number"] == "WB/2026 0042"
+    # Certificates issued before seal numbers existed simply have none.
+    assert certs.verify_certificate("CERT-B")["certificate"]["seal_number"] is None
+
+
+def _pdf_for(seal, monkeypatch):
+    import io
+    import reportlab.rl_config as rl
+    from PIL import Image
+    from app.services import cert_generator as gen
+
+    monkeypatch.setattr(rl, "pageCompression", 0)  # keep the text findable in the raw bytes
+    monkeypatch.setattr(rl, "useA85", 0)
+    png = io.BytesIO()
+    Image.new("RGB", (40, 40), "white").save(png, "PNG")
+    now = datetime.now(timezone.utc)
+    inspection = {"result": "pass", "inspected_at": now}
+    if seal:
+        inspection["seal_number"] = seal
+    return gen._generate_pdf_bytes(
+        "CERT-20261017-ABC123",
+        {"type": "Platform Scale", "uiid": "LM-26-TEST0001", "manufacturer": "Acme", "model": "X1", "location": {}},
+        inspection, {}, {"org_name": "Test Org"}, now + timedelta(days=365), now, png.getvalue(), "https://example.test/verify/x",
+    )
+
+
+def test_pdf_prints_the_seal_number_only_when_there_is_one(monkeypatch):
+    with_seal = _pdf_for("WB/2026-0042", monkeypatch)
+    without = _pdf_for(None, monkeypatch)
+    assert b"WB/2026-0042" in with_seal and b"SEAL / STAMP NO." in with_seal
+    assert b"SEAL / STAMP" not in without

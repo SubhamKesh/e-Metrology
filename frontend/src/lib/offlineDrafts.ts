@@ -21,6 +21,10 @@ export interface InspectionDraft {
   photos: string[]; // already uploaded
   pending_photos: { name: string; type: string; blob: Blob }[]; // taken offline, still to upload
   observations: string;
+  // Detailed form. Readings are kept as typed (strings) so half-typed numbers survive a reload.
+  readings?: { reference: string; indicated: string }[];
+  checks?: Record<string, boolean>;
+  seal_number?: string;
   updated_at: number; // ms since epoch
 }
 
@@ -55,8 +59,18 @@ export function onDraftsChange(cb: () => void): () => void {
 }
 
 /** A form with nothing in it isn't worth keeping. */
-export function isDraftEmpty(d: Pick<InspectionDraft, "observations" | "entered_serial" | "photos" | "pending_photos">): boolean {
-  return d.observations.trim() === "" && d.entered_serial === "" && d.photos.length === 0 && d.pending_photos.length === 0;
+export function isDraftEmpty(
+  d: Pick<InspectionDraft, "observations" | "entered_serial" | "photos" | "pending_photos" | "readings" | "checks" | "seal_number">,
+): boolean {
+  return (
+    d.observations.trim() === "" &&
+    d.entered_serial === "" &&
+    d.photos.length === 0 &&
+    d.pending_photos.length === 0 &&
+    !(d.readings ?? []).some((r) => r.reference.trim() !== "" || r.indicated.trim() !== "") &&
+    Object.keys(d.checks ?? {}).length === 0 &&
+    (d.seal_number ?? "").trim() === ""
+  );
 }
 
 export async function saveDraft(d: InspectionDraft): Promise<void> {

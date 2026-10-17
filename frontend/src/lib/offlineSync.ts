@@ -16,8 +16,14 @@ let running = false;
 function rejectionReason(err: ApiError): string {
   if (err.status === 403) return "This application is no longer assigned to you.";
   if (err.status === 404) return "This application no longer exists.";
-  if (err.status === 409) return "This application was already inspected or is no longer scheduled.";
+  if (err.status === 409) {
+    if (/seal number/i.test(err.message)) return `${err.message} Discard this and record the inspection again with the correct seal number.`;
+    return "This application was already inspected or is no longer scheduled.";
+  }
   if (err.status === 413) return "A photo is too large for the server. Discard this and resubmit with smaller photos.";
+  if (err.status === 422 && /out of date/i.test(err.message)) {
+    return "This inspection was saved before the new form and is missing the test readings, checks and seal number. Discard it and record it again.";
+  }
   return err.message;
 }
 
@@ -53,6 +59,9 @@ async function sendOne(state: { current: QueuedInspection }): Promise<void> {
     location: c.location,
     client_id: c.client_id,
     captured_at: c.captured_at,
+    test_points: c.test_points,
+    checks: c.checks,
+    seal_number: c.seal_number,
   });
 }
 

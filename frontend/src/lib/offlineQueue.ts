@@ -15,6 +15,10 @@ export interface QueuedInspection {
   photos: string[]; // already-uploaded photo URLs
   pending_photos: { name: string; type: string; blob: Blob }[]; // taken offline, still to upload
   identity_method: "qr" | "manual";
+  // Detailed form. Absent on items queued before it existed (those can't be sent as a Pass any more).
+  test_points?: { reference: number; indicated: number }[];
+  checks?: Record<string, boolean>;
+  seal_number?: string;
   location: { lat: number; lng: number; accuracy_m?: number };
   captured_at: string; // ISO time the officer pressed Submit
   status: "pending" | "failed";

@@ -103,6 +103,21 @@ def init_indexes():
         import logging
         logging.getLogger("maapsetu").warning("Could not create the inspections client_id index.", exc_info=True)
 
+    # A seal number identifies one physical seal, so it can be used once. Partial: failed
+    # inspections and records from before the detailed form have none.
+    try:
+        inspections_col.create_index(
+            "seal_number",
+            unique=True,
+            partialFilterExpression={"seal_number": {"$type": "string"}},
+        )
+    except Exception:
+        import logging
+        logging.getLogger("maapsetu").warning(
+            "Could not create the unique index on inspections.seal_number (duplicate seal numbers already stored?).",
+            exc_info=True,
+        )
+
     # Geo reference lookups.
     states_col.create_index("code", unique=True)
     districts_col.create_index([("state_code", 1), ("code", 1)], unique=True)

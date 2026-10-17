@@ -97,6 +97,7 @@ export function CertificateDetailCore({ certificate, extraActions }: { certifica
               label="Valid until"
               value={new Date(certificate.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" })}
             />
+            {certificate.seal_number && <Field label="Seal / stamp number" value={certificate.seal_number} />}
             {certificate.previous_cert_no && <Field label="Re-verification of" value={certificate.previous_cert_no} />}
           </dl>
           <div className="flex flex-col items-center gap-2 justify-self-center">

@@ -9,6 +9,7 @@ import type {
   PendingCertificate,
   DistrictOption,
   Inspection,
+  InspectionFormSpec,
   Instrument,
   InstrumentTypeSpec,
   OfficerDashboard,
@@ -189,9 +190,14 @@ export const InspectionApi = {
     location: { lat: number; lng: number; accuracy_m?: number };
     client_id?: string; // idempotency key: resending the same one never creates a duplicate
     captured_at?: string; // ISO time the officer pressed Submit (differs from receipt time when queued offline)
+    test_points?: { reference: number; indicated: number }[];
+    checks?: Record<string, boolean>;
+    seal_number?: string;
   }) =>
     api.post<Inspection>("/inspections", body),
   get: (id: string) => api.get<Inspection>(`/inspections/${id}`),
+  formSpec: (type: string) => api.get<InspectionFormSpec>(`/inspections/form-spec?type=${encodeURIComponent(type)}`),
+  forApplication: (applicationId: string) => api.get<Inspection>(`/inspections/by-application/${applicationId}`),
 };
 
 // ---- Dashboards ----

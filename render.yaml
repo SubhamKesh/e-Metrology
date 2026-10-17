@@ -74,6 +74,11 @@ services:
       # How far ahead an inspection can be booked.
       - key: SCHEDULE_MAX_AHEAD_DAYS
         value: "60"
+      # Field verification form: a Pass must carry test readings, every required check and a seal
+      # number. Set "false" only while old app versions or inspections queued on phones before the
+      # upgrade still need to be accepted.
+      - key: INSPECTION_FORM_STRICT
+        value: "true"
 
   # ---------- Optional: dedicated queue worker (paid plans only) ----------
   # Render's free plan has no Background Workers. On a paid plan, uncomment this, set

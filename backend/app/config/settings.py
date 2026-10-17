@@ -253,6 +253,11 @@ SLOT_CAPACITY_PER_OFFICER = _int_env("SLOT_CAPACITY_PER_OFFICER", 4, 1)
 SCHEDULE_MIN_LEAD_DAYS = _int_env("SCHEDULE_MIN_LEAD_DAYS", 0, 0)
 SCHEDULE_MAX_AHEAD_DAYS = _int_env("SCHEDULE_MAX_AHEAD_DAYS", 60, 1)
 
+# Field verification form (app/config/inspection_forms.py). With strict on, a passed inspection must
+# carry the test points, the required checks and a seal number. Switch off only while old app
+# versions or inspections queued on officers' phones before the upgrade still need to be accepted.
+INSPECTION_FORM_STRICT = os.getenv("INSPECTION_FORM_STRICT", "true").lower() == "true"
+
 # Status-update emails to owners (app/services/owner_notifications.py).
 # Master switch; they also require SMTP_* to be configured.
 OWNER_EMAIL_NOTIFICATIONS_ENABLED = os.getenv("OWNER_EMAIL_NOTIFICATIONS_ENABLED", "true").lower() == "true"

@@ -224,9 +224,12 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, val
         ("Location of Instrument", _safe_location(instrument.get("location"))),
         ("Date of Inspection", _fmt_date(inspection.get("inspected_at"))),
         ("Result of Verification", result),
+        ("Seal / Stamp No.", inspection.get("seal_number")),
         ("Date of Issue", _fmt_date(issued_at)),
         ("Valid Until", _fmt_date(valid_until)),
     ]
+    if not inspection.get("seal_number"):
+        rows = [r for r in rows if r[0] != "Seal / Stamp No."]  # records from before seal numbers
     if valid_from is not None and valid_from.date() > issued_at.date():
         rows.insert(rows.index(("Valid Until", _fmt_date(valid_until))), ("Valid From", _fmt_date(valid_from)))
     if application.get("previous_cert_no"):
@@ -407,6 +410,7 @@ def issue_certificate(inspection_id) -> dict:
             "application_id": application["_id"],
             "instrument_id": instrument["_id"],
             "cert_no": cert_no,
+            "seal_number": inspection.get("seal_number"),
             # Re-verification trail: which certificate this one replaces (None for a first verification).
             "application_type": application.get("application_type") or "initial",
             "previous_certificate_id": application.get("previous_certificate_id"),

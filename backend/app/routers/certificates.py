@@ -41,6 +41,7 @@ def _serialize_cert(cert: dict, instrument: dict | None = None) -> dict:
         "application_type": cert.get("application_type") or "initial",
         "previous_certificate_id": cert.get("previous_certificate_id"),
         "previous_cert_no": cert.get("previous_cert_no"),
+        "seal_number": cert.get("seal_number"),
         "instrument": (
             {
                 "type": instrument.get("type"),
@@ -178,6 +179,8 @@ def _verify_payload(cert_id: str):
         "certificate": {
             "id": cert["_id"],
             "cert_no": cert.get("cert_no"),
+            # Printed on the seal: lets anyone check the seal on the instrument against the record.
+            "seal_number": cert.get("seal_number"),
             "verified_on": issued_at.isoformat(),
             "valid_from": _as_utc(cert.get("valid_from") or cert["issued_at"]).isoformat(),
             "valid_until": valid_until.isoformat(),

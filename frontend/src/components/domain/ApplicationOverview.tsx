@@ -3,6 +3,7 @@ import { Panel } from "@/components/ui/Card";
 import { ApplicationStatusBadge, Badge } from "@/components/ui/StatusBadge";
 import { LifecycleTimeline } from "./LifecycleTimeline";
 import { ScheduleCard } from "./ScheduleCard";
+import { InspectionRecord } from "./InspectionRecord";
 import { useInstrument } from "@/hooks/useData";
 import { Skeleton } from "@/components/ui/States";
 import { LocationText } from "@/components/ui/LocationText";
@@ -48,6 +49,8 @@ export function ApplicationOverview({
       </Panel>
 
       <ScheduleCard application={application} instrument={instrument} actions={scheduleActions} />
+
+      <InspectionRecord application={application} />
 
       <Panel className="mb-6 p-4 sm:p-5">
         <h2 className="mb-3 text-sm font-medium text-ink">Instrument identity</h2>
