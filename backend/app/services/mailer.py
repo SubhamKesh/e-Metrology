@@ -5,6 +5,7 @@ logs instead of failing when they aren't (e.g. local dev).
 
 import json
 import logging
+import re
 import smtplib
 import urllib.error
 import urllib.request
@@ -38,13 +39,25 @@ def _smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_FROM)
 
 
+_EMAIL_RE = re.compile(r"^[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']+$")
+
+
+def _valid_email(address: str) -> bool:
+    return bool(address and _EMAIL_RE.match(address))
+
+
 def noreply_sender() -> str:
     """From-header for system-generated mails nobody should reply to (OTP codes).
     Uses NOREPLY_FROM when set; otherwise falls back to the normal sender's
     address under a clear "No-Reply" display name, so it works with no extra
     config on a provider that only allows one verified sender."""
     if NOREPLY_FROM:
-        return NOREPLY_FROM
+        if _valid_email(parseaddr(NOREPLY_FROM)[1]):
+            return NOREPLY_FROM
+        logger.error(
+            "NOREPLY_FROM %r is not a valid sender address; using SMTP_FROM's address instead. "
+            "Fix or remove NOREPLY_FROM in the environment.", NOREPLY_FROM,
+        )
     _, addr = parseaddr(SMTP_FROM)
     return formataddr(("MaapSetu (No-Reply)", addr)) if addr else SMTP_FROM
 
@@ -55,7 +68,15 @@ def _send_via_brevo(to: str, subject: str, body: str, html: str | None, sender_h
     be a bare address or 'Name <address>'."""
     from_header = sender_header or SMTP_FROM
     sender_name, sender_email = parseaddr(from_header)
-    sender = {"email": sender_email or from_header}
+    if not _valid_email(sender_email):
+        # Brevo answers this with a bare 400 "valid sender email required", which
+        # doesn't say which setting is wrong -- so say it here, before the call.
+        logger.error(
+            "Brevo sender %r is not a valid email address (from SMTP_FROM / NOREPLY_FROM). "
+            "Set it to a plain address verified in Brevo, e.g. maapsetu@gmail.com.", from_header,
+        )
+        return False
+    sender = {"email": sender_email}
     if sender_name:
         sender["name"] = sender_name
     payload = {
@@ -83,7 +104,7 @@ def _send_via_brevo(to: str, subject: str, body: str, html: str | None, sender_h
             return ok
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")[:500]
-        logger.error("Brevo API rejected email to %s: %s %s", to, e.code, detail)
+        logger.error("Brevo API rejected email to %s (sender %s): %s %s", to, sender_email, e.code, detail)
         return False
     except Exception:  # pragma: no cover - network failure
         logger.exception("Brevo API request failed for %s", to)

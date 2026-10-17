@@ -101,9 +101,10 @@ async def on_startup():
     # One line in the Render logs that says how email is wired -- no secrets.
     from app.services import mailer, owner_notifications as _on
     logger.info(
-        "Email config: provider=%s, owner_status_emails=%s, email_use_queue=%s, redis=%s",
+        "Email config: provider=%s, owner_status_emails=%s, email_use_queue=%s, redis=%s, from=%r, noreply=%r",
         "brevo" if mailer._brevo_configured() else ("smtp" if mailer._smtp_configured() else "NONE"),
         _on.OWNER_EMAIL_NOTIFICATIONS_ENABLED, _on.EMAIL_USE_QUEUE, bool(REDIS_URL),
+        mailer.SMTP_FROM, mailer.noreply_sender(),
     )
     if IS_PRODUCTION and not REDIS_URL:
         # Not fatal on its own (the Dockerfile's --workers 2 still works,

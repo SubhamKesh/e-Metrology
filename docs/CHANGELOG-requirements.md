@@ -124,3 +124,8 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - Not run here (no network for `pip install`): run `pytest backend/tests/test_email_queue.py` locally.
 - Free-plan caveat: Render sleeps idle free services, so queued retries pause while asleep and resume on the next request.
 
+### 2026-10-17 — Fix: Brevo 400 "valid sender email required"
+- `backend/app/config/settings.py` — `SMTP_FROM` / `NOREPLY_FROM` now tolerate whitespace/newlines and a value wrapped in quotes (common dashboard paste mistakes).
+- `backend/app/services/mailer.py` — the sender is validated before calling Brevo; a bad value logs which setting is wrong instead of a bare 400. An invalid `NOREPLY_FROM` falls back to `SMTP_FROM`. Brevo rejections now log the sender used.
+- `backend/app/main.py` — the startup "Email config" line also shows the `from` and `noreply` addresses.
+

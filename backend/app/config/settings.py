@@ -195,13 +195,24 @@ SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
-SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
+
+
+def _address_env(name: str) -> str:
+    """An email-address env var, tolerant of the usual dashboard paste mistakes:
+    surrounding whitespace/newlines and the whole value wrapped in quotes."""
+    value = os.getenv(name, "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1].strip()
+    return value
+
+
+SMTP_FROM = _address_env("SMTP_FROM")
 # Sender for system-generated OTP mails (signup verification, password reset).
 # Use a no-reply style address, e.g. "MaapSetu <noreply@yourdomain.in>". With
 # Brevo it must be a verified sender; with SMTP the server must allow it.
 # If left blank, OTP mails go out from SMTP_FROM's address with the display
 # name "MaapSetu (No-Reply)".
-NOREPLY_FROM = os.getenv("NOREPLY_FROM", "").strip()
+NOREPLY_FROM = _address_env("NOREPLY_FROM")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
 
 # Brevo HTTP API (https://api.brevo.com, port 443). Preferred over SMTP on hosts
