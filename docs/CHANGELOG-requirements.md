@@ -11,7 +11,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 2 | In-app QR scanner on officer inspection page (+ GPS stamp) | ✅ (code complete; needs device test) |
 | 3 | Offline-capable inspection with background sync | ✅ (code complete; needs device test and a backend `pytest` run) |
 | 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ✅ (code complete; backend `pytest` and frontend build pass) |
-| 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ✅ (code complete; backend `pytest`, frontend build and a browser test still to run) |
+| 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ⬜ |
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ⬜ |
 | 7 | Search + CSV/PDF report export | ⬜ |
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ⬜ |
@@ -154,46 +154,3 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
   - Not done yet (belongs to #5/#8): a target time for officers to inspect, and treating "applied, pending" as a mitigating status in the enforcement module. The verify-page block is the data hook for it.
 - A renewal issues a new certificate; the old one stays valid until its own expiry date, and the expiry reminders already stop for it once a newer certificate exists.
 - Checked: backend `pytest tests` 278 passed; frontend `tsc -b`, `eslint` and `npm run build` pass. Not tried in a browser.
-
-### 2026-10-17 — #5 Real scheduling (backend)
-**Decision: no Google Calendar two-way sync.** It needs a Google Cloud project, consent screen, stored refresh tokens and per-officer OAuth failures; officers on NIC/government email often can't use Google at all; and it would split the source of truth. Scheduling is native and stored as clean data, so sync can be added later. Every scheduled inspection has an **Add to calendar** button (Google Calendar link + downloadable `.ics`, no OAuth) for officer, owner and admin.
-
-**Added**
-- `backend/app/services/scheduling.py` — the rules in one place: two daily slots (morning 10:00-13:00, afternoon 14:00-17:00 IST), Sundays off, no past dates, `SCHEDULE_MAX_AHEAD_DAYS` horizon, per-officer capacity per slot, availability calculator, `slot_window()` for the later `.ics`.
-- Settings: `SLOT_CAPACITY_PER_OFFICER` (4), `SCHEDULE_MIN_LEAD_DAYS` (0), `SCHEDULE_MAX_AHEAD_DAYS` (60).
-- Application fields `scheduled_date`, `slot` (+ `slot_label` in responses) and an append-only `schedule_history[]`; index on `(assigned_officer_id, scheduled_date, slot)`.
-- `POST /applications/{id}/schedule` (reschedule: assigned officer or admin, only while `scheduled`), `POST /applications/{id}/assign` (admin: assign or move to another officer; officer must be active and cover the application's jurisdiction), `GET /applications/slots` (availability for one officer).
-- Email `inspection_rescheduled`; the existing `application_scheduled` email now shows the booked date and slot (still renders when none is attached).
-- `backend/tests/test_scheduling.py` — claim/reschedule/assign/availability/jurisdiction/capacity/race-rollback/email tests.
-
-**Changed**
-- **Breaking:** `POST /applications/{id}/claim` now requires a body `{date, slot}` (missing → 422). The bundled frontend still calls it without one, so the Claim button fails until the frontend step lands.
-- The claim/reschedule/assign writes re-count the slot after writing; if two requests raced for the last place, the loser is rolled back with a 409.
-- `tests/test_owner_notifications.py` — sample email data covers the new fields and the new event.
-- `docs/api-contract.md`, `README.md` — new endpoints and email type.
-
-**Notes**
-- **Not run:** this authoring environment has no pytest/FastAPI/Mongo and no network. Checked: all backend files compile; the scheduling rules and both email templates were exercised directly (Sunday, past, horizon, capacity, bad slot/date, escaping). Run `cd backend && pytest tests/test_scheduling.py tests/test_owner_notifications.py` and then the full suite.
-
-### 2026-10-17 — #5 Real scheduling (frontend, calendar buttons, Render env)
-**Added**
-- `frontend/src/lib/schedule.ts` — slot labels/times (mirrors `backend/app/services/scheduling.py`), date formatting that can't shift with the viewer's timezone, `slotWindow()`.
-- `frontend/src/lib/calendar.ts` — builds the Google Calendar link and an RFC 5545 `.ics` file entirely in the browser (UTC times converted from IST, escaped text, folded lines, 1-hour reminder, stable `UID` per application and a `SEQUENCE` that rises with each reschedule so a re-imported file updates the old event). **No server endpoint and no OAuth.**
-- `components/domain/SchedulePicker.tsx` — dialog used for claim, reschedule and admin assign. Offers only dates with a free place, shows "N of 4 left" per slot, disables full slots and the unchanged slot, optional reason, shows the server's message (slot full, outside jurisdiction...) inline.
-- `components/domain/ScheduleCard.tsx` — booked date/slot, Add to calendar buttons (while the inspection is upcoming) and a collapsible schedule history. Shown on every application page (owner, officer, admin) via `ApplicationOverview`.
-- `components/domain/AddToCalendar.tsx` — the two buttons; event title/location come from the instrument.
-- Hooks `useRescheduleApplication`, `useAssignApplication`, `useSlotAvailability`; `ApplicationApi.schedule/assign/slots`; new types in `lib/types.ts`.
-- `render.yaml` — `SLOT_CAPACITY_PER_OFFICER`, `SCHEDULE_MIN_LEAD_DAYS`, `SCHEDULE_MAX_AHEAD_DAYS` (defaults 4 / 0 / 60).
-
-**Changed**
-- `pages/officer/ApplicationDetail.tsx` — "Claim and schedule" opens the picker (fixes the Claim button against the new required body); **Reschedule** on the schedule card for the assigned officer.
-- `pages/admin/ApplicationDetail.tsx` — **Assign officer / Reassign officer** (lists only active officers whose jurisdiction covers the application: LMO = that district, GATC = the state), then pick the slot from that officer's free places; **Reschedule**.
-- `components/domain/ApplicationsTable.tsx` — an "Inspection" column (date + slot) appears whenever the list contains scheduled applications.
-- `useClaimApplication` now takes `{ id, date, slot }` and also refreshes slot availability after any booking.
-
-**Notes**
-- **Not built or run:** no npm registry here. Checked instead: `schedule.ts` and `calendar.ts` pass `tsc --strict`; the `.ics` output was generated and verified (10:00 IST = 04:30Z, no line over 75 bytes, special characters escaped); every edited `.tsx`/`.ts` file parses. Run `cd frontend && npm ci && npm run lint && npm run build` — the component files have not been type-checked against React/Tailwind types.
-- Test in a browser: claim with a slot; try a Sunday (not offered) and a full slot; reschedule and read the owner's email; admin assign/reassign; open the `.ics` in Outlook / Apple Calendar / phone; Google link on desktop and phone.
-- Slot times live in two places (backend `SLOTS` and `lib/schedule.ts`); change both together.
-- The calendar file is a snapshot: after a reschedule the owner/officer downloads it again (same UID, higher SEQUENCE, so calendars update rather than duplicate).
-
