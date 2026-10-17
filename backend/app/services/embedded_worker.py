@@ -25,7 +25,6 @@ import logging
 import os
 import socket
 import threading
-import time
 
 from app.config.settings import REDIS_URL
 
