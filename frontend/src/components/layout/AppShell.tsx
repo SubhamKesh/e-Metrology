@@ -11,6 +11,7 @@ import { LogoutConfirmationDialog } from "@/components/ui/LogoutConfirmationDial
 import { useApplications } from "@/hooks/useData";
 import { InstallBanner } from "@/components/ui/InstallBanner";
 import { OfflineSyncBanner } from "@/components/ui/OfflineSyncBanner";
+import { useOfflineData } from "@/hooks/useOfflineData";
 
 function BrandButton({ onClick, className }: { onClick: () => void; className?: string }) {
   return (
@@ -39,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const prevQueueRef = useRef<number | null>(null);
 
   const isOfficer = user?.role === "lmo" || user?.role === "gatc";
+  useOfflineData(isOfficer ? user?.id : undefined); // officers: keep assignments available offline
   const { data: queueData } = useApplications(isOfficer ? { status: "submitted", pollInterval: 5000 } : undefined);
   const queueCount = Array.isArray(queueData) ? queueData.length : 0;
   const qc = useQueryClient();

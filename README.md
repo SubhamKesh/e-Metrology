@@ -45,8 +45,9 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 🧰 **Instrument Registry** | Owners register instruments from a controlled list of instrument types, with a unique serial number and auto-generated UIID |
 | 📝 **Application Lifecycle** | State machine enforced server-side: `submitted → scheduled → inspected → certified/rejected → expiring → expired` |
 | 🔎 **Inspection Workflow** | Officers claim applications, scan the instrument's QR with the in-app camera scanner (or type the UIID), review instrument details, and record outcomes with photo evidence. A GPS fix is **mandatory** and stored with every inspection, along with how the instrument was identified (`qr` / `manual`) |
-| 📴 **Offline Inspections** | If the connection drops, a finished inspection (and any photos taken) is saved on the officer's device and sent automatically when they're back online. Each inspection carries an idempotency key, so a retry or double sync can never create a duplicate, and the time the officer actually pressed Submit is kept (see [Offline Inspections](#-offline-inspections)) |
-| 📱 **Installable App (PWA)** | Installable on phones and desktops (manifest, maskable icon, install banner, iOS "Add to Home Screen" hint). The service worker caches only static app files — never API responses, certificates or personal data |
+| 📴 **Offline Inspections** | The app **opens with no signal** and an officer's assigned applications and instruments are kept on the device, so an inspection can be started and finished in a dead zone. A finished inspection (and its photos) is saved on the device and sent automatically when the connection returns. Each inspection carries an idempotency key, so a retry or double sync can never create a duplicate, and the time the officer actually pressed Submit is kept. Photos are compressed before upload, and a failed send shows the real reason (see [Offline Inspections](#-offline-inspections)) |
+| 📝 **Inspection Drafts** | Everything entered on an inspection (identity check, photos, notes) auto-saves on the device, online or offline, and is restored when the officer returns to that application. Drafts show on the dashboard and as a **Draft** badge in My assignments (see [Inspection Drafts](#inspection-drafts)) |
+| 📱 **Installable App (PWA)** | Installable on phones and desktops (manifest, maskable icon, install banner, iOS "Add to Home Screen" hint). The service worker stores only static files (the app shell and the built JS/CSS, listed at build time) so the app can open offline — never API responses, certificates or personal data |
 | 📜 **Digital Certificates** | PDF certificates (ReportLab) with embedded QR codes linking to a public verification page; generated off the request path when Redis is available |
 | ✅ **Public Verification** | Anyone can verify a certificate at `GET /api/v1/certificates/verify/{cert_id}` (frontend route `/verify/:certId`) — no login required; responses are cached |
 | ⏰ **Expiry Automation** | Hourly APScheduler jobs move certificates to `expiring` / `expired` and email owners at 30 / 15 / 7 / 1 days before expiry, guarded by a Redis run-lock so only one instance runs each tick |
@@ -90,7 +91,7 @@ Business owners register weighing/measuring instruments, submit them for verific
 | Data fetching / caching | **TanStack Query (React Query) v5** |
 | Styling | **Tailwind CSS 3** |
 | QR rendering / scanning | `qrcode.react` (render) · native `BarcodeDetector` with a `jsqr` fallback (scan) |
-| Offline | Service worker (static files only) · IndexedDB queue for inspections |
+| Offline | Service worker (static app shell + build assets, precached at build time) · IndexedDB: unsent-inspection queue, inspection drafts, and an officer's cached assignments |
 | Linting | ESLint 9 (`typescript-eslint`) |
 
 ### Infrastructure & DevOps
@@ -231,20 +232,81 @@ SMTP_USE_TLS=true
 
 ## 📴 Offline Inspections
 
-Field inspections often happen where there is no signal. The officer inspection page works like this:
+Field inspections often happen where there is no signal. The officer app is built so that a whole inspection (open the app, find the assignment, check the instrument, take photos, submit) can happen with no connection, and nothing is lost if the connection drops half-way.
 
-1. **Open the inspection while you still have a connection** (the page and the application details must be loaded), then walk to the site. Location (GPS) and the camera work without a network.
-2. Fill in the form and submit. If the device is offline, or the connection drops mid-submit, the inspection — including photos taken offline — is saved in the browser's **IndexedDB** and the page confirms "Saved on this device".
-3. A status strip at the top of the officer screens shows the offline state and how many inspections are waiting. They are sent **automatically** when the connection returns, when the app is opened or refocused, and every minute while anything is waiting. There is also a **Send now** button.
-4. If the server rejects a saved inspection (for example the application was reassigned or already inspected) it is kept and shown with the reason, and the officer can discard it. Network or server trouble never discards anything.
+### How it works
 
-How it stays safe:
+1. **Prepare while online.** Whenever an officer is signed in with a connection, the app downloads their assignment list and, for each assigned application (up to 25, ones waiting for inspection first), the application and its instrument. This runs when the app opens, when the connection returns, when the app comes back to the foreground, and every 5 minutes, and is saved on the device.
+2. **Open with no signal.** The service worker has already stored the app shell and every built JS/CSS file, so the app launches (and lazy-loaded screens open) offline. If the network doesn't answer within 5 seconds, the app opens from the saved shell instead of hanging on a weak signal.
+3. **Stay signed in.** An officer who signed in on this device (password + two-step code, online) is let back in on the saved profile when the server can't be reached. See [Offline sign-in](#offline-sign-in).
+4. **Inspect.** GPS, the camera and the QR scanner all work without a network, and the saved application/instrument details are used for the UIID match.
+5. **Submit.** If the device is offline, or the connection drops mid-submit, the inspection (including photos taken offline) is saved in IndexedDB and the page confirms "Saved on this device".
+6. **Send.** A status strip at the top of the officer screens shows the offline state and how many inspections are waiting. They are sent **automatically** when the connection returns, when the app is opened or refocused, and every minute while anything is waiting, or on demand with **Send now**.
+7. **If it can't send, it says why.** A red line under the strip shows the reason in plain words ("Can't reach the server", "Server error (502)", "Your session expired, sign in again"). If the server definitively rejects an inspection (application reassigned or already inspected, a photo too large), it is kept and shown with the reason so the officer can discard it. Network or server trouble never discards anything.
+
+### Inspection Drafts
+
+An inspection that has been started but not submitted is a **draft**.
+
+- **Auto-saved** about a second after every change, and immediately when the officer leaves the page or switches app. A draft holds the UIID entered and how it was captured (QR/manual), the "physically confirmed" tick, uploaded photos, photos still waiting to upload (as files), and the notes.
+- **Resumes where the officer left off** (after a dropped signal, a closed app or a phone restart) with a "Resumed your draft" bar and a **Start over** button.
+- **Visible:** a "Continue where you left off" section on the officer dashboard, a **Draft** badge in My assignments, and "Continue verification (draft)" on the application page.
+- **Cleared** the moment the inspection is submitted or saved to the send queue. A failed submit (for example a validation error) keeps the draft.
+- **Rules:** one draft per officer per application; it keeps its `client_id` so a later resubmit stays idempotent; the "physically confirmed" tick must be given again if the draft is more than 12 hours old (`RECONFIRM_AFTER_MS` in `Inspection.tsx`); drafts expire after 14 days; GPS is not stored (it is re-captured at submit).
+- **Device-only.** Drafts are stored on the device, not the server, so they work with no signal but do not follow the officer to another device. A server-side copy would be a separate backend feature.
+
+### Offline sign-in
+
+Opening the app with no signal must not bounce an officer to a login page that can't work either. So, **for officer accounts only** (`lmo` / `gatc`, who have already passed password + two-step verification online on this device):
+
+- The last signed-in profile is saved on the device. If the server can't be reached (no signal, a 5xx, or no answer within about 6 seconds) the app opens on that profile.
+- This offline-only access lasts at most **7 days** since the last online sign-in (`OFFLINE_MAX_AGE_MS` in `offlineCache.ts`).
+- When the connection returns, the session is re-checked with the server. If it is still valid, nothing changes. If the server refuses it, the officer is sent to sign in, and the unsent queue sends after sign-in.
+- A failed token refresh only ends the session when the server actually says no; being offline never signs anyone out.
+- Owners and admins are never kept signed in this way.
+
+### Photos
+
+Phone cameras produce 3-10 MB photos, but the API accepts about 2 MB per request (nginx 3 MB). A request rejected by nginx has no CORS headers, so the browser reports it as a plain network failure and an unprepared app would retry forever. Photos are therefore resized to at most 1600 px on the long side and re-encoded as JPEG (quality 0.8) before every upload, both when added and when queued photos are sent. Files under about 600 KB are sent unchanged.
+
+### What is stored on the device
+
+| Data | Where | Cleared |
+|---|---|---|
+| Unsent inspections (`maapsetu-offline` / `inspections`) | IndexedDB | When sent, or discarded by the officer. **Kept on sign-out** so a finished inspection is never lost |
+| Inspection drafts (`maapsetu-cache` / `draft:*`) | IndexedDB | On submit, "Start over", or after 14 days. Kept on sign-out |
+| Cached assignments + saved officer profile (`maapsetu-cache` / `query-cache`, `offline-user`) | IndexedDB | **On sign-out**, when the server refuses the session, or after 7 days |
+| App shell + built JS/CSS | Cache Storage (service worker) | Replaced on each deploy (the previous build is kept one generation so an open screen can finish loading) |
+
+Items are tagged with the officer's user id and only that officer's session reads or sends them. The service worker never touches API traffic, WebSockets, non-GET requests or PDFs.
+
+### How it stays safe
 
 - **No duplicates.** Each inspection gets a random `client_id` when the form opens. `POST /inspections` returns the original record (`200`) when the same officer sends the same `client_id` again, and a unique index on `(officer_id, client_id)` covers simultaneous syncs.
 - **Real inspection time.** The app sends `captured_at`. The server uses it as the inspection time only if it is not in the future and not older than 14 days; otherwise it uses its own clock. The server's receipt time is always stored (`received_at`) and `submitted_offline` flags late arrivals.
-- **Scoped to the officer.** Queued items are tagged with the officer's user id and only that officer's session sends them. The service worker never touches this data.
+- **Photo progress is kept.** Queued photos upload one at a time and each success is saved immediately, so a dropped connection never re-uploads what already went up.
 
-Limits to know about: the browser must stay signed in to MaapSetu until the queue is empty; sending happens while the app is open (browsers' true background sync isn't available everywhere, notably iOS); and a page that is *reloaded* while offline shows the offline screen, so open the inspection first and then go offline. On a shared device, sign out only after the queue has been sent.
+### Build note
+
+`vite.config.ts` includes a small `sw-precache` plugin. On every `vite build` it writes the list of built files (`/assets/*`) into `dist/sw.js` and derives a build id from it, so the service worker downloads every chunk at install and changes on every deploy (which is how browsers pick up the update). In `npm run dev` the placeholders stay empty and the service worker is not registered.
+
+### Limits to know about
+
+- **First open must be online.** The service worker and the cached assignments are created on the first online visit after sign-in; a device that has never opened the app online has nothing to work from.
+- **Only assigned work is available offline.** An application that was never downloaded can't be opened offline, and claiming from the queue needs a connection (the queue list is intentionally not cached).
+- **Cached data can be stale** until the app next reaches the server.
+- **Sending happens while the app is open.** Browsers' true background sync isn't available everywhere (notably iOS), and the access token lives in page storage.
+- **Same-device access.** Anyone holding an unlocked phone that an officer signed in on within the last 7 days can open the app offline and see the cached assignments. Shorten `OFFLINE_MAX_AGE_MS` if that is too long for your deployment. On a shared device, sign out (which wipes the cache) only after the queue has been sent.
+- **If an offline session is rejected when signal returns**, the officer is sent to sign in. An inspection already submitted is safe in the queue, and drafts are saved continuously, so at most a few seconds of typing could be lost.
+- **The start URL (`/`) shows the public landing page** when opened offline; officers reach their screens by opening the app and using the saved dashboard.
+
+### Testing it on a phone
+
+1. Sign in as an officer **online** and stay on the dashboard for about 10 seconds (this downloads the app and the assignments).
+2. Turn on airplane mode and force-close the app, then reopen it. The dashboard, your assignments and their inspection pages should open.
+3. Start an inspection, add a photo and notes, close the app, reopen it: the draft should come back.
+4. Submit with airplane mode on ("Saved on this device"), turn the network back on, and watch it send by itself (or tap **Send now**). If it doesn't, the red line says why.
+5. In Chrome DevTools (Application → Service Workers / Cache Storage, and the Network "Offline" toggle) you can check the same flow on desktop.
 
 ---
 
@@ -377,7 +439,7 @@ e-Metrology-main/
     │   ├── pages/
     │   │   ├── auth/               # Login, Register, ForgotPassword, TwoFactor (code entry + authenticator setup), ChangePassword, PendingApproval
     │   │   ├── owner/              # Dashboard, instruments, applications, certificates
-    │   │   ├── officer/            # Queue, inspection workflow, dashboard, certificates
+    │   │   ├── officer/            # Queue, inspection workflow (with drafts), dashboard, certificates
     │   │   ├── admin/              # Dashboard, users, instruments, applications, certificates, audit log
     │   │   └── public/             # VerifyCertificate.tsx — public QR verification page
     │   ├── components/
@@ -386,13 +448,16 @@ e-Metrology-main/
     │   │   └── layout/AppShell.tsx
     │   ├── context/AuthContext.tsx
     │   ├── routes/ProtectedRoute.tsx
-    │   ├── hooks/                  # useData.ts (React Query hooks), useOfflineSync.ts (offline queue sync engine)
+    │   ├── hooks/                  # useData.ts (React Query hooks), useOfflineSync.ts (send-queue sync engine),
+    │   │                           # useOfflineData.ts (cached assignments), useDrafts.ts (inspection drafts)
     │   └── lib/                    # api.ts, endpoints.ts, types.ts, validation.ts, nav.ts, roleHome.ts,
-    │                               # geo.ts (GPS), pwa.ts (install prompt), offlineQueue.ts (IndexedDB), offlineSync.ts
-    ├── public/                     # sw.js (service worker), offline.html, site.webmanifest, icons
+    │                               # geo.ts (GPS), pwa.ts (install prompt), offlineQueue.ts + offlineSync.ts (send queue),
+    │                               # offlineStore.ts + offlineCache.ts (cached assignments, offline sign-in profile),
+    │                               # offlineDrafts.ts (drafts), imageCompress.ts (photo resizing before upload)
+    ├── public/                     # sw.js (service worker: app shell + build assets), offline.html, site.webmanifest, icons
     ├── package.json
     ├── tailwind.config.js
-    ├── vite.config.ts
+    ├── vite.config.ts              # includes the sw-precache plugin that lists build files in sw.js
     └── .env.example
 ```
 
@@ -616,7 +681,7 @@ Handy manual checks: `python burst_test.py` fires a burst of requests to exercis
 - **Scaling — done:** Redis-backed DDoS state, rate-limit counters, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications; certificate generation, officer emails and owner status emails on a background worker (now also in `docker-compose.yml`, with retry backoff); MongoDB read replicas for read-heavy paths (`MONGO_READ_PREFERENCE`); a load-balancer config and multi-instance rehearsal stack; CDN cache headers; an optional CI deploy step.
 - **Scaling — what the repo can't do:** actually provisioning a load balancer, autoscaling and a CDN is done in your hosting provider (Render/Atlas/Cloudflare/NIC…). [`docs/deployment-scaling.md`](docs/deployment-scaling.md) has the configuration and templates; autoscaling and background workers need a paid Render plan, and more than one backend instance needs `REDIS_URL`.
 - **Account security — still to do:** CAPTCHA on forgot-password. Two-step verification is in place for officers/admin (owners don't need it; it could be offered to them as an option later), with a self-service "regenerate recovery codes" screen as a possible follow-up. For a real government deployment, a CERT-In-empanelled security audit, hosting on NIC / MeitY-empanelled cloud, and GIGW 3.0 / DPDP Act compliance are outside this repo's code.
-- **Field readiness:** installable PWA, in-app QR scanning, GPS stamping and offline inspections with automatic sync are in; they need testing on real phones. Offline *page reload* (serving the app shell with no network) is a possible follow-up. The remaining gap-closing items are tracked in [`docs/CHANGELOG-requirements.md`](docs/CHANGELOG-requirements.md).
+- **Field readiness:** installable PWA, in-app QR scanning, GPS stamping, offline app launch, cached assignments, inspection drafts and offline inspections with automatic sync are in; they need testing on real phones. Possible follow-ups: server-side drafts (so work follows an officer across devices), a "ready for offline" indicator on the dashboard, and true background sync where browsers support it. The remaining gap-closing items are tracked in [`docs/CHANGELOG-requirements.md`](docs/CHANGELOG-requirements.md).
 - See [`docs/implementation_tasks.md`](docs/implementation_tasks.md) for the team task breakdown.
 
 ---

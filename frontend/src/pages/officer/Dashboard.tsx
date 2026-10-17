@@ -5,6 +5,7 @@ import { useApplications, useDashboard } from "@/hooks/useData";
 import type { OfficerDashboard, Role } from "@/lib/types";
 import { ROLE_LABEL } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
+import { useDrafts } from "@/hooks/useDrafts";
 
 export default function OfficerDashboardPage({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
   const { user } = useAuth();
@@ -13,6 +14,11 @@ export default function OfficerDashboardPage({ role }: { role: Extract<Role, "lm
   const { data: queue } = useApplications({ status: "submitted" });
   const queueCount = Array.isArray(queue) ? queue.length : undefined;
   const d = data as OfficerDashboard | undefined;
+  // Unfinished inspections saved on this device. Once the assignment list is known, hide drafts
+  // whose application is no longer waiting for this officer's inspection.
+  const { data: mine } = useApplications({ mine: true });
+  const scheduledIds = Array.isArray(mine) ? new Set(mine.filter((a) => a.status === "scheduled").map((a) => a.id)) : null;
+  const drafts = useDrafts(user?.id).filter((x) => !scheduledIds || scheduledIds.has(x.application_id));
   const base = `/app/${role}`;
 
   return (
@@ -40,6 +46,23 @@ export default function OfficerDashboardPage({ role }: { role: Extract<Role, "lm
           <StatCard label="Today's inspections" value={d.today_inspections} tone="info" />
         </div>
       ) : null}
+
+      {drafts.length > 0 && (
+        <>
+          <SectionTitle>Continue where you left off</SectionTitle>
+          <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+            {drafts.map((x) => (
+              <ActionCard
+                key={x.application_id}
+                to={`${base}/applications/${x.application_id}/inspect`}
+                title={x.label}
+                description={`Draft saved ${new Date(x.updated_at).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`}
+                badge={<Badge tone="warning">Draft</Badge>}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       <SectionTitle>Where to start</SectionTitle>
       <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">

@@ -148,6 +148,37 @@ export async function refreshSession(mode: SessionMode): Promise<boolean> {
   return ok;
 }
 
+// Like refreshSession, but tells "can't reach the server" apart from "the server said no".
+// Only the first must leave the stored session alone: an officer opening the app in a dead zone
+// is not signed out. Used on app start only.
+export async function refreshSessionDetailed(mode: SessionMode): Promise<"ok" | "denied" | "offline"> {
+  setSessionMode(mode);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000); // a weak signal can hang a request for minutes
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}/auth/refresh`, { method: "POST", credentials: "include", signal: ctrl.signal });
+  } catch {
+    return "offline";
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status >= 500) return "offline";
+  if (res.ok) {
+    try {
+      const data = (await res.json()) as { token?: string };
+      if (data.token) {
+        setToken(data.token);
+        return "ok";
+      }
+    } catch {
+      // fall through to denied
+    }
+  }
+  clearToken();
+  return "denied";
+}
+
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, isForm = false, public: isPublic = false, _isRetry = false } = opts;
 

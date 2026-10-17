@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { useApplication, useClaimApplication } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useDrafts } from "@/hooks/useDrafts";
 import type { Role } from "@/lib/types";
 
 export function OfficerApplicationDetail({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
@@ -15,6 +16,7 @@ export function OfficerApplicationDetail({ role }: { role: Extract<Role, "lmo" |
   const { data: application, isLoading, isError, error, refetch } = useApplication(id);
   const claim = useClaimApplication();
   const [claimError, setClaimError] = useState<string | null>(null);
+  const hasDraft = useDrafts(user?.id).some((d) => d.application_id === id);
 
   if (isLoading) return <Skeleton className="h-64 w-full max-w-2xl" />;
   if (isError || !application) {
@@ -53,7 +55,7 @@ export function OfficerApplicationDetail({ role }: { role: Extract<Role, "lmo" |
             )}
             {canInspect && (
               <Button onClick={() => navigate(`/app/${role}/applications/${id}/inspect`)}>
-                Start verification
+                {hasDraft ? "Continue verification (draft)" : "Start verification"}
               </Button>
             )}
             {isMine && application.status === "inspected" && (

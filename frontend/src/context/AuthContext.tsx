@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { AuthApi, type MfaSetup, type RegisterPayload } from "@/lib/endpoints";
-import { ApiError, clearToken, getSessionMode, getToken, refreshSession, setSessionMode, setToken } from "@/lib/api";
+import { ApiError, clearToken, getSessionMode, getToken, refreshSessionDetailed, setSessionMode, setToken } from "@/lib/api";
+import { clearOfflineData, loadOfflineUser, saveOfflineUser } from "@/lib/offlineCache";
 import type { User } from "@/lib/types";
 
 // What a password login can lead to: a finished session, or (officer/admin
@@ -32,6 +33,56 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+// Restores the signed-in user on page load / browser restart:
+//   1. a stored access token that /auth/me still accepts, else
+//   2. the httpOnly refresh cookie (this is what "Remember me" relies on —
+//      access tokens only live 15 minutes).
+// If the server can't be reached (no signal, or it is down) and an officer last signed in on
+// this device, they are let in on the saved profile instead of being sent to a login page that
+// can't work either. `offline: true` marks that case. Resolves to null (guest) otherwise.
+const UNREACHABLE_AFTER_MS = 6000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new ApiError(0, "Timed out")), ms)),
+  ]);
+}
+
+async function restoreSession(): Promise<{ user: User; offline: boolean } | null> {
+  // Read before anything else: a 401 from /auth/me clears the stored mode.
+  const mode = getSessionMode();
+  const cached = await loadOfflineUser().catch(() => null);
+  const unreachable = (err: unknown) => err instanceof ApiError && (err.status === 0 || err.status >= 500);
+  const fallback = () => (cached ? { user: cached, offline: true } : null);
+  // With a saved officer profile, a hung request on a weak signal falls back after a few seconds.
+  const guard = <T,>(p: Promise<T>) => (cached ? withTimeout(p, UNREACHABLE_AFTER_MS) : p);
+
+  if (getToken()) {
+    try {
+      return { user: await guard(AuthApi.me()), offline: false };
+    } catch (err) {
+      if (unreachable(err)) return fallback();
+      // Anything other than "token expired/invalid" is not a reason to try refreshing.
+      if (!(err instanceof ApiError) || err.status !== 401) return null;
+    }
+  }
+
+  // Nothing to restore from if the user never signed in on this browser.
+  if (!mode) return null;
+  const outcome = await refreshSessionDetailed(mode);
+  if (outcome === "offline") return fallback();
+  if (outcome === "denied") {
+    clearOfflineData().catch(() => {}); // the server no longer accepts this session
+    return null;
+  }
+  try {
+    return { user: await guard(AuthApi.me()), offline: false };
+  } catch (err) {
+    return unreachable(err) ? fallback() : null;
+  }
+}
+
 // `initialStatus` is only set by the build-time prerender (entry-server.tsx) so public pages render as a
 // signed-out visitor sees them; the browser always starts at "loading" and restores the session.
 export function AuthProvider({
@@ -44,53 +95,61 @@ export function AuthProvider({
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthState["status"]>(initialStatus);
 
+  // True while an officer is working from the profile saved on this device because the server
+  // can't be reached. It is re-checked as soon as the connection comes back.
+  const [offlineSession, setOfflineSession] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
-
-    // Restores the signed-in user on page load / browser restart:
-    //   1. a stored access token that /auth/me still accepts, else
-    //   2. the httpOnly refresh cookie (this is what "Remember me" relies on —
-    //      access tokens only live 15 minutes).
-    // Resolves to null (guest) if neither works.
-    async function restoreSession(): Promise<User | null> {
-      // Read before anything else: a 401 from /auth/me clears the stored mode.
-      const mode = getSessionMode();
-
-      if (getToken()) {
-        try {
-          return await AuthApi.me();
-        } catch (err) {
-          // Anything other than "token expired/invalid" (offline, 5xx) is not
-          // a reason to try refreshing; treat as signed out like before.
-          if (!(err instanceof ApiError) || err.status !== 401) return null;
-        }
-      }
-
-      // Nothing to restore from if the user never signed in on this browser.
-      if (!mode) return null;
-      if (!(await refreshSession(mode))) return null;
-      try {
-        return await AuthApi.me();
-      } catch {
-        return null;
-      }
-    }
-
     restoreSession().then((restored) => {
       if (cancelled) return;
       if (restored) {
-        setUser(restored);
+        setUser(restored.user);
+        setOfflineSession(restored.offline);
         setStatus("authed");
       } else {
         clearToken();
         setStatus("guest");
       }
     });
-
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Offline-opened officer session: confirm it with the server once we're back online.
+  // Still valid -> carry on with a real session. Rejected -> sign in again (the unsent
+  // inspection queue is kept and sends after sign-in).
+  useEffect(() => {
+    if (!offlineSession) return;
+    let cancelled = false;
+    const recheck = async () => {
+      if (!navigator.onLine) return;
+      const r = await restoreSession();
+      if (cancelled) return;
+      if (r && !r.offline) {
+        setUser(r.user);
+        setOfflineSession(false);
+      } else if (!r) {
+        clearToken();
+        setUser(null);
+        setOfflineSession(false);
+        setStatus("guest");
+      }
+    };
+    window.addEventListener("online", recheck);
+    const t = setInterval(recheck, 30_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("online", recheck);
+      clearInterval(t);
+    };
+  }, [offlineSession]);
+
+  // Keep the last signed-in officer on the device so the app can open with no signal.
+  useEffect(() => {
+    if (user && status === "authed" && !offlineSession) saveOfflineUser(user).catch(() => {});
+  }, [user, status, offlineSession]);
 
   // Adopts a finished session on this screen. Mode first: setToken() uses it
   // to pick localStorage vs sessionStorage.
@@ -186,6 +245,8 @@ export function AuthProvider({
     // the user back to /login immediately.
     AuthApi.logout().catch(() => {});
     clearToken();
+    clearOfflineData().catch(() => {}); // cached assignments + saved profile; the unsent queue stays
+    setOfflineSession(false);
     setUser(null);
     setStatus("guest");
   }

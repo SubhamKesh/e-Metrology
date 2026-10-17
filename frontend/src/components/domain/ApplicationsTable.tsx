@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { DataTable, type Column } from "@/components/ui/DataTable";
-import { ApplicationStatusBadge } from "@/components/ui/StatusBadge";
+import { ApplicationStatusBadge, Badge } from "@/components/ui/StatusBadge";
 import { ErrorState } from "@/components/ui/States";
 import { useInstruments } from "@/hooks/useData";
 import type { Application } from "@/lib/types";
@@ -15,6 +15,7 @@ interface Props {
   basePath: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  draftIds?: Set<string>; // applications with an unfinished inspection saved on this device
 }
 
 export function ApplicationsTable({
@@ -26,6 +27,7 @@ export function ApplicationsTable({
   basePath,
   emptyTitle = "No applications yet",
   emptyDescription,
+  draftIds,
 }: Props) {
   const navigate = useNavigate();
   // Instrument info isn't joined onto the application list response, so we
@@ -51,7 +53,15 @@ export function ApplicationsTable({
         return i ? `${i.type} · ${i.uiid}` : <span className="text-slate-500">{a.instrument_id.slice(0, 10)}…</span>;
       },
     },
-    { header: "Status", cell: (a) => <ApplicationStatusBadge status={a.status} /> },
+    {
+      header: "Status",
+      cell: (a) => (
+        <span className="flex flex-wrap items-center gap-2">
+          <ApplicationStatusBadge status={a.status} />
+          {draftIds?.has(a.id) && <Badge tone="warning">Draft</Badge>}
+        </span>
+      ),
+    },
   ];
 
   return (

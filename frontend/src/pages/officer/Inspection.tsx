@@ -13,8 +13,16 @@ import { ApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useQueuedInspections } from "@/hooks/useOfflineSync";
 import { enqueueInspection } from "@/lib/offlineQueue";
+import { deleteDraft, isDraftEmpty, loadDraft, saveDraft, type InspectionDraft } from "@/lib/offlineDrafts";
 import type { IdentityMethod, InspectionResult, Role } from "@/lib/types";
 import { cn } from "@/lib/cn";
+
+// A draft older than this keeps its notes and photos, but the officer must tick the
+// "physically confirmed" box again: that confirmation belongs to the visit it was made on.
+const RECONFIRM_AFTER_MS = 12 * 60 * 60 * 1000;
+
+const fmtWhen = (ms: number) =>
+  new Date(ms).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
   const { id } = useParams();
@@ -52,6 +60,92 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
   useEffect(() => {
     captureGps();
   }, [captureGps]);
+
+  // ---- Draft: everything entered so far is kept on this device and restored on return ----
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [resumedAt, setResumedAt] = useState<number | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const submittedRef = useRef(false); // once submitted/queued, the draft must not be written again
+  const loadedRef = useRef(false);
+  const latest = useRef<InspectionDraft | null>(null);
+
+  const draft: InspectionDraft | null =
+    user?.id && id
+      ? {
+          application_id: id,
+          user_id: user.id,
+          client_id: clientId.current,
+          label: instrument ? `${instrument.type} · ${instrument.manufacturer} ${instrument.model}` : `Application ${id}`,
+          entered_serial: enteredSerial,
+          identity_method: identityMethod,
+          serial_confirmed: serialConfirmed,
+          photos,
+          pending_photos: pendingPhotos.map((f) => ({ name: f.name, type: f.type, blob: f })),
+          observations,
+          updated_at: Date.now(),
+        }
+      : null;
+
+  useEffect(() => {
+    latest.current = draft;
+    loadedRef.current = draftLoaded;
+  });
+
+  // Restore a saved draft for this application, once.
+  useEffect(() => {
+    if (!user?.id || !id) return;
+    let cancelled = false;
+    loadDraft(user.id, id)
+      .then((d) => {
+        if (cancelled) return;
+        if (d) {
+          clientId.current = d.client_id;
+          setEnteredSerial(d.entered_serial);
+          setIdentityMethod(d.identity_method);
+          setSerialConfirmed(d.serial_confirmed && Date.now() - d.updated_at < RECONFIRM_AFTER_MS);
+          setPhotos(d.photos);
+          setPendingPhotos(d.pending_photos.map((p) => new File([p.blob], p.name, { type: p.type })));
+          setObservations(d.observations);
+          setResumedAt(d.updated_at);
+        }
+        setDraftLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setDraftLoaded(true); // storage trouble: carry on without drafts
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, id]);
+
+  // Auto-save shortly after every change.
+  useEffect(() => {
+    if (!draftLoaded) return;
+    const t = setTimeout(() => {
+      const d = latest.current;
+      if (!d || submittedRef.current) return;
+      saveDraft(d)
+        .then(() => setDraftSavedAt(isDraftEmpty(d) ? null : Date.now()))
+        .catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [draftLoaded, observations, enteredSerial, identityMethod, serialConfirmed, photos, pendingPhotos, instrument]);
+
+  // Save immediately when the officer leaves the page or switches app, so the last few seconds aren't lost.
+  useEffect(() => {
+    const flush = () => {
+      const d = latest.current;
+      if (d && loadedRef.current && !submittedRef.current) saveDraft(d).catch(() => {});
+    };
+    const onHide = () => document.visibilityState === "hidden" && flush();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
 
   const handleScan = useCallback((uiid: string) => {
     setEnteredSerial(uiid);
@@ -94,6 +188,28 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
   const serialMatches = instrument ? enteredSerial.trim() === instrument.uiid : false;
   const identityBlocked = enteredSerial.length > 0 && !serialMatches;
 
+  // The inspection is now sent or safely in the send queue: the draft has done its job.
+  async function finishDraft() {
+    submittedRef.current = true;
+    if (user && id) await deleteDraft(user.id, id).catch(() => {});
+  }
+
+  async function discardDraft() {
+    if (!user || !id) return;
+    await deleteDraft(user.id, id).catch(() => {});
+    clientId.current = crypto.randomUUID();
+    setEnteredSerial("");
+    setIdentityMethod("manual");
+    setSerialConfirmed(false);
+    setPhotos([]);
+    setPendingPhotos([]);
+    setObservations("");
+    setResult(null);
+    setSubmitError(null);
+    setResumedAt(null);
+    setDraftSavedAt(null);
+  }
+
   async function onSubmit(finalResult: InspectionResult) {
     if (!id) return;
     setSubmitError(null);
@@ -122,6 +238,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
           location: fix!,
           captured_at: capturedAt,
         });
+        await finishDraft();
         setSavedOffline(true);
       }
 
@@ -150,6 +267,7 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
         }
         throw err;
       }
+      await finishDraft();
       navigate(`/app/${role}/applications/${id}`);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : "Couldn't submit this inspection. Try again.");
@@ -161,6 +279,18 @@ export function InspectionWorkflow({ role }: { role: Extract<Role, "lmo" | "gatc
   return (
     <div className="max-w-2xl">
       <PageHeader title="Field verification" description={instrument ? `${instrument.type} · ${instrument.manufacturer} ${instrument.model}` : undefined} />
+
+      {(resumedAt || draftSavedAt) && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-line bg-white px-4 py-3 text-sm shadow-sm">
+          <p className="text-ink">
+            {resumedAt ? "Resumed your draft. " : ""}
+            Saved automatically on this device{draftSavedAt ?? resumedAt ? ` · ${fmtWhen((draftSavedAt ?? resumedAt) as number)}` : ""}.
+          </p>
+          <button type="button" onClick={discardDraft} className="shrink-0 font-medium text-danger underline">
+            Start over
+          </button>
+        </div>
+      )}
 
       {/* Step 1: Physical identity check */}
       <Panel className="mb-5 p-5">

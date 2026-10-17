@@ -1,6 +1,8 @@
 import { PageHeader } from "@/components/layout/AppShell";
 import { ApplicationsTable } from "@/components/domain/ApplicationsTable";
 import { useApplications } from "@/hooks/useData";
+import { useDrafts } from "@/hooks/useDrafts";
+import { useAuth } from "@/context/AuthContext";
 import type { Role } from "@/lib/types";
 
 export function OfficerQueue({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
@@ -23,6 +25,8 @@ export function OfficerQueue({ role }: { role: Extract<Role, "lmo" | "gatc"> }) 
 
 export function OfficerAssignments({ role }: { role: Extract<Role, "lmo" | "gatc"> }) {
   const { data, isLoading, isError, error, refetch } = useApplications({ mine: true, pollInterval: 5000 });
+  const { user } = useAuth();
+  const draftIds = new Set(useDrafts(user?.id).map((d) => d.application_id));
   return (
     <div>
       <PageHeader title="My assignments" description="Applications currently assigned to you." />
@@ -33,6 +37,7 @@ export function OfficerAssignments({ role }: { role: Extract<Role, "lmo" | "gatc
         error={error}
         onRetry={refetch}
         basePath={`/app/${role}/assignments`}
+        draftIds={draftIds}
         emptyDescription="Claim an application from the queue to see it here."
       />
     </div>
