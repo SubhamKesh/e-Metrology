@@ -7,3 +7,7 @@ dist/
 # Editor/OS cruft
 .DS_Store
 .vscode/
+
+# Never commit compiled output next to the TypeScript sources (tsc runs with noEmit)
+src/**/*.js
+*.tsbuildinfo

@@ -11,7 +11,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 2 | In-app QR scanner on officer inspection page (+ GPS stamp) | ✅ (code complete; needs device test) |
 | 3 | Offline-capable inspection with background sync | ✅ (code complete; needs device test and a backend `pytest` run) |
 | 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ✅ (code complete; backend `pytest` and frontend build pass) |
-| 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ⬜ |
+| 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ✅ (backend `pytest` 322 passed; frontend lint and build pass; not tried in a browser) |
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ⬜ |
 | 7 | Search + CSV/PDF report export | ⬜ |
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ⬜ |
@@ -154,3 +154,23 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
   - Not done yet (belongs to #5/#8): a target time for officers to inspect, and treating "applied, pending" as a mitigating status in the enforcement module. The verify-page block is the data hook for it.
 - A renewal issues a new certificate; the old one stays valid until its own expiry date, and the expiry reminders already stop for it once a newer certificate exists.
 - Checked: backend `pytest tests` 278 passed; frontend `tsc -b`, `eslint` and `npm run build` pass. Not tried in a browser.
+
+### 2026-10-17 — #5 Real scheduling (verified in code) + lint fix
+**Checked in the codebase — what #5 consists of**
+- `backend/app/services/scheduling.py` — one place for the rules: two slots a day (Morning 10:00-13:00, Afternoon 14:00-17:00 IST), Sundays off, no past dates, at most `SCHEDULE_MAX_AHEAD_DAYS` (60) ahead, `SLOT_CAPACITY_PER_OFFICER` (4) per officer per slot. Settings `SLOT_CAPACITY_PER_OFFICER`, `SCHEDULE_MIN_LEAD_DAYS`, `SCHEDULE_MAX_AHEAD_DAYS` are in `settings.py` and `render.yaml`.
+- `backend/app/routers/applications.py` — `POST /applications/{id}/claim` now books a date and slot; `POST /applications/{id}/schedule` reschedules (assigned officer or admin, only while `scheduled`); `POST /applications/{id}/assign` lets an admin allocate a `submitted` application to a named officer or move a `scheduled` one to another officer (active account, inside jurisdiction); `GET /applications/slots` returns places left per date and slot (officers see only their own diary). A second capacity check after the write undoes the booking if two requests race for the last place. Every change is appended to `schedule_history`.
+- Emails: `application_scheduled` and `inspection_rescheduled` (new and old slot, reason) in `email_templates.py` / `owner_notifications.py`.
+- Frontend: `SchedulePicker` (officer and admin application pages), `ScheduleCard` (shown to everyone), `AddToCalendar` with `lib/calendar.ts` (Google Calendar link and `.ics` download, no account linking), `lib/schedule.ts` (mirrors the backend slots).
+- Docs: `README.md` and `docs/api-contract.md` already describe the endpoints, rules and `schedule_history`.
+- Tests: `backend/tests/test_scheduling.py` covers claim, bad date/slot, capacity per officer, jurisdiction, race for the last place, reschedule and history, admin assign/reassign, availability and the emails.
+
+**Fixed — `npm run lint` failed with 8 `no-undef` errors in `frontend/src/lib/calendar.js`**
+- Cause: compiled output (`calendar.js`, `schedule.js`, `types.js`) had been emitted next to `calendar.ts`, `schedule.ts` and `types.ts`. ESLint only gives browser globals to `.ts/.tsx` files, so it flagged `URLSearchParams`, `TextEncoder`, `Blob`, `URL`, `document` and `setTimeout` in the stray `.js` copy. Those copies were also a risk beyond lint: Vite tries `.js` before `.ts`, so a stale copy could shadow the real source.
+- Removed the three stray `.js` files.
+- `frontend/eslint.config.js` — ignores `src/**/*.js` (src is TypeScript only).
+- `frontend/.gitignore` — ignores `src/**/*.js` and `*.tsbuildinfo` so a stray `tsc` emit can't be committed again.
+
+**Notes**
+- Run here: `npm ci && npm run lint` (clean) and `npm run build:spa` (passes, and no `.js` reappears in `src/`); backend `pytest tests` 322 passed (was 278 at #4).
+- Not tried in a browser or on a device. Suggested check: claim an application with a date and slot, reschedule it, assign one from the admin page, and use both Add to calendar options.
+- If this reappears: someone ran `tsc` without `--noEmit` (for example `npx tsc` from `frontend/`). Use `npm run build`, which already uses `tsc -b` with `noEmit`.

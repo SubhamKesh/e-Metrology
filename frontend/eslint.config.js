@@ -50,5 +50,7 @@ export default [
       globals: { ...globals.serviceworker },
     },
   },
-  { ignores: ["dist"] },
+  // src/ is TypeScript only. A stray `tsc` emit (calendar.js, schedule.js, types.js) once landed here
+  // and broke lint with browser-global errors; it would also shadow the .ts files in Vite.
+  { ignores: ["dist", "src/**/*.js"] },
 ];
