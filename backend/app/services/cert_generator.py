@@ -142,10 +142,13 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, val
     logo_size = 23 * mm
     try:
         c.drawImage(ImageReader(str(LOGO_PATH)), cx - logo_size / 2, y - 2 * mm - logo_size,
-                    width=logo_size, height=logo_size, mask="auto")
+                    width=logo_size, height=logo_size, mask="auto",
+                    preserveAspectRatio=True, anchor="c")
     except Exception:
         # Missing/unreadable logo file must never block certificate issuance.
-        logger.warning("Could not draw logo on certificate PDF; using plain seal.", exc_info=True)
+        logger.warning(
+            "Could not draw logo on certificate PDF (looked for %s); using plain seal.", LOGO_PATH, exc_info=True
+        )
         _draw_emblem(c, cx, y - 12 * mm, 8.5 * mm)
 
     y -= 32 * mm
