@@ -43,3 +43,5 @@ class ApplicationOut(BaseModel):
     application_type: str = "initial"
     previous_certificate_id: Optional[str] = None
     previous_cert_no: Optional[str] = None
+    # Expiry of the instrument's current certificate at the time of a renewal application.
+    previous_valid_until: Optional[datetime] = None

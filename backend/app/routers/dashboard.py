@@ -39,10 +39,19 @@ def owner_dashboard(current_user: dict = Depends(role_required("owner", allow_ad
     owner_app_ids = [a["_id"] for a in read_replica(applications_col).find(owner_filter, {"_id": 1})]
     next_expiry = None
     if owner_app_ids:
-        cert = read_replica(certificates_col).find(
+        candidates = read_replica(certificates_col).find(
             {"application_id": {"$in": owner_app_ids}, "valid_until": {"$gte": datetime.now(timezone.utc)}}
-        ).sort("valid_until", 1).limit(1)
-        cert = next(cert, None)
+        ).sort("valid_until", 1)
+        # Skip a certificate the owner has already renewed (a later one exists for the instrument).
+        cert = next(
+            (
+                c for c in candidates
+                if not read_replica(certificates_col).find_one(
+                    {"instrument_id": c["instrument_id"], "valid_until": {"$gt": c["valid_until"]}}
+                )
+            ),
+            None,
+        )
         if cert:
             instrument = read_replica(instruments_col).find_one({"_id": cert["instrument_id"]})
             valid_until = cert["valid_until"]

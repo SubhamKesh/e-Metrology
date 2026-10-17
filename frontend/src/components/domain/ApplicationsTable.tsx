@@ -59,6 +59,7 @@ export function ApplicationsTable({
         <span className="flex flex-wrap items-center gap-2">
           <ApplicationStatusBadge status={a.status} />
           {a.application_type === "renewal" && <Badge tone="info">Renewal</Badge>}
+          {a.application_type === "renewal" && a.previous_valid_until && <ExpiryBadge validUntil={a.previous_valid_until} />}
           {draftIds?.has(a.id) && <Badge tone="warning">Draft</Badge>}
         </span>
       ),
@@ -78,4 +79,11 @@ export function ApplicationsTable({
       />
     </div>
   );
+}
+
+// How close the certificate being renewed is to running out (or how long ago it did).
+function ExpiryBadge({ validUntil }: { validUntil: string }) {
+  const days = Math.ceil((new Date(validUntil).getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return <Badge tone="danger">Expired {-days}d ago</Badge>;
+  return <Badge tone="warning">Expires in {days}d</Badge>;
 }

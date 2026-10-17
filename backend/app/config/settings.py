@@ -230,6 +230,14 @@ FRONTEND_BASE_URL = (
 
 FRONTEND_VERIFY_URL = _FRONTEND_VERIFY_URL_ENV or f"{FRONTEND_BASE_URL}/verify"
 
+# Re-verification opens this many days before the current certificate expires
+# (and stays open after it). A renewal issued inside the window starts on the old
+# expiry date, so the owner loses no days. 0 = only after expiry.
+try:
+    REVERIFY_WINDOW_DAYS = max(0, int(os.getenv("REVERIFY_WINDOW_DAYS", "30")))
+except ValueError:
+    REVERIFY_WINDOW_DAYS = 30
+
 # Status-update emails to owners (app/services/owner_notifications.py).
 # Master switch; they also require SMTP_* to be configured.
 OWNER_EMAIL_NOTIFICATIONS_ENABLED = os.getenv("OWNER_EMAIL_NOTIFICATIONS_ENABLED", "true").lower() == "true"

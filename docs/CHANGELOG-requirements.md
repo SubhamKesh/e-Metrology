@@ -141,10 +141,16 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - The link is copied onto the new certificate (`application_type`, `previous_certificate_id`, `previous_cert_no`), returned by the certificate API (together with `instrument_id`), and printed on the PDF as a "Re-verification of" row.
 - Indexes: `applications(instrument_id, status)`, `certificates(instrument_id, valid_until)`.
 - Frontend: **Renew certificate** button on the owner's certificate page (newest certificate of an instrument only; disabled as "Renewal in progress" while an application is open), opening the existing application form with the instrument preselected and a one-line "Re-verification of CERT-…" note. A "Re-verification" badge and "Renews certificate …" line on the application page (owner and officer views), a "Renewal" badge in application lists, and a "Re-verification of" field on the certificate page. No layout changes.
-- `backend/tests/test_reverification.py` — 17 tests.
+- `backend/tests/test_reverification.py` — tests for type/linking, one open application, the window, queue order, chained validity and the verify-page block.
 
 **Notes**
 - Existing records are treated as `initial`; no migration needed.
-- **Renewal only after expiry** (decided after the first pass): `POST /applications` returns 409 while the instrument's newest certificate is still valid ("valid until …, you can apply once it has expired"). The Renew button on a valid certificate is disabled and reads "Renewable after <date>". Reminder emails, the FAQ and the lifecycle banner were reworded so they no longer tell owners to apply before expiry.
+- **Renewal window + chained validity + "in progress" status** (decided after the first pass, replaces an interim "only after expiry" rule):
+  - Re-verification opens `REVERIFY_WINDOW_DAYS` (default 30, `0` = only after expiry) before the newest certificate expires and stays open afterwards. Earlier → 409 "valid until …, you can apply from <date>". The Renew button is disabled before that and reads "Renewable from <date>"; the date comes from the certificate API (`renewal_opens_on`).
+  - **Chained validity:** a certificate issued while the old one is still in force starts on the old expiry date (`valid_from`) and runs one year from there, so no days are lost; issued after expiry it starts on the issue date. The PDF and certificate pages show "Valid from" only when it starts later than the issue date.
+  - **Public verify page:** an expired certificate whose instrument has an application in progress shows "Re-verification in progress — the owner applied on … (status: …)". This block is computed live and is not cached; the response never exposes the internal instrument id.
+  - **Officer queue:** renewals come first, most urgent expiry at the top (already-expired ahead of soon-to-expire), then first-time applications newest first. Lists show "Expires in Nd" / "Expired Nd ago" badges (`previous_valid_until` is stored on the application).
+  - Owner dashboard "Upcoming renewal" skips a certificate that has already been renewed.
+  - Not done yet (belongs to #5/#8): a target time for officers to inspect, and treating "applied, pending" as a mitigating status in the enforcement module. The verify-page block is the data hook for it.
 - A renewal issues a new certificate; the old one stays valid until its own expiry date, and the expiry reminders already stop for it once a newer certificate exists.
 - Checked: backend `pytest tests` 278 passed; frontend `tsc -b`, `eslint` and `npm run build` pass. Not tried in a browser.

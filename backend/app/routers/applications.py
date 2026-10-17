@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -7,12 +7,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo import ReturnDocument
 
 from app.config.db import applications_col, certificates_col, instruments_col
+from app.config.settings import REVERIFY_WINDOW_DAYS
 from app.services.notifications import broadcast_threadsafe
 from app.services.owner_notifications import notify_application_submitted, notify_application_scheduled
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
 from app.middleware.auth import get_current_user, role_required, jurisdiction_filter
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
+
+
+def _as_utc(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
 def _normalize_id(value) -> str | None:
@@ -50,6 +55,7 @@ def to_application_out(doc: dict) -> ApplicationOut:
         application_type=doc.get("application_type") or "initial",
         previous_certificate_id=doc.get("previous_certificate_id"),
         previous_cert_no=doc.get("previous_cert_no"),
+        previous_valid_until=_as_utc(doc["previous_valid_until"]) if doc.get("previous_valid_until") else None,
     )
 
 
@@ -106,18 +112,18 @@ def submit_application(
             detail="This instrument already has an application in progress. Wait for it to finish before applying again.",
         )
 
-    # Re-verification opens only once the instrument's current certificate has expired.
+    # Re-verification opens REVERIFY_WINDOW_DAYS before the current certificate expires
+    # and stays open afterwards. Earlier than that there is nothing to renew yet.
     newest = certificates_col.find_one({"instrument_id": instrument_oid}, sort=[("valid_until", -1)])
-    if newest:
-        valid_until = newest["valid_until"]
-        if valid_until.tzinfo is None:
-            valid_until = valid_until.replace(tzinfo=timezone.utc)
-        if valid_until > datetime.now(timezone.utc):
+    newest_valid_until = _as_utc(newest["valid_until"]) if newest else None
+    if newest_valid_until:
+        opens_on = newest_valid_until - timedelta(days=REVERIFY_WINDOW_DAYS)
+        if datetime.now(timezone.utc) < opens_on:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"This instrument's certificate is valid until {valid_until.strftime('%d %b %Y')}. "
-                    "You can apply for re-verification once it has expired."
+                    f"This instrument's certificate is valid until {newest_valid_until.strftime('%d %b %Y')}. "
+                    f"You can apply for re-verification from {opens_on.strftime('%d %b %Y')}."
                 ),
             )
 
@@ -129,6 +135,8 @@ def submit_application(
         "application_type": "renewal" if previous else "initial",
         "previous_certificate_id": previous["_id"] if previous else None,
         "previous_cert_no": previous.get("cert_no") if previous else None,
+        # When the instrument's current certificate runs out; the officer queue uses it for priority.
+        "previous_valid_until": newest_valid_until,
         "status": "submitted",
         "assigned_officer_id": None,
         "submitted_at": datetime.now(timezone.utc),
@@ -202,7 +210,15 @@ def list_applications(
     if status:
         query["status"] = status
 
-    docs = applications_col.find(query).sort("submitted_at", -1)
+    docs = list(applications_col.find(query).sort("submitted_at", -1))
+    if current_user["role"] in ("lmo", "gatc") and not mine:
+        # Claimable queue: re-verifications first, the one whose certificate runs out
+        # soonest (or ran out longest ago) at the top; first-time applications after.
+        def _key(d):
+            expiry = d.get("previous_valid_until")
+            return (0, _as_utc(expiry).timestamp()) if expiry else (1, -_as_utc(d["submitted_at"]).timestamp())
+
+        docs.sort(key=_key)
     return [to_application_out(doc) for doc in docs]
 
 

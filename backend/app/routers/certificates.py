@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse, Response
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 
+from app.config.settings import REVERIFY_WINDOW_DAYS
 from app.config.db import certificates_col, applications_col, instruments_col, users_col, inspections_col, read_replica
 from app.utils.location_format import format_location
 from app.utils.cache import cache_get, cache_set
@@ -52,8 +53,11 @@ def _serialize_cert(cert: dict, instrument: dict | None = None) -> dict:
             else None
         ),
         "verified_on": issued_at.isoformat(),
+        "valid_from": _as_utc(cert.get("valid_from") or cert["issued_at"]).isoformat(),
         "valid_until": valid_until.isoformat(),
         "is_expired": is_expired,
+        # From this moment the owner may apply for re-verification.
+        "renewal_opens_on": (valid_until - timedelta(days=REVERIFY_WINDOW_DAYS)).isoformat(),
         "qr_url": cert.get("qr_url"),
         "pdf_url": cert.get("pdf_url"),
         # True when the PDF is held by the API itself (Cloudinary upload failed);
@@ -97,6 +101,31 @@ def _can_view_cert(user: dict, cert: dict) -> bool:
 # otherwise FastAPI matches "verify" as a cert_id value.
 @router.get("/verify/{cert_id}")
 def verify_certificate(cert_id: str):
+    """Public verification result. Adds a live `reverification` block for an expired
+    certificate whose instrument has an application in progress, so a shopkeeper who
+    has applied sees "re-verification in progress" instead of a bare "expired".
+    That block is never cached; the rest is (see _verify_payload)."""
+    result = dict(_verify_payload(cert_id))
+    instrument_id = result.pop("_instrument_id", None)
+    cert = result.get("certificate")
+    if result.get("valid") and cert and cert.get("is_expired") and instrument_id:
+        try:
+            open_app = read_replica(applications_col).find_one(
+                {"instrument_id": ObjectId(instrument_id), "status": {"$in": ["submitted", "scheduled", "inspected"]}},
+                sort=[("submitted_at", -1)],
+            )
+        except InvalidId:
+            open_app = None
+        if open_app:
+            result["reverification"] = {
+                "in_progress": True,
+                "status": open_app["status"],
+                "applied_on": _as_utc(open_app["submitted_at"]).isoformat(),
+            }
+    return result
+
+
+def _verify_payload(cert_id: str):
     """
     Public, unauthenticated. Powers verify-page/src/pages/[certId].jsx.
 
@@ -144,10 +173,13 @@ def verify_certificate(cert_id: str):
 
     result = {
         "valid": True,
+        # Internal: lets verify_certificate() look up an in-progress re-verification. Never sent to the client.
+        "_instrument_id": str(cert["instrument_id"]) if cert.get("instrument_id") else None,
         "certificate": {
             "id": cert["_id"],
             "cert_no": cert.get("cert_no"),
             "verified_on": issued_at.isoformat(),
+            "valid_from": _as_utc(cert.get("valid_from") or cert["issued_at"]).isoformat(),
             "valid_until": valid_until.isoformat(),
             "is_expired": is_expired,
         },

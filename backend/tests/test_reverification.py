@@ -81,12 +81,56 @@ def test_unknown_certificate_id_is_rejected_even_without_any_certificate(world):
     assert exc.value.status_code == 422
 
 
-def test_cannot_renew_while_certificate_is_still_valid(world):
-    _cert(world["db"], world["inst"], "live", "CERT-LIVE", 5)
+def test_cannot_renew_before_the_window_opens(world):
+    _cert(world["db"], world["inst"], "live", "CERT-LIVE", 100)
     with pytest.raises(HTTPException) as exc:
         apps.submit_application(ApplicationCreate(instrument_id=str(world["inst"])), current_user=world["owner"])
-    assert exc.value.status_code == 409 and "once it has expired" in exc.value.detail
+    assert exc.value.status_code == 409 and "from " in exc.value.detail
     assert world["db"]["applications"].count_documents({}) == 0
+
+
+def test_can_renew_inside_the_window_and_expiry_is_recorded(world):
+    _cert(world["db"], world["inst"], "soon", "CERT-SOON", 5)
+    out = apps.submit_application(ApplicationCreate(instrument_id=str(world["inst"])), current_user=world["owner"])
+    assert out.application_type == "renewal" and out.previous_cert_no == "CERT-SOON"
+    assert out.previous_valid_until is not None and out.previous_valid_until > datetime.now(timezone.utc)
+
+
+def test_window_edges(world, monkeypatch):
+    monkeypatch.setattr(apps, "REVERIFY_WINDOW_DAYS", 30)
+    _cert(world["db"], world["inst"], "edge", "CERT-EDGE", 31)
+    with pytest.raises(HTTPException):
+        apps.submit_application(ApplicationCreate(instrument_id=str(world["inst"])), current_user=world["owner"])
+    world["db"]["certificates"].delete_many({})
+    _cert(world["db"], world["inst"], "edge2", "CERT-EDGE2", 29)
+    apps.submit_application(ApplicationCreate(instrument_id=str(world["inst"])), current_user=world["owner"])
+
+
+def test_window_of_zero_means_only_after_expiry(world, monkeypatch):
+    monkeypatch.setattr(apps, "REVERIFY_WINDOW_DAYS", 0)
+    _cert(world["db"], world["inst"], "soon", "CERT-SOON", 1)
+    with pytest.raises(HTTPException):
+        apps.submit_application(ApplicationCreate(instrument_id=str(world["inst"])), current_user=world["owner"])
+
+
+def test_officer_queue_puts_the_most_urgent_renewal_first(world):
+    db, now = world["db"], datetime.now(timezone.utc)
+    loc = {"state_code": "WB", "district_code": "319"}
+    def app(name, sub_days_ago, expiry_in_days=None):
+        db["applications"].insert_one({
+            "_id": name, "instrument_id": ObjectId(), "owner_id": ObjectId(), "status": "submitted",
+            "assigned_officer_id": None, "submitted_at": now - timedelta(days=sub_days_ago), "history": [],
+            **loc, **({"application_type": "renewal", "previous_valid_until": now + timedelta(days=expiry_in_days)}
+                      if expiry_in_days is not None else {}),
+        })
+    app("first-timer-new", 1)
+    app("first-timer-old", 9)
+    app("renews-in-20", 2, 20)
+    app("expired-5-days-ago", 3, -5)
+    app("renews-in-3", 4, 3)
+    officer = {"_id": ObjectId(), "role": "lmo", "jurisdiction": {"state_code": "WB", "district_code": "319"}}
+    ids = [a.id for a in apps.list_applications(status=None, mine=False, current_user=officer)]
+    assert ids == ["expired-5-days-ago", "renews-in-3", "renews-in-20", "first-timer-new", "first-timer-old"]
 
 
 def test_valid_newest_certificate_blocks_even_if_an_expired_one_is_named(world):
@@ -142,3 +186,84 @@ def test_serialized_certificate_exposes_renewal_trail(world):
     assert (out["application_type"], out["previous_certificate_id"], out["previous_cert_no"]) == ("renewal", "c1", "CERT-1")
     legacy = certs._serialize_cert({**cert, "application_type": None, "previous_certificate_id": None, "previous_cert_no": None})
     assert legacy["application_type"] == "initial"
+
+
+# ---- chained validity ----------------------------------------------------
+
+from app.services.cert_generator import compute_validity
+
+
+def test_first_certificate_starts_now():
+    now = datetime(2026, 10, 17, tzinfo=timezone.utc)
+    start, end = compute_validity(now, None)
+    assert start == now and end == now + timedelta(days=365)
+
+
+def test_renewal_inside_window_continues_from_old_expiry():
+    now = datetime(2026, 10, 17, tzinfo=timezone.utc)
+    old_end = now + timedelta(days=12)
+    start, end = compute_validity(now, old_end.replace(tzinfo=None))  # Mongo hands back naive datetimes
+    assert start == old_end and end == old_end + timedelta(days=365)
+
+
+def test_renewal_after_expiry_starts_now():
+    now = datetime(2026, 10, 17, tzinfo=timezone.utc)
+    start, end = compute_validity(now, now - timedelta(days=3))
+    assert start == now and end == now + timedelta(days=365)
+
+
+# ---- public verify page: re-verification in progress ---------------------
+
+@pytest.fixture
+def verify_world(monkeypatch):
+    db = mongomock.MongoClient()["verify"]
+    monkeypatch.setattr(certs, "certificates_col", db["certificates"])
+    monkeypatch.setattr(certs, "applications_col", db["applications"])
+    monkeypatch.setattr(certs, "instruments_col", db["instruments"])
+    monkeypatch.setattr(certs, "users_col", db["users"])
+    monkeypatch.setattr(certs, "format_location", lambda loc: "Main Rd")
+    inst = db["instruments"].insert_one({"type": "Scale", "uiid": "LM-9", "manufacturer": "A", "model": "B", "location": {}}).inserted_id
+    return db, inst
+
+
+def _issue(db, inst, cert_id, days_left):
+    app_id = db["applications"].insert_one({"instrument_id": inst, "owner_id": ObjectId(), "status": "certified",
+                                            "submitted_at": datetime.now(timezone.utc)}).inserted_id
+    now = datetime.now(timezone.utc)
+    db["certificates"].insert_one({"_id": cert_id, "cert_no": "CERT-" + cert_id.upper(), "application_id": app_id,
+                                   "instrument_id": inst, "issued_at": now - timedelta(days=300),
+                                   "valid_until": now + timedelta(days=days_left)})
+
+
+def test_expired_certificate_with_open_application_shows_reverification(verify_world):
+    db, inst = verify_world
+    _issue(db, inst, "gone", -2)
+    db["applications"].insert_one({"instrument_id": inst, "status": "scheduled", "submitted_at": datetime.now(timezone.utc)})
+    out = certs.verify_certificate("gone")
+    assert out["valid"] and out["certificate"]["is_expired"]
+    assert out["reverification"]["in_progress"] is True and out["reverification"]["status"] == "scheduled"
+    assert "_instrument_id" not in out
+
+
+def test_expired_certificate_without_open_application_has_no_block(verify_world):
+    db, inst = verify_world
+    _issue(db, inst, "gone", -2)
+    assert "reverification" not in certs.verify_certificate("gone")
+
+
+def test_valid_certificate_never_shows_reverification(verify_world):
+    db, inst = verify_world
+    _issue(db, inst, "live", 100)
+    db["applications"].insert_one({"instrument_id": inst, "status": "submitted", "submitted_at": datetime.now(timezone.utc)})
+    out = certs.verify_certificate("live")
+    assert "reverification" not in out and "_instrument_id" not in out
+
+
+def test_serialized_certificate_has_valid_from_and_window(world):
+    now = datetime.now(timezone.utc)
+    cert = {"_id": "c", "cert_no": "C", "application_id": ObjectId(), "instrument_id": world["inst"],
+            "issued_at": now, "valid_from": now + timedelta(days=10), "valid_until": now + timedelta(days=375)}
+    out = certs._serialize_cert(cert)
+    assert out["valid_from"] > out["verified_on"]
+    assert datetime.fromisoformat(out["valid_until"]) - datetime.fromisoformat(out["renewal_opens_on"]) == timedelta(days=certs.REVERIFY_WINDOW_DAYS)
+    assert certs._serialize_cert({k: v for k, v in cert.items() if k != "valid_from"})["valid_from"] == out["verified_on"]

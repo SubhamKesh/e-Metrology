@@ -42,6 +42,22 @@ PAPER = (0.992, 0.988, 0.972)     # warm off-white, like security paper
 LABEL_BG = (0.93, 0.96, 0.94)     # pale green tint for table label column
 
 
+def compute_validity(issued_at: datetime, prior_valid_until: datetime | None) -> tuple[datetime, datetime]:
+    """(valid_from, valid_until) for a certificate issued at `issued_at`.
+
+    A renewal issued while the previous certificate is still in force starts on that
+    certificate's expiry date, so the owner loses no days; otherwise it starts now.
+    Always one year long.
+    """
+    valid_from = issued_at
+    if prior_valid_until is not None:
+        if prior_valid_until.tzinfo is None:
+            prior_valid_until = prior_valid_until.replace(tzinfo=timezone.utc)
+        if prior_valid_until > issued_at:
+            valid_from = prior_valid_until
+    return valid_from, valid_from + timedelta(days=365)
+
+
 def _generate_cert_number() -> str:
     return f"CERT-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
@@ -104,7 +120,7 @@ def _double_rule(c, x1, x2, y):
     c.restoreState()
 
 
-def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_png, verify_url) -> bytes:
+def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_png, verify_url, valid_from=None) -> bytes:
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"Certificate of Verification - {cert_no}")
@@ -211,6 +227,8 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, val
         ("Date of Issue", _fmt_date(issued_at)),
         ("Valid Until", _fmt_date(valid_until)),
     ]
+    if valid_from is not None and valid_from.date() > issued_at.date():
+        rows.insert(rows.index(("Valid Until", _fmt_date(valid_until))), ("Valid From", _fmt_date(valid_from)))
     if application.get("previous_cert_no"):
         rows.insert(1, ("Re-verification of", application["previous_cert_no"]))
     data = [[Paragraph(escape(l).upper(), label_st), cell(v)] for l, v in rows]
@@ -352,12 +370,15 @@ def issue_certificate(inspection_id) -> dict:
         cert_id = str(uuid.uuid4())
         cert_no = _generate_cert_number()
         issued_at = datetime.now(timezone.utc)
-        valid_until = issued_at + timedelta(days=365)
+        # A renewal issued while the old certificate is still in force starts on its
+        # expiry date, so the owner loses no days; otherwise it starts now.
+        prior = certificates_col.find_one({"instrument_id": instrument["_id"]}, sort=[("valid_until", -1)])
+        valid_from, valid_until = compute_validity(issued_at, prior["valid_until"] if prior else None)
 
         verify_url = f"{FRONTEND_VERIFY_URL.rstrip('/')}/{cert_id}"
         qr_png = _make_qr_png(verify_url)
         pdf_bytes = _generate_pdf_bytes(
-            cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_png, verify_url
+            cert_no, instrument, inspection, application, owner, valid_until, issued_at, qr_png, verify_url, valid_from
         )
 
         # Best-effort QR upload, kept only because older records/clients expose qr_url.
@@ -393,6 +414,7 @@ def issue_certificate(inspection_id) -> dict:
             "qr_url": qr_url,
             "pdf_url": pdf_url,
             "issued_at": issued_at,
+            "valid_from": valid_from,
             "valid_until": valid_until,
         }
         if pdf_url is None:

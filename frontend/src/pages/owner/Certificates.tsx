@@ -77,7 +77,7 @@ export function OwnerCertificateDetail() {
   if (isError || !data) {
     return <ErrorState message={error instanceof ApiError ? error.message : "Certificate not found."} onRetry={refetch} />;
   }
-  // Renew only the newest certificate of an instrument, only after it has expired, and not while an application is already running.
+  // Renew only the newest certificate of an instrument, only once the renewal window has opened, and not while an application is already running.
   const isLatest =
     !data.instrument_id ||
     !(allCertificates ?? []).some(
@@ -88,9 +88,9 @@ export function OwnerCertificateDetail() {
   );
   const renew =
     data.instrument_id && isLatest ? (
-      !data.is_expired ? (
-        <Button size="sm" disabled title="Re-verification opens once this certificate has expired">
-          Renewable after {new Date(data.valid_until).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+      data.renewal_opens_on && new Date(data.renewal_opens_on) > new Date() ? (
+        <Button size="sm" disabled title="Re-verification opens shortly before the certificate expires">
+          Renewable from {new Date(data.renewal_opens_on).toLocaleDateString("en-IN", { dateStyle: "medium" })}
         </Button>
       ) : inProgress ? (
         <Button size="sm" disabled>

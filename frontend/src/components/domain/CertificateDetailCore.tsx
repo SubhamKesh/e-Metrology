@@ -86,6 +86,13 @@ export function CertificateDetailCore({ certificate, extraActions }: { certifica
               label="Verified on"
               value={new Date(certificate.verified_on).toLocaleDateString("en-IN", { dateStyle: "long" })}
             />
+            {certificate.valid_from &&
+              new Date(certificate.valid_from).getTime() - new Date(certificate.verified_on).getTime() > 24 * 3600 * 1000 && (
+                <Field
+                  label="Valid from"
+                  value={new Date(certificate.valid_from).toLocaleDateString("en-IN", { dateStyle: "long" })}
+                />
+              )}
             <Field
               label="Valid until"
               value={new Date(certificate.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" })}

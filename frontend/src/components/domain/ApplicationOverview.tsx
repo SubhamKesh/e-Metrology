@@ -25,6 +25,8 @@ export function ApplicationOverview({ application, actions }: { application: App
           {application.application_type === "renewal" && application.previous_cert_no && (
             <p className="mt-1 text-xs text-slate-500">
               Renews certificate <span className="font-mono">{application.previous_cert_no}</span>
+              {application.previous_valid_until &&
+                ` · ${new Date(application.previous_valid_until) > new Date() ? "expires" : "expired"} ${new Date(application.previous_valid_until).toLocaleDateString("en-IN", { dateStyle: "medium" })}`}
             </p>
           )}
         </div>

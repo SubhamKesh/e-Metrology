@@ -75,7 +75,10 @@ export default function VerifyCertificate() {
     );
   }
 
-  const { certificate, instrument, owner } = data;
+  const { certificate, instrument, owner, reverification } = data;
+  const startsLater =
+    certificate?.valid_from && certificate.verified_on &&
+    new Date(certificate.valid_from).getTime() - new Date(certificate.verified_on).getTime() > 24 * 3600 * 1000;
   const isExpired = certificate?.is_expired;
 
   return (
@@ -95,12 +98,25 @@ export default function VerifyCertificate() {
           label="Verified on"
           value={certificate ? new Date(certificate.verified_on).toLocaleDateString("en-IN", { dateStyle: "long" }) : "—"}
         />
+        {startsLater && (
+          <Row
+            label="Valid from"
+            value={new Date(certificate!.valid_from!).toLocaleDateString("en-IN", { dateStyle: "long" })}
+          />
+        )}
         <Row
           label="Valid until"
           value={certificate ? new Date(certificate.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" }) : "—"}
         />
         <Row label="Certificate ID" value={certificate?.cert_no ?? certificate?.id} className="font-mono text-xs" />
       </div>
+      {isExpired && reverification?.in_progress && (
+        <p className="mt-4 rounded-md bg-info-50 px-4 py-3 text-sm text-info" role="status">
+          Re-verification in progress — the owner applied on{" "}
+          {new Date(reverification.applied_on).toLocaleDateString("en-IN", { dateStyle: "long" })} (status:{" "}
+          {reverification.status}).
+        </p>
+      )}
       <p className="mt-6 text-xs text-slate-500">
         This result is generated live from the MaapSetu verification registry.
       </p>

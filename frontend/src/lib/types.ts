@@ -100,6 +100,7 @@ export interface Application {
   application_type?: "initial" | "renewal";
   previous_certificate_id?: string | null;
   previous_cert_no?: string | null;
+  previous_valid_until?: string | null; // expiry of the certificate being renewed
   history?: ApplicationHistoryEntry[];
   created_at?: string;
   // Present on list endpoints that join instrument data server-side.
@@ -131,6 +132,7 @@ export interface CertificateSummary {
   id: string;
   cert_no?: string | null;
   verified_on: string;
+  valid_from?: string; // later than verified_on when a renewal was issued before the old certificate expired
   valid_until: string;
   is_expired: boolean;
 }
@@ -139,6 +141,8 @@ export interface CertificateVerifyResponse {
   valid: boolean;
   reason?: "not_found";
   certificate?: CertificateSummary;
+  // Only on an expired certificate whose instrument has an application in progress.
+  reverification?: { in_progress: boolean; status: ApplicationStatus; applied_on: string };
   instrument?: Pick<Instrument, "type" | "manufacturer" | "model" | "uiid">;
   owner?: { org_name: string; location: string };
 }
@@ -146,6 +150,7 @@ export interface CertificateVerifyResponse {
 export interface Certificate extends CertificateSummary {
   cert_no?: string | null;
   instrument_id?: string | null;
+  renewal_opens_on?: string; // owners may apply for re-verification from this moment
   application_type?: "initial" | "renewal";
   previous_certificate_id?: string | null;
   previous_cert_no?: string | null;
