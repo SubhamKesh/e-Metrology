@@ -16,6 +16,7 @@ from app.services.mailer import (
 )
 from app.services.jobs import (
     get_queue,
+    enqueue_email,
     _worker_available,
     send_officer_credentials_job,
     send_admin_password_reset_job,
@@ -150,8 +151,8 @@ def create_officer(payload: OfficerCreate, request: Request, current_user: dict 
             queue = None
         if queue is not None:
             try:
-                queue.enqueue(
-                    send_officer_credentials_job,
+                enqueue_email(
+                    queue, send_officer_credentials_job,
                     to=doc["email"], name=doc["name"], role=doc["role"], temp_password=temp_password,
                 )
                 emailed = True
@@ -407,8 +408,8 @@ def admin_reset_officer_password(
             queue = None
         if queue is not None:
             try:
-                queue.enqueue(
-                    send_admin_password_reset_job,
+                enqueue_email(
+                    queue, send_admin_password_reset_job,
                     to=user["email"], name=user["name"], temp_password=temp_password,
                 )
                 emailed = True

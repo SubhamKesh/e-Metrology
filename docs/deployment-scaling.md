@@ -16,7 +16,7 @@ All state that must be shared between workers/instances lives in Redis. **Set `R
 | **Rate-limit counters** (`/login`, `/register`, `/otp/*`, forgot/reset password, two-step) | "15 per 15 min" really means 15 × workers × instances | one shared count; falls back to per-process memory if Redis is down, rather than failing requests |
 | WebSocket notifications | only users connected to the same instance | any instance reaches any user (no sticky sessions needed) |
 | Expiry scheduler | every instance runs it | one instance per tick (run-lock) |
-| Certificate / email jobs | inline or in a thread | background worker (`python run_worker.py`) |
+| Certificate / email jobs | inline or in a thread | queue consumed by the embedded worker thread in every web process (default), or a dedicated `python run_worker.py` service (`EMBEDDED_WORKER=false`) |
 
 ---
 
@@ -131,7 +131,7 @@ To make "deploy only if tests pass" true, set Render's **Auto-Deploy** to *Off* 
 ## 7. Checklist before running more than one instance
 
 - [ ] `REDIS_URL` set on the API **and** the worker
-- [ ] A worker process is running (`python run_worker.py`), or you accept the in-process fallback
+- [ ] A queue consumer exists: the embedded worker (default, check `/api/v1/health` → `embedded_worker: true`) or a dedicated `python run_worker.py` service
 - [ ] `MFA_ENCRYPTION_KEY`, `OTP_PEPPER`, `JWT_SECRET` identical on every instance (a per-instance secret breaks sign-in and two-step)
 - [ ] Load balancer overwrites `X-Forwarded-For`, passes WebSockets, health-checks `/api/v1/health`, and doesn't log `/ws/` query strings
 - [ ] `MONGO_READ_PREFERENCE=secondaryPreferred` only if the database is a replica set

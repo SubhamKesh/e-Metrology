@@ -152,18 +152,51 @@ def _generate_certificate_in_thread(inspection_id: str) -> None:
         logger.warning("Could not record certificate failure for inspection %s.", inspection_id, exc_info=True)
 
 
+_WORKER_CHECK_TTL = 5.0  # seconds; one cheap Redis lookup, not one per request
+_worker_check: tuple[float, bool] = (float("-inf"), False)
+
+
 def _worker_available(queue) -> bool:
     """True only if a worker process is actually registered on this queue.
     With REDIS_URL set but no worker (e.g. a single Render web service),
     enqueueing "succeeds" and the job then sits in Redis forever -- which is
-    exactly how certificates silently never got generated."""
+    exactly how certificates silently never got generated. The answer is
+    cached for a few seconds so busy endpoints don't each hit Redis."""
+    global _worker_check
+    now = time.monotonic()
+    checked_at, result = _worker_check
+    if now - checked_at < _WORKER_CHECK_TTL:
+        return result
     try:
         from rq import Worker
 
-        return Worker.count(queue=queue) > 0
+        result = Worker.count(queue=queue) > 0
     except Exception:
         logger.warning("Could not check for RQ workers.", exc_info=True)
-        return False
+        result = False
+    _worker_check = (now, result)
+    return result
+
+
+# Seconds to wait before retry #1, #2, #3 of a failed email job.
+EMAIL_RETRY_INTERVALS = [10, 60, 300]
+
+
+class MailSendError(RuntimeError):
+    """A queued email was not accepted by the mail provider. Raised so RQ
+    retries the job and records it as failed, instead of reporting success."""
+
+
+def enqueue_email(queue, func, **kwargs):
+    """Queue an email job with retries (spread over ~6 minutes) so a short mail
+    outage or a worker restart doesn't lose the message."""
+    from rq import Retry
+
+    return queue.enqueue_call(
+        func=func,
+        kwargs=kwargs,
+        retry=Retry(max=len(EMAIL_RETRY_INTERVALS), interval=EMAIL_RETRY_INTERVALS),
+    )
 
 
 def start_certificate_generation(inspection_id: str) -> None:
@@ -194,13 +227,15 @@ def send_officer_credentials_job(to: str, name: str, role: str, temp_password: s
     and nothing needs to, since the account itself already exists by the
     time this runs; only the email is delayed, not the account creation.
     """
-    send_officer_credentials(to=to, name=name, role=role, temp_password=temp_password)
+    if not send_officer_credentials(to=to, name=name, role=role, temp_password=temp_password):
+        raise MailSendError(f"credentials email to {to} was not sent")
 
 
 def send_admin_password_reset_job(to: str, name: str, temp_password: str) -> None:
     """Worker job for the email sent after an administrator resets an
     officer's password (see routers/admin_users.py)."""
-    send_admin_password_reset(to=to, name=name, temp_password=temp_password)
+    if not send_admin_password_reset(to=to, name=name, temp_password=temp_password):
+        raise MailSendError(f"password-reset email to {to} was not sent")
 
 
 

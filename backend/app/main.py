@@ -136,6 +136,17 @@ async def on_startup():
         # Keep the error short here; details are logged by the exception.
         app.state.db_ok = False
 
+    # Queue consumer for certificates + emails. Runs in this process so the
+    # queue is never left without a worker on a web-only host (Render free).
+    # See services/embedded_worker.py; EMBEDDED_WORKER=false turns it off.
+    try:
+        from app.services.embedded_worker import start_embedded_worker
+
+        app.state.embedded_worker = start_embedded_worker()
+    except Exception:
+        app.state.embedded_worker = False
+        logger.exception("Could not start the embedded RQ worker; falling back to inline sending.")
+
     # Cross-instance WebSocket fan-out (see services/ws_pubsub.py). Only
     # starts when REDIS_URL is set; otherwise notifications.broadcast()
     # already falls back to local-only delivery on its own, so there's
@@ -152,6 +163,12 @@ async def on_startup():
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    try:
+        from app.services.embedded_worker import stop_embedded_worker
+
+        stop_embedded_worker()
+    except Exception:
+        pass
     task = getattr(app.state, "ws_subscriber_task", None)
     if task is not None:
         task.cancel()
@@ -168,7 +185,11 @@ async def pymongo_exception_handler(request: Request, exc: PyMongoError):
 
 @app.get("/api/v1/health")
 def health():
-    return {"status": "ok", "db": bool(getattr(app.state, "db_ok", False))}
+    return {
+        "status": "ok",
+        "db": bool(getattr(app.state, "db_ok", False)),
+        "embedded_worker": bool(getattr(app.state, "embedded_worker", False)),
+    }
 
 
 app.include_router(auth.router)

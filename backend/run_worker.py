@@ -14,13 +14,14 @@ Usage (from backend/, same venv as uvicorn):
 Leave it running in its own terminal. Ctrl+C to stop it.
 """
 from redis import Redis
-from rq import SimpleWorker
+from rq import SimpleWorker, Worker
 from rq.timeouts import BaseDeathPenalty
 
 from app.config.settings import REDIS_URL
 from app.services.jobs import QUEUE_NAME
 
 import logging
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,6 +44,10 @@ class WindowsWorker(SimpleWorker):
     death_penalty_class = NoSignalDeathPenalty
 
 
+# Linux (Render, Docker): the standard forking Worker, which enforces job timeouts.
+WorkerClass = WindowsWorker if os.name == "nt" else Worker
+
+
 if __name__ == "__main__":
     if not REDIS_URL:
         raise SystemExit(
@@ -53,6 +58,6 @@ if __name__ == "__main__":
             "first if you want to actually use the background queue."
         )
     conn = Redis.from_url(REDIS_URL)
-    worker = WindowsWorker([QUEUE_NAME], connection=conn)
+    worker = WorkerClass([QUEUE_NAME], connection=conn)
     print(f"Worker started, listening on queue '{QUEUE_NAME}'. Ctrl+C to stop.")
     worker.work()

@@ -52,6 +52,33 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
+      # Brevo HTTPS API (port 443). Preferred over SMTP on Render; used when set together with SMTP_FROM.
+      - key: BREVO_API_KEY
+        sync: false
+      # Shared Redis: job queue (certificates, emails), rate limits, WebSocket fan-out across instances.
+      - key: REDIS_URL
+        sync: false
+      # Run the queue worker inside this web service (works on the free plan). Set to "false"
+      # if you deploy the dedicated worker service below.
+      - key: EMBEDDED_WORKER
+        value: "true"
+
+  # ---------- Optional: dedicated queue worker (paid plans only) ----------
+  # Render's free plan has no Background Workers. On a paid plan, uncomment this, set
+  # EMBEDDED_WORKER=false above, and certificate PDFs stop competing with API requests for CPU.
+  # - type: worker
+  #   name: maapsetu-worker
+  #   runtime: docker
+  #   rootDir: backend
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   plan: starter
+  #   dockerCommand: python run_worker.py
+  #   envVars:            # same MONGO_URI, DB_NAME, REDIS_URL, CLOUDINARY_*, BREVO_API_KEY, SMTP_*, MFA_ENCRYPTION_KEY, JWT_SECRET as the API
+  #     - key: REDIS_URL
+  #       sync: false
 
   # ---------- Frontend: Vite/React static site ----------
   - type: web

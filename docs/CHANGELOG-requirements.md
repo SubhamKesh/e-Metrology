@@ -103,3 +103,24 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - Test on a phone: open an inspection, switch to airplane mode, take photos, submit (expect "Saved on this device"), switch back and watch the banner clear and the application become certified/rejected.
 - Known limits: sync runs while the app is open (no service-worker background sync — iOS lacks it and the access token lives in page storage); a page *reloaded* offline shows `offline.html`, so the inspection must be opened while online first; signing out leaves the queue on the device until the same officer signs in again.
 - Free-text observations and photos wait in the browser profile until sent. On a shared device, sign out only after the queue is empty.
+
+### 2026-10-17 — Infra: email/certificate queue now always has a worker
+**Problem:** with `REDIS_URL` set and no process running `run_worker.py` (Render's free plan has no Background Workers), queued jobs waited in Redis forever. Officer-credential and password-reset emails reported "sent" but never went out. Failed sends were also reported as successful jobs, so nothing retried.
+
+**Added**
+- `backend/app/services/embedded_worker.py` — an RQ worker thread inside each web process. Every instance/uvicorn worker consumes the same Redis queue, so jobs are spread across instances and each runs once (load balancing). Auto-restarts if Redis drops. `EMBEDDED_WORKER=false` disables it when a dedicated worker is deployed; `EMBEDDED_WORKER_THREADS` (default 1) sets threads per process.
+- `backend/tests/test_email_queue.py` — tests for the points below.
+
+**Changed**
+- `backend/app/services/jobs.py` — email jobs now raise `MailSendError` when the provider rejects a send, so RQ retries and records the failure; new `enqueue_email()` retries at 10 s, 1 min and 5 min; `_worker_available()` result cached for 5 s so request paths don't hit Redis every time.
+- `backend/app/routers/admin_users.py` — officer-created and password-reset emails use `enqueue_email()`.
+- `backend/app/main.py` — starts/stops the embedded worker; `/api/v1/health` also reports `embedded_worker`.
+- `backend/run_worker.py` — uses the standard forking `Worker` (enforced job timeouts) on Linux; the no-fork worker only on Windows.
+- `render.yaml` — added `REDIS_URL`, `BREVO_API_KEY`, `SMTP_USE_TLS`, `EMBEDDED_WORKER`, plus a commented dedicated worker service for paid plans.
+- Caching is untouched (frontend asset caching, service worker rules, Mongo read preferences, Redis-backed rate limits).
+
+**Notes**
+- Needs a backend deploy; Auto-Deploy is off on the Render service, so use Manual Deploy.
+- Not run here (no network for `pip install`): run `pytest backend/tests/test_email_queue.py` locally.
+- Free-plan caveat: Render sleeps idle free services, so queued retries pause while asleep and resume on the next request.
+
