@@ -36,7 +36,7 @@ async function rememberManifest(assets) {
   try {
     const hit = await assets.match(MANIFEST_KEY);
     if (hit) prev = await hit.json();
-  } catch (_) {
+  } catch {
     prev = {};
   }
   // Keep the previous build's files too, so a screen that is still open on the old build can
@@ -60,7 +60,7 @@ async function pruneAssets() {
       const m = await hit.json();
       keep = new Set([...(m.current || []), ...(m.previous || [])]);
     }
-  } catch (_) {
+  } catch {
     return;
   }
   for (const req of await assets.keys()) {
@@ -118,7 +118,7 @@ async function handleNavigate(req) {
       fetch(req),
       new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), NAV_TIMEOUT_MS)),
     ]);
-  } catch (_) {
+  } catch {
     const shell = await caches.open(SHELL_CACHE);
     for (const u of SHELL_PAGES) {
       const hit = await shell.match(u);
