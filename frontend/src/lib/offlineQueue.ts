@@ -19,6 +19,7 @@ export interface QueuedInspection {
   captured_at: string; // ISO time the officer pressed Submit
   status: "pending" | "failed";
   error?: string; // why it was rejected (status "failed")
+  last_error?: string; // why the last send attempt didn't go through (status "pending", will retry)
   attempts: number;
 }
 

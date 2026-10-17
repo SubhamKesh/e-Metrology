@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "@/lib/api";
 import { useUploadPhoto } from "@/hooks/useData";
 import { Button } from "@/components/ui/Button";
+import { compressImage } from "@/lib/imageCompress";
 
 interface Props {
   photos: string[];
@@ -26,7 +27,8 @@ export function PhotoUploader({ photos, onChange, pending = [], onPendingChange 
     const urls: string[] = [];
     const kept: File[] = [];
     let failures = 0;
-    for (const file of Array.from(files)) {
+    for (const original of Array.from(files)) {
+      const file = await compressImage(original);
       try {
         const res = await upload.mutateAsync(file);
         urls.push(res.url);

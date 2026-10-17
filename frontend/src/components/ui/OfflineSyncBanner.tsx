@@ -4,7 +4,7 @@ import { useOfflineSync } from "@/hooks/useOfflineSync";
 /** Officer-only status strip: offline notice, inspections waiting to send, and any the server rejected. */
 export function OfflineSyncBanner() {
   const { user } = useAuth();
-  const { items, online, syncing, syncNow, discard } = useOfflineSync(user?.id);
+  const { items, online, syncing, syncNow, discard, syncError } = useOfflineSync(user?.id);
   const waiting = items.filter((i) => i.status === "pending");
   const failed = items.filter((i) => i.status === "failed");
   if (online && waiting.length === 0 && failed.length === 0) return null;
@@ -32,6 +32,11 @@ export function OfflineSyncBanner() {
               Send now
             </button>
           )}
+        </div>
+      )}
+      {waiting.length > 0 && !syncing && (syncError ?? waiting[0]?.last_error) && (
+        <div className="rounded-lg border border-danger/30 bg-danger-50 px-4 py-3 text-sm text-ink">
+          {syncError ?? waiting[0]?.last_error}
         </div>
       )}
       {failed.map((i) => (

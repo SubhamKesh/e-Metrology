@@ -41,6 +41,7 @@ export function useOfflineSync(userId: string | undefined) {
   const online = useOnlineStatus();
   const items = useQueuedInspections(userId);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const waiting = items.filter((i) => i.status === "pending").length;
 
   const syncNow = useCallback(async () => {
@@ -48,14 +49,16 @@ export function useOfflineSync(userId: string | undefined) {
     setSyncing(true);
     try {
       const r = await syncQueue(userId);
+      setSyncError(r.error ?? null);
       if (r.sent > 0 || r.failed > 0) {
         qc.invalidateQueries({ queryKey: ["applications"] });
         qc.invalidateQueries({ queryKey: ["application"] });
         qc.invalidateQueries({ queryKey: ["dashboard"] });
         qc.invalidateQueries({ queryKey: ["certificates"] });
       }
-    } catch {
-      // IndexedDB trouble: nothing to send from here
+    } catch (e) {
+      // IndexedDB / unexpected trouble: tell the officer instead of failing silently
+      setSyncError(e instanceof Error ? `Couldn't read saved inspections: ${e.message}` : "Couldn't read saved inspections.");
     } finally {
       setSyncing(false);
     }
@@ -78,5 +81,5 @@ export function useOfflineSync(userId: string | undefined) {
 
   const discard = useCallback((clientId: string) => removeQueued(clientId), []);
 
-  return { items, online, syncing, syncNow, discard };
+  return { items, online, syncing, syncNow, discard, syncError };
 }
