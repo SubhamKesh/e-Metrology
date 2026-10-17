@@ -6,11 +6,18 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo import ReturnDocument
 
-from app.config.db import applications_col, certificates_col, instruments_col
+from app.config.db import applications_col, certificates_col, instruments_col, users_col
 from app.config.settings import REVERIFY_WINDOW_DAYS
 from app.services.notifications import broadcast_threadsafe
-from app.services.owner_notifications import notify_application_submitted, notify_application_scheduled
-from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
+from app.services.owner_notifications import (
+    notify_application_submitted,
+    notify_application_scheduled,
+    notify_application_rescheduled,
+)
+from app.services import scheduling
+from app.models.application import (
+    ApplicationCreate, ApplicationOut, AssignIn, HistoryEntry, ScheduleHistoryOut, ScheduleIn,
+)
 from app.middleware.auth import get_current_user, role_required, jurisdiction_filter
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
@@ -30,6 +37,13 @@ def _normalize_id(value) -> str | None:
 
 def _matches_user_id(doc_value, user_value) -> bool:
     return _normalize_id(doc_value) == _normalize_id(user_value)
+
+
+def _oid(value: str, what: str = "id") -> ObjectId:
+    try:
+        return ObjectId(value)
+    except (InvalidId, TypeError):
+        raise HTTPException(status_code=400, detail=f"Invalid {what}")
 
 
 def to_application_out(doc: dict) -> ApplicationOut:
@@ -56,6 +70,18 @@ def to_application_out(doc: dict) -> ApplicationOut:
         previous_certificate_id=doc.get("previous_certificate_id"),
         previous_cert_no=doc.get("previous_cert_no"),
         previous_valid_until=_as_utc(doc["previous_valid_until"]) if doc.get("previous_valid_until") else None,
+        scheduled_date=doc.get("scheduled_date"),
+        slot=doc.get("slot"),
+        slot_label=scheduling.slot_label(doc.get("slot")),
+        schedule_history=[
+            ScheduleHistoryOut(
+                kind=h["kind"], date=h["date"], slot=h["slot"], at=_as_utc(h["at"]),
+                by=str(h["by"]) if h.get("by") else None, reason=h.get("reason"),
+                previous_date=(h.get("previous") or {}).get("date"),
+                previous_slot=(h.get("previous") or {}).get("slot"),
+            )
+            for h in doc.get("schedule_history", [])
+        ],
     )
 
 
@@ -222,6 +248,31 @@ def list_applications(
     return [to_application_out(doc) for doc in docs]
 
 
+@router.get("/slots")
+def slot_availability(
+    officer_id: Optional[str] = Query(default=None, description="Required for admins; officers see their own"),
+    start: Optional[str] = Query(default=None, description="YYYY-MM-DD, defaults to today"),
+    days: int = Query(default=14, ge=1, le=62),
+    current_user: dict = Depends(role_required("lmo", "gatc", "admin")),
+):
+    """Places left per date and slot for one officer, so the UI only offers bookable slots."""
+    if current_user["role"] == "admin":
+        if not officer_id:
+            raise HTTPException(status_code=422, detail="officer_id is required")
+        officer_oid = _oid(officer_id, "officer id")
+    else:
+        # An officer can only look at their own diary.
+        officer_oid = current_user["_id"]
+        if officer_id and officer_id != str(current_user["_id"]):
+            raise HTTPException(status_code=403, detail="You can only view your own slot availability")
+    first = scheduling.parse_date(start) if start else scheduling.today_ist()
+    return {
+        "officer_id": str(officer_oid),
+        "capacity_per_slot": scheduling.settings.SLOT_CAPACITY_PER_OFFICER,
+        "days": scheduling.availability(applications_col, officer_oid, first, days),
+    }
+
+
 @router.get("/{application_id}", response_model=ApplicationOut)
 def get_application(
     application_id: str,
@@ -256,15 +307,25 @@ def get_application(
     return to_application_out(doc)
 
 
+def _release_if_overbooked(oid, officer_id, day: str, slot: str, restore: dict) -> None:
+    """Two requests can pass the capacity check for the last place at once. After the
+    write we count again; if the slot is over capacity this write is undone."""
+    if scheduling.slot_still_within_capacity(applications_col, officer_id, day, slot):
+        return
+    applications_col.update_one({"_id": oid, "scheduled_date": day, "slot": slot}, restore)
+    raise HTTPException(status_code=409, detail="That slot was just filled. Pick another slot or date.")
+
+
 @router.post("/{application_id}/claim", response_model=ApplicationOut)
 def claim_application(
     application_id: str,
+    payload: ScheduleIn,
     current_user: dict = Depends(role_required("lmo", "gatc")),
 ):
-    try:
-        oid = ObjectId(application_id)
-    except InvalidId:
-        raise HTTPException(status_code=400, detail="Invalid application id")
+    """Take an application from the queue and book its inspection date and slot."""
+    oid = _oid(application_id, "application id")
+    officer_id = current_user["_id"]
+    scheduling.check_bookable(applications_col, officer_id, payload.date, payload.slot)
 
     now = datetime.now(timezone.utc)
     # Jurisdiction check baked into the same atomic filter as the claim
@@ -281,16 +342,20 @@ def claim_application(
         claim_filter,
         {
             "$set": {
-                "assigned_officer_id": current_user["_id"],
+                "assigned_officer_id": officer_id,
                 "status": "scheduled",
+                "scheduled_date": payload.date,
+                "slot": payload.slot,
             },
             "$push": {
                 "history": {
                     "from": "submitted",
                     "to": "scheduled",
                     "at": now,
-                    "changed_by": current_user["_id"],
-                }
+                    "changed_by": officer_id,
+                    "reason": f"Inspection booked for {payload.date}, {payload.slot}",
+                },
+                "schedule_history": scheduling.history_entry("scheduled", payload.date, payload.slot, officer_id, None),
             },
         },
         return_document=ReturnDocument.AFTER,
@@ -309,6 +374,131 @@ def claim_application(
             raise HTTPException(status_code=403, detail="Application is outside your jurisdiction")
         raise HTTPException(status_code=409, detail="Application is no longer claimable")
 
-    # Email the owner that an officer has been assigned (best-effort).
+    _release_if_overbooked(
+        oid, officer_id, payload.date, payload.slot,
+        {
+            "$set": {"assigned_officer_id": None, "status": "submitted", "scheduled_date": None, "slot": None},
+            "$pop": {"history": 1, "schedule_history": 1},
+        },
+    )
+    # Email the owner that an officer has been assigned, with the date and slot (best-effort).
     notify_application_scheduled(updated)
+    return to_application_out(updated)
+
+
+@router.post("/{application_id}/schedule", response_model=ApplicationOut)
+def reschedule_application(
+    application_id: str,
+    payload: ScheduleIn,
+    current_user: dict = Depends(role_required("lmo", "gatc", "admin")),
+):
+    """Change the date or slot of an inspection that is already booked.
+
+    The assigned officer or an admin can do it. Only while the application is still
+    `scheduled`; once inspected there is nothing left to move."""
+    oid = _oid(application_id, "application id")
+    doc = applications_col.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if current_user["role"] != "admin" and not _matches_user_id(doc.get("assigned_officer_id"), current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Only the assigned officer or an admin can reschedule this inspection")
+    if doc.get("status") != "scheduled":
+        raise HTTPException(status_code=409, detail=f"Only a scheduled inspection can be rescheduled (status is '{doc.get('status')}')")
+    if doc.get("scheduled_date") == payload.date and doc.get("slot") == payload.slot:
+        raise HTTPException(status_code=409, detail="The inspection is already booked for that date and slot")
+
+    officer_id = doc["assigned_officer_id"]
+    scheduling.check_bookable(applications_col, officer_id, payload.date, payload.slot, exclude_application=oid)
+
+    previous = {"date": doc.get("scheduled_date"), "slot": doc.get("slot")}
+    updated = applications_col.find_one_and_update(
+        {"_id": oid, "status": "scheduled", "assigned_officer_id": officer_id},
+        {
+            "$set": {"scheduled_date": payload.date, "slot": payload.slot},
+            "$push": {"schedule_history": scheduling.history_entry(
+                "rescheduled", payload.date, payload.slot, current_user["_id"], payload.reason, previous)},
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="The application changed while you were rescheduling. Reload and try again.")
+
+    _release_if_overbooked(
+        oid, officer_id, payload.date, payload.slot,
+        {"$set": {"scheduled_date": previous["date"], "slot": previous["slot"]}, "$pop": {"schedule_history": 1}},
+    )
+    notify_application_rescheduled(updated, previous_date=previous["date"], previous_slot=previous["slot"], reason=payload.reason)
+    return to_application_out(updated)
+
+
+@router.post("/{application_id}/assign", response_model=ApplicationOut)
+def assign_application(
+    application_id: str,
+    payload: AssignIn,
+    current_user: dict = Depends(role_required("admin")),
+):
+    """Admin allocates an application to a named officer with a date and slot.
+
+    Works on a `submitted` application (first assignment) and on a `scheduled` one
+    (move it to another officer). The officer must be active and the application must
+    sit inside their jurisdiction."""
+    oid = _oid(application_id, "application id")
+    officer_oid = _oid(payload.officer_id, "officer id")
+
+    doc = applications_col.find_one({"_id": oid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if doc.get("status") not in ("submitted", "scheduled"):
+        raise HTTPException(status_code=409, detail=f"Cannot assign an application in status '{doc.get('status')}'")
+
+    officer = users_col.find_one({"_id": officer_oid, "role": {"$in": ["lmo", "gatc"]}})
+    if not officer:
+        raise HTTPException(status_code=404, detail="Officer not found")
+    if officer.get("status", "active") != "active":
+        raise HTTPException(status_code=409, detail="That officer account is not active")
+    jf = jurisdiction_filter(officer)
+    if not jf or any(doc.get(k) != v for k, v in jf.items()):
+        raise HTTPException(status_code=422, detail="This application is outside that officer's jurisdiction")
+
+    scheduling.check_bookable(applications_col, officer_oid, payload.date, payload.slot, exclude_application=oid)
+
+    first_time = doc["status"] == "submitted"
+    previous = None if first_time else {
+        "date": doc.get("scheduled_date"), "slot": doc.get("slot"), "officer_id": str(doc.get("assigned_officer_id")),
+    }
+    now = datetime.now(timezone.utc)
+    update: dict = {
+        "$set": {"assigned_officer_id": officer_oid, "status": "scheduled",
+                 "scheduled_date": payload.date, "slot": payload.slot},
+        "$push": {"schedule_history": scheduling.history_entry(
+            "assigned" if first_time else "reassigned", payload.date, payload.slot,
+            current_user["_id"], payload.reason, previous)},
+    }
+    if first_time:
+        update["$push"]["history"] = {
+            "from": "submitted", "to": "scheduled", "at": now, "changed_by": current_user["_id"],
+            "reason": f"Assigned by admin; inspection booked for {payload.date}, {payload.slot}",
+        }
+    updated = applications_col.find_one_and_update(
+        {"_id": oid, "status": doc["status"], "assigned_officer_id": doc.get("assigned_officer_id")},
+        update,
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated is None:
+        raise HTTPException(status_code=409, detail="The application changed while you were assigning it. Reload and try again.")
+
+    restore: dict = {"$pop": {"schedule_history": 1}}
+    if first_time:
+        restore["$set"] = {"assigned_officer_id": None, "status": "submitted", "scheduled_date": None, "slot": None}
+        restore["$pop"]["history"] = 1
+    else:
+        restore["$set"] = {"assigned_officer_id": doc.get("assigned_officer_id"),
+                           "scheduled_date": previous["date"], "slot": previous["slot"]}
+    _release_if_overbooked(oid, officer_oid, payload.date, payload.slot, restore)
+
+    if first_time:
+        notify_application_scheduled(updated)
+    else:
+        notify_application_rescheduled(updated, previous_date=previous["date"], previous_slot=previous["slot"],
+                                       reason=payload.reason or "Your inspection was reassigned to another officer")
     return to_application_out(updated)

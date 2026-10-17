@@ -2,12 +2,22 @@ import type { ReactNode } from "react";
 import { Panel } from "@/components/ui/Card";
 import { ApplicationStatusBadge, Badge } from "@/components/ui/StatusBadge";
 import { LifecycleTimeline } from "./LifecycleTimeline";
+import { ScheduleCard } from "./ScheduleCard";
 import { useInstrument } from "@/hooks/useData";
 import { Skeleton } from "@/components/ui/States";
 import { LocationText } from "@/components/ui/LocationText";
 import type { Application } from "@/lib/types";
 
-export function ApplicationOverview({ application, actions }: { application: Application; actions?: ReactNode }) {
+export function ApplicationOverview({
+  application,
+  actions,
+  scheduleActions,
+}: {
+  application: Application;
+  actions?: ReactNode;
+  /** Buttons shown on the inspection-schedule card (e.g. Reschedule). */
+  scheduleActions?: ReactNode;
+}) {
   const { data: instrument, isLoading } = useInstrument(application.instrument_id);
 
   return (
@@ -36,6 +46,8 @@ export function ApplicationOverview({ application, actions }: { application: App
       <Panel className="mb-6 p-4 sm:p-5">
         <LifecycleTimeline current={application.status} />
       </Panel>
+
+      <ScheduleCard application={application} instrument={instrument} actions={scheduleActions} />
 
       <Panel className="mb-6 p-4 sm:p-5">
         <h2 className="mb-3 text-sm font-medium text-ink">Instrument identity</h2>

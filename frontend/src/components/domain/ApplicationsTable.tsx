@@ -3,6 +3,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ApplicationStatusBadge, Badge } from "@/components/ui/StatusBadge";
 import { ErrorState } from "@/components/ui/States";
 import { useInstruments } from "@/hooks/useData";
+import { formatScheduleDate, slotLabel } from "@/lib/schedule";
 import type { Application } from "@/lib/types";
 import { ApiError } from "@/lib/api";
 
@@ -64,6 +65,22 @@ export function ApplicationsTable({
         </span>
       ),
     },
+    ...(!(applications ?? []).some((a) => a.scheduled_date)
+      ? []
+      : [
+    {
+      header: "Inspection",
+      cell: (a: Application) =>
+        a.scheduled_date && a.slot ? (
+          <span className="text-sm">
+            {formatScheduleDate(a.scheduled_date)}
+            <span className="block text-xs text-slate-500">{slotLabel(a.slot, a.slot_label).split(" (")[0]}</span>
+          </span>
+        ) : (
+          <span className="text-slate-400">-</span>
+        ),
+    },
+    ]),
   ];
 
   return (

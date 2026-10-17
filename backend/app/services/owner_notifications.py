@@ -5,7 +5,8 @@ Owners get an email for every step of an instrument's life:
 
   instrument_registered   -> machine registered, UIID issued
   application_submitted   -> verification application received
-  application_scheduled   -> an officer claimed it, inspection scheduled
+  application_scheduled   -> an officer claimed it, inspection booked (date + slot)
+  inspection_rescheduled  -> the date, slot or officer of a booked inspection changed
   inspection_passed       -> inspection passed (certificate being generated)
   inspection_failed       -> inspection failed, application rejected
   certificate_issued      -> certificate ready (PDF + verify link)
@@ -37,6 +38,7 @@ from bson import ObjectId
 from pymongo.errors import DuplicateKeyError
 
 from app.config.db import email_log_col, users_col
+from app.services import scheduling
 from app.config.settings import (
     EXPIRY_REMINDER_DAYS,
     FRONTEND_BASE_URL,
@@ -315,7 +317,43 @@ def notify_application_scheduled(application: dict) -> None:
         f"application_scheduled:{app_id}",
         application["owner_id"],
         instrument,
-        {"application_id": str(app_id), "application_url": _application_url(app_id)},
+        {
+            "application_id": str(app_id),
+            "application_url": _application_url(app_id),
+            "scheduled_date": application.get("scheduled_date"),
+            "slot_label": scheduling.slot_label(application.get("slot")),
+        },
+    )
+
+
+@_never_raises
+def notify_application_rescheduled(
+    application: dict, *, previous_date: Optional[str], previous_slot: Optional[str], reason: Optional[str] = None
+) -> None:
+    """Call after the schedule (or officer) of a booked inspection changed."""
+    if not _enabled():
+        return
+    instrument = _load_instrument(application["instrument_id"])
+    if not instrument:
+        return
+    app_id = application["_id"]
+    previous_text = None
+    if previous_date:
+        previous_text = previous_date + (f", {scheduling.slot_label(previous_slot)}" if previous_slot else "")
+    _send(
+        "inspection_rescheduled",
+        # One mail per change: the history grows by one entry each time.
+        f"inspection_rescheduled:{app_id}:{len(application.get('schedule_history', []))}",
+        application["owner_id"],
+        instrument,
+        {
+            "application_id": str(app_id),
+            "application_url": _application_url(app_id),
+            "scheduled_date": application.get("scheduled_date"),
+            "slot_label": scheduling.slot_label(application.get("slot")),
+            "previous_slot_text": previous_text,
+            "reason": reason,
+        },
     )
 
 

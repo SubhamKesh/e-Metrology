@@ -90,6 +90,36 @@ export interface ApplicationHistoryEntry {
   note?: string;
 }
 
+export type ScheduleSlot = "morning" | "afternoon";
+
+export interface ScheduleHistoryEntry {
+  kind: "scheduled" | "rescheduled" | "assigned" | "reassigned";
+  date: string;
+  slot: ScheduleSlot;
+  at: string;
+  by?: string | null;
+  reason?: string | null;
+  previous_date?: string | null;
+  previous_slot?: ScheduleSlot | null;
+}
+
+export interface ScheduleInput {
+  date: string;
+  slot: ScheduleSlot;
+  reason?: string;
+}
+
+export interface SlotAvailability {
+  officer_id: string;
+  capacity_per_slot: number;
+  days: {
+    date: string;
+    bookable: boolean;
+    reason: string | null;
+    slots: { slot: ScheduleSlot; label: string; booked: number; capacity: number; available: number }[];
+  }[];
+}
+
 export interface Application {
   id: string;
   instrument_id: string;
@@ -103,6 +133,14 @@ export interface Application {
   previous_valid_until?: string | null; // expiry of the certificate being renewed
   history?: ApplicationHistoryEntry[];
   created_at?: string;
+  // Denormalised from the instrument; used to match an application to an officer's jurisdiction.
+  state_code?: string;
+  district_code?: string;
+  // Inspection schedule: an India calendar date (YYYY-MM-DD) and a slot. Null until an officer is assigned.
+  scheduled_date?: string | null;
+  slot?: ScheduleSlot | null;
+  slot_label?: string | null;
+  schedule_history?: ScheduleHistoryEntry[];
   // Present on list endpoints that join instrument data server-side.
   // Treat as optional — always fall back to a separate instrument fetch.
   instrument?: Instrument;

@@ -46,12 +46,15 @@ def test_templates_escape_user_input_and_render_every_event():
         "owner_name": "A<script>", "apply_url": "u", "application_id": "1", "application_url": "u",
         "reapply_url": "u", "cert_no": "C1", "verify_url": "v", "certificate_url": "c", "renew_url": "r",
         "days_left": 7, "valid_until": datetime(2027, 1, 1), "observations": "<img src=x>",
+        "scheduled_date": "2026-11-02", "slot_label": "Morning (10:00 AM - 1:00 PM)",
+        "previous_slot_text": "2026-11-01", "reason": "<i>officer on leave</i>",
         "instrument": {"type": "Platform Scale", "uiid": "LM-1", "manufacturer": "<b>Acme</b>", "model": "M", "serial_no": "S"},
     }
     for event in email_templates._BUILDERS:
         subject, text, html = email_templates.render(event, ctx)
         assert subject and text and html
         assert "<script>" not in html and "<b>Acme</b>" not in html and "<img src=x>" not in html
+        assert "<i>officer on leave</i>" not in html
         assert "\n" not in subject
 
 

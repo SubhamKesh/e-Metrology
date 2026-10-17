@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ApplicationCreate(BaseModel):
@@ -10,6 +10,28 @@ class ApplicationCreate(BaseModel):
     # and links the newest certificate when this is omitted, so older clients and
     # emailed "Renew now" links keep working.
     previous_certificate_id: Optional[str] = None
+
+
+class ScheduleIn(BaseModel):
+    """Used by claim and schedule/reschedule. `date` is an India calendar date."""
+    date: str = Field(..., description="YYYY-MM-DD")
+    slot: str = Field(..., description="morning | afternoon")
+    reason: Optional[str] = Field(default=None, max_length=300)
+
+
+class AssignIn(ScheduleIn):
+    officer_id: str
+
+
+class ScheduleHistoryOut(BaseModel):
+    kind: str
+    date: str
+    slot: str
+    at: datetime
+    by: Optional[str] = None
+    reason: Optional[str] = None
+    previous_date: Optional[str] = None
+    previous_slot: Optional[str] = None
 
 
 class HistoryEntry(BaseModel):
@@ -45,3 +67,9 @@ class ApplicationOut(BaseModel):
     previous_cert_no: Optional[str] = None
     # Expiry of the instrument's current certificate at the time of a renewal application.
     previous_valid_until: Optional[datetime] = None
+    # Inspection schedule (None until an officer is assigned). `scheduled_date` is
+    # an India calendar date, `slot` is "morning" or "afternoon".
+    scheduled_date: Optional[str] = None
+    slot: Optional[str] = None
+    slot_label: Optional[str] = None
+    schedule_history: list[ScheduleHistoryOut] = []

@@ -184,20 +184,62 @@ def _application_submitted(ctx: dict):
     )
 
 
+def _slot_text(ctx: dict) -> Optional[str]:
+    """'Mon 20 Oct 2026, Morning (10:00 AM - 1:00 PM)', or None when no schedule is attached."""
+    day = ctx.get("scheduled_date")
+    if not day:
+        return None
+    try:
+        label = datetime.strptime(day, "%Y-%m-%d").strftime("%a %d %b %Y")
+    except ValueError:
+        label = str(day)
+    slot = ctx.get("slot_label")
+    return f"{label}, {slot}" if slot else label
+
+
 def _application_scheduled(ctx: dict):
     inst = ctx["instrument"]
+    when = _slot_text(ctx)
+    paragraphs = [
+        "A Legal Metrology Officer has taken up your application and your instrument is now "
+        "scheduled for inspection.",
+        "Please keep the instrument accessible at the registered location, along with its serial "
+        "number plate, so the officer can complete the physical check.",
+    ]
+    rows = [("Application ID", ctx["application_id"])]
+    if when:
+        rows.append(("Inspection", when))
     return _build(
-        subject=f"Officer assigned, inspection scheduled: {inst.get('uiid')}",
+        subject=(f"Inspection booked for {when}: {inst.get('uiid')}" if when
+                 else f"Officer assigned, inspection scheduled: {inst.get('uiid')}"),
         owner_name=ctx["owner_name"],
         heading="An officer has been assigned to your application",
-        paragraphs=[
-            "A Legal Metrology Officer has taken up your application and your instrument is now "
-            "scheduled for inspection.",
-            "Please keep the instrument accessible at the registered location, along with its serial "
-            "number plate, so the officer can complete the physical check.",
-        ],
-        rows=[("Application ID", ctx["application_id"]), *_instrument_rows(inst)],
+        paragraphs=paragraphs,
+        rows=[*rows, *_instrument_rows(inst)],
         tone="info",
+        cta=("Track this application", ctx["application_url"]),
+    )
+
+
+def _inspection_rescheduled(ctx: dict):
+    inst = ctx["instrument"]
+    when = _slot_text(ctx) or "a new date"
+    paragraphs = [
+        "The date or time of your inspection has changed. Please keep the instrument accessible "
+        "at the registered location for the new slot.",
+    ]
+    if ctx.get("reason"):
+        paragraphs.append(f"Reason given: {ctx['reason']}")
+    rows = [("Application ID", ctx["application_id"]), ("New inspection slot", when)]
+    if ctx.get("previous_slot_text"):
+        rows.append(("Previously", ctx["previous_slot_text"]))
+    return _build(
+        subject=f"Inspection rescheduled to {when}: {inst.get('uiid')}",
+        owner_name=ctx["owner_name"],
+        heading="Your inspection has been rescheduled",
+        paragraphs=paragraphs,
+        rows=[*rows, *_instrument_rows(inst)],
+        tone="warning",
         cta=("Track this application", ctx["application_url"]),
     )
 
@@ -393,6 +435,7 @@ _BUILDERS = {
     "instrument_registered": _instrument_registered,
     "application_submitted": _application_submitted,
     "application_scheduled": _application_scheduled,
+    "inspection_rescheduled": _inspection_rescheduled,
     "inspection_passed": _inspection_passed,
     "inspection_failed": _inspection_failed,
     "certificate_issued": _certificate_issued,

@@ -2,6 +2,8 @@ import { api, fetchBlob } from "./api";
 import type {
   AdminDashboard,
   Application,
+  ScheduleInput,
+  SlotAvailability,
   Certificate,
   CertificateVerifyResponse,
   PendingCertificate,
@@ -161,7 +163,19 @@ export const ApplicationApi = {
     return api.get<Application[]>(`/applications${qs ? `?${qs}` : ""}`);
   },
   get: (id: string) => api.get<Application>(`/applications/${id}`),
-  claim: (id: string) => api.post<Application>(`/applications/${id}/claim`),
+  // Claiming books the inspection, so a date and slot are required.
+  claim: (id: string, body: ScheduleInput) => api.post<Application>(`/applications/${id}/claim`, body),
+  schedule: (id: string, body: ScheduleInput) => api.post<Application>(`/applications/${id}/schedule`, body),
+  assign: (id: string, body: ScheduleInput & { officer_id: string }) =>
+    api.post<Application>(`/applications/${id}/assign`, body),
+  slots: (params: { officer_id?: string; start?: string; days?: number }) => {
+    const usp = new URLSearchParams();
+    if (params.officer_id) usp.set("officer_id", params.officer_id);
+    if (params.start) usp.set("start", params.start);
+    if (params.days) usp.set("days", String(params.days));
+    const qs = usp.toString();
+    return api.get<SlotAvailability>(`/applications/slots${qs ? `?${qs}` : ""}`);
+  },
 };
 
 // ---- Inspections ----

@@ -8,7 +8,7 @@ import {
   InstrumentApi,
   UploadApi,
 } from "@/lib/endpoints";
-import type { AdminDashboard, OfficerDashboard, OwnerDashboard, Role } from "@/lib/types";
+import type { AdminDashboard, OfficerDashboard, OwnerDashboard, Role, ScheduleInput } from "@/lib/types";
 
 // ---- Dashboards ----
 export function useDashboard(role: Role) {
@@ -125,14 +125,45 @@ export function useCreateApplication() {
   });
 }
 
+function refreshApplication(qc: ReturnType<typeof useQueryClient>, id: string) {
+  qc.invalidateQueries({ queryKey: ["applications"] });
+  qc.invalidateQueries({ queryKey: ["application", id] });
+  // A booking changes the places left in a slot.
+  qc.invalidateQueries({ queryKey: ["slots"] });
+}
+
 export function useClaimApplication() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => ApplicationApi.claim(id),
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: ["applications"] });
-      qc.invalidateQueries({ queryKey: ["application", id] });
-    },
+    mutationFn: ({ id, ...body }: { id: string } & ScheduleInput) => ApplicationApi.claim(id, body),
+    onSuccess: (_data, vars) => refreshApplication(qc, vars.id),
+  });
+}
+
+export function useRescheduleApplication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & ScheduleInput) => ApplicationApi.schedule(id, body),
+    onSuccess: (_data, vars) => refreshApplication(qc, vars.id),
+  });
+}
+
+export function useAssignApplication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; officer_id: string } & ScheduleInput) =>
+      ApplicationApi.assign(id, body),
+    onSuccess: (_data, vars) => refreshApplication(qc, vars.id),
+  });
+}
+
+// Places left per date and slot for one officer (admins pass the officer, officers omit it).
+export function useSlotAvailability(officerId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ["slots", officerId ?? "me"],
+    queryFn: () => ApplicationApi.slots({ officer_id: officerId, days: 30 }),
+    enabled,
+    staleTime: 10_000,
   });
 }
 

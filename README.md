@@ -44,6 +44,7 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 🗺️ **Jurisdiction Scoping** | States/UTs and districts stored as reference data; officers see only applications in their state/district, validated at write time |
 | 🧰 **Instrument Registry** | Owners register instruments from a controlled list of instrument types, with a unique serial number and auto-generated UIID |
 | 📝 **Application Lifecycle** | State machine enforced server-side: `submitted → scheduled → inspected → certified/rejected → expiring → expired` |
+| 🗓️ **Inspection Scheduling** | Claiming books a date and one of two daily slots (Sundays off, per-officer capacity). Officers and admins can reschedule; admins can assign or reassign an officer within their jurisdiction. Everyone sees the booking and can add it to Google Calendar or download an `.ics` file (no account linking) |
 | 🔎 **Inspection Workflow** | Officers claim applications, scan the instrument's QR with the in-app camera scanner (or type the UIID), review instrument details, and record outcomes with photo evidence. A GPS fix is **mandatory** and stored with every inspection, along with how the instrument was identified (`qr` / `manual`) |
 | 📴 **Offline Inspections** | The app **opens with no signal** and an officer's assigned applications and instruments are kept on the device, so an inspection can be started and finished in a dead zone. A finished inspection (and its photos) is saved on the device and sent automatically when the connection returns. Each inspection carries an idempotency key, so a retry or double sync can never create a duplicate, and the time the officer actually pressed Submit is kept. Photos are compressed before upload, and a failed send shows the real reason (see [Offline Inspections](#-offline-inspections)) |
 | 📝 **Inspection Drafts** | Everything entered on an inspection (identity check, photos, notes) auto-saves on the device, online or offline, and is restored when the officer returns to that application. Drafts show on the dashboard and as a **Draft** badge in My assignments (see [Inspection Drafts](#inspection-drafts)) |
@@ -202,7 +203,8 @@ Owners (the business people who register machines) get an email for every step o
 |---|---|---|
 | `instrument_registered` | Instrument registered and UIID issued | `instrument_registered:<instrument_id>` |
 | `application_submitted` | Verification application received | `application_submitted:<application_id>` |
-| `application_scheduled` | An officer claims it and inspection is scheduled | `application_scheduled:<application_id>` |
+| `application_scheduled` | An officer claims it (or an admin assigns it) and the inspection is booked, with date and slot | `application_scheduled:<application_id>` |
+| `inspection_rescheduled` | The date, slot or officer of a booked inspection changes | `inspection_rescheduled:<application_id>:<n>` |
 | `inspection_passed` | Inspection passed (certificate being generated) | `inspection_passed:<application_id>` |
 | `inspection_failed` | Inspection failed, application rejected (includes officer observations and a re-apply link) | `inspection_failed:<application_id>` |
 | `certificate_issued` | Certificate ready (PDF link + public verify link) | `certificate_issued:<cert_id>` |
@@ -606,7 +608,7 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | **OTP** | `POST /otp/send` (5 per IP / 15 min, one per address / 60 s → `429`) · `POST /otp/verify` **(public)** |
 | **Geo** | `GET /geo/states` · `GET /geo/states/{state_code}/districts` |
 | **Instruments** | `POST /instruments` · `GET /instruments` · `GET /instruments/{id}` · `GET /instruments/by-uiid/{uiid}` · `GET /instruments/meta/types` |
-| **Applications** | `POST /applications` · `GET /applications` · `GET /applications/{id}` · `POST /applications/{id}/claim` |
+| **Applications** | `POST /applications` · `GET /applications` · `GET /applications/{id}` · `POST /applications/{id}/claim` · `POST /applications/{id}/schedule` · `POST /applications/{id}/assign` · `GET /applications/slots` |
 | **Inspections** | `POST /inspections` *(requires a GPS `location`; optional `client_id` makes it idempotent, optional `captured_at` records when it was really done)* · `GET /inspections/{id}` |
 | **Certificates** | `GET /certificates/` · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
 | **Uploads** | `POST /uploads/photo` |

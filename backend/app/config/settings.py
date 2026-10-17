@@ -238,6 +238,21 @@ try:
 except ValueError:
     REVERIFY_WINDOW_DAYS = 30
 
+# Inspection scheduling (app/services/scheduling.py).
+# Two daily slots, Sundays off. One officer can take at most this many
+# inspections in a single slot; a date can be booked at least MIN_LEAD_DAYS
+# and at most MAX_AHEAD_DAYS from today (India time).
+def _int_env(name: str, default: int, minimum: int) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+SLOT_CAPACITY_PER_OFFICER = _int_env("SLOT_CAPACITY_PER_OFFICER", 4, 1)
+SCHEDULE_MIN_LEAD_DAYS = _int_env("SCHEDULE_MIN_LEAD_DAYS", 0, 0)
+SCHEDULE_MAX_AHEAD_DAYS = _int_env("SCHEDULE_MAX_AHEAD_DAYS", 60, 1)
+
 # Status-update emails to owners (app/services/owner_notifications.py).
 # Master switch; they also require SMTP_* to be configured.
 OWNER_EMAIL_NOTIFICATIONS_ENABLED = os.getenv("OWNER_EMAIL_NOTIFICATIONS_ENABLED", "true").lower() == "true"

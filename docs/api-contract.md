@@ -229,9 +229,28 @@ Optional query param for all roles: `?status=<status>` to filter by status.
 Returns one application with its full status `history[]`. Visible to its owner, its assigned officer, or an admin.
 
 ### POST `/applications/{application_id}/claim` — role: `lmo`, `gatc`
-Self-claim an unassigned application from the queue. Sets `assigned_officer_id` to the calling officer and transitions status `submitted → scheduled`.
+Self-claim an unassigned application from the queue **and book its inspection**. Sets `assigned_officer_id` to the calling officer, stores the schedule and transitions status `submitted → scheduled`.
 
-Claiming is atomic — if two officers hit this at the same instant, exactly one succeeds. Returns `409` if the application is already claimed by someone else (whether that happened moments ago or simultaneously), `404` if the application doesn't exist.
+**Body** (both required, otherwise `422`)
+```json
+{ "date": "2026-11-02", "slot": "morning" }
+```
+`date` is an India calendar date (`YYYY-MM-DD`); `slot` is `morning` (10:00-13:00) or `afternoon` (14:00-17:00).
+
+Rules: no Sundays, no past dates, at most `SCHEDULE_MAX_AHEAD_DAYS` (60) ahead, and at most `SLOT_CAPACITY_PER_OFFICER` (4) inspections per officer per slot (`409` when full). Bad date/slot → `422`. Outside the officer's jurisdiction → `403`.
+
+Claiming is atomic — if two officers hit this at the same instant, exactly one succeeds. Returns `409` if the application is already claimed by someone else, `404` if it doesn't exist.
+
+### POST `/applications/{application_id}/schedule` — role: assigned `lmo`/`gatc`, or `admin`
+Change the date or slot of a `scheduled` inspection. Body: `{ "date", "slot", "reason"? }`. Same date/slot/capacity rules as claim. `409` if the application is not `scheduled` or the slot is unchanged. Each change is appended to `schedule_history[]` (kind, date, slot, previous date/slot, who, reason) and the owner gets an email.
+
+### POST `/applications/{application_id}/assign` — role: `admin`
+Allocate a `submitted` application to a named officer, or move a `scheduled` one to another officer. Body: `{ "officer_id", "date", "slot", "reason"? }`. The officer must be active and the application must be inside their jurisdiction (`422` otherwise); capacity applies (`409`).
+
+### GET `/applications/slots` — role: `lmo`, `gatc`, `admin`
+Places left per date and slot for one officer, so the UI only offers bookable slots. Query: `start` (default today), `days` (1-62, default 14), `officer_id` (required for admins; officers can only see their own). Returns `days[]` with `date`, `bookable`, `reason` and `slots[]` (`slot`, `label`, `booked`, `capacity`, `available`).
+
+Application responses now include `scheduled_date`, `slot`, `slot_label` and `schedule_history[]`.
 
 ---
 

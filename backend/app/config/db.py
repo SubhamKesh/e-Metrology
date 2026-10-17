@@ -74,6 +74,8 @@ def init_indexes():
     instruments_col.create_index("uiid", unique=True)
     applications_col.create_index("status")
     applications_col.create_index([("instrument_id", 1), ("status", 1)])
+    # Slot capacity checks: how many inspections does one officer have in a date + slot.
+    applications_col.create_index([("assigned_officer_id", 1), ("scheduled_date", 1), ("slot", 1)])
     certificates_col.create_index([("instrument_id", 1), ("valid_until", -1)])
     certificates_col.create_index("cert_no", unique=True)
     # One certificate per application, enforced by the DB so a retried job and the
