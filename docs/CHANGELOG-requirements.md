@@ -10,7 +10,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 1 | PWA foundation: service worker, offline page, install prompt, richer manifest, maskable icon | ✅ (code complete; needs device test) |
 | 2 | In-app QR scanner on officer inspection page (+ GPS stamp) | ✅ (code complete; needs device test) |
 | 3 | Offline-capable inspection with background sync | ✅ (code complete; needs device test and a backend `pytest` run) |
-| 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ⬜ |
+| 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ✅ (code complete; backend `pytest` and frontend build pass) |
 | 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ⬜ |
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ⬜ |
 | 7 | Search + CSV/PDF report export | ⬜ |
@@ -129,3 +129,22 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - `backend/app/services/mailer.py` — the sender is validated before calling Brevo; a bad value logs which setting is wrong instead of a bare 400. An invalid `NOREPLY_FROM` falls back to `SMTP_FROM`. Brevo rejections now log the sender used.
 - `backend/app/main.py` — the startup "Email config" line also shows the `from` and `noreply` addresses.
 
+### 2026-10-17 — Fix: public verify page rejected the printed certificate number
+- `backend/app/routers/certificates.py` — `GET /certificates/verify/{id}` matched only the internal certificate id (what the QR code carries), so typing the printed `CERT-YYYYMMDD-XXXXXX` always gave "Not found". It now matches the id first, then `cert_no` (trimmed, case-insensitive), and returns `cert_no`.
+- `frontend/src/pages/public/VerifyCertificate.tsx`, `lib/types.ts` — the "Certificate ID" row shows the printed number.
+- `backend/tests/test_certificate_pipeline.py` — lookup by id, by number, by lower-case number, and not-found.
+
+### 2026-10-17 — #4 Re-verification flow
+**Added**
+- `application_type` (`initial` | `renewal`), `previous_certificate_id` and `previous_cert_no` on applications. The **server** decides the type: an instrument that already has a certificate is a renewal. `POST /applications` takes an optional `previous_certificate_id`; without it the instrument's newest certificate is linked, so the emailed "Renew now" links (`/applications/new?instrument=…`) and old clients work unchanged. A certificate id that doesn't belong to the instrument → 422.
+- One open application per instrument: a new application while one is `submitted`, `scheduled` or `inspected` → 409 with a plain message. Finished ones (`certified`, `rejected`, `expiring`, `expired`) don't block.
+- The link is copied onto the new certificate (`application_type`, `previous_certificate_id`, `previous_cert_no`), returned by the certificate API (together with `instrument_id`), and printed on the PDF as a "Re-verification of" row.
+- Indexes: `applications(instrument_id, status)`, `certificates(instrument_id, valid_until)`.
+- Frontend: **Renew certificate** button on the owner's certificate page (newest certificate of an instrument only; disabled as "Renewal in progress" while an application is open), opening the existing application form with the instrument preselected and a one-line "Re-verification of CERT-…" note. A "Re-verification" badge and "Renews certificate …" line on the application page (owner and officer views), a "Renewal" badge in application lists, and a "Re-verification of" field on the certificate page. No layout changes.
+- `backend/tests/test_reverification.py` — 17 tests.
+
+**Notes**
+- Existing records are treated as `initial`; no migration needed.
+- **Renewal only after expiry** (decided after the first pass): `POST /applications` returns 409 while the instrument's newest certificate is still valid ("valid until …, you can apply once it has expired"). The Renew button on a valid certificate is disabled and reads "Renewable after <date>". Reminder emails, the FAQ and the lifecycle banner were reworded so they no longer tell owners to apply before expiry.
+- A renewal issues a new certificate; the old one stays valid until its own expiry date, and the expiry reminders already stop for it once a newer certificate exists.
+- Checked: backend `pytest tests` 278 passed; frontend `tsc -b`, `eslint` and `npm run build` pass. Not tried in a browser.

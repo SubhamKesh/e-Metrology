@@ -6,7 +6,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo import ReturnDocument
 
-from app.config.db import applications_col, instruments_col
+from app.config.db import applications_col, certificates_col, instruments_col
 from app.services.notifications import broadcast_threadsafe
 from app.services.owner_notifications import notify_application_submitted, notify_application_scheduled
 from app.models.application import ApplicationCreate, ApplicationOut, HistoryEntry
@@ -47,7 +47,29 @@ def to_application_out(doc: dict) -> ApplicationOut:
         history=history,
         state_code=doc.get("state_code", "unknown"),
         district_code=doc.get("district_code", "unknown"),
+        application_type=doc.get("application_type") or "initial",
+        previous_certificate_id=doc.get("previous_certificate_id"),
+        previous_cert_no=doc.get("previous_cert_no"),
     )
+
+
+# An instrument can only have one application in flight at a time.
+_OPEN_STATUSES = ["submitted", "scheduled", "inspected"]
+
+
+def _resolve_previous_certificate(instrument_oid, requested_id: Optional[str]) -> dict | None:
+    """The certificate this application renews, or None for a first verification.
+
+    A requested id must belong to this very instrument (422 otherwise). With no
+    id, the instrument's newest certificate is used, so every application for an
+    instrument that has been certified before is a renewal.
+    """
+    if requested_id:
+        cert = certificates_col.find_one({"_id": requested_id, "instrument_id": instrument_oid})
+        if not cert:
+            raise HTTPException(status_code=422, detail="That certificate does not belong to this instrument")
+        return cert
+    return certificates_col.find_one({"instrument_id": instrument_oid}, sort=[("valid_until", -1)])
 
 
 @router.post("", response_model=ApplicationOut, status_code=201)
@@ -78,9 +100,35 @@ def submit_application(
             detail="Instrument is missing state_code/district_code — update its location before applying",
         )
 
+    if applications_col.find_one({"instrument_id": instrument_oid, "status": {"$in": _OPEN_STATUSES}}):
+        raise HTTPException(
+            status_code=409,
+            detail="This instrument already has an application in progress. Wait for it to finish before applying again.",
+        )
+
+    # Re-verification opens only once the instrument's current certificate has expired.
+    newest = certificates_col.find_one({"instrument_id": instrument_oid}, sort=[("valid_until", -1)])
+    if newest:
+        valid_until = newest["valid_until"]
+        if valid_until.tzinfo is None:
+            valid_until = valid_until.replace(tzinfo=timezone.utc)
+        if valid_until > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This instrument's certificate is valid until {valid_until.strftime('%d %b %Y')}. "
+                    "You can apply for re-verification once it has expired."
+                ),
+            )
+
+    previous = _resolve_previous_certificate(instrument_oid, payload.previous_certificate_id)
+
     doc = {
         "instrument_id": instrument_oid,
         "owner_id": current_user["_id"],
+        "application_type": "renewal" if previous else "initial",
+        "previous_certificate_id": previous["_id"] if previous else None,
+        "previous_cert_no": previous.get("cert_no") if previous else None,
         "status": "submitted",
         "assigned_officer_id": None,
         "submitted_at": datetime.now(timezone.utc),

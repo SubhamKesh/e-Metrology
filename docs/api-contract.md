@@ -213,8 +213,9 @@ Returns one instrument. Only its owner or an admin can view it.
 ### POST `/applications` — role: `owner`
 Submit a verification application for one of your own instruments.
 
-**Body:** `{ "instrument_id": "..." }`
-**Response** `201`: application with `status: "submitted"`.
+**Body:** `{ "instrument_id": "...", "previous_certificate_id": "..." }` — `previous_certificate_id` is optional.
+**Response** `201`: application with `status: "submitted"`, plus `application_type` (`"initial"` or `"renewal"`), `previous_certificate_id` and `previous_cert_no`. The server sets the type: an instrument that already has a certificate is a `renewal`, linked to `previous_certificate_id` or, if omitted, to its newest certificate.
+**Errors:** `422` if `previous_certificate_id` is not a certificate of this instrument; `409` if the instrument already has an application in `submitted`, `scheduled` or `inspected`, or if its newest certificate has not expired yet (re-verification opens only after expiry).
 
 ### GET `/applications`
 Role-scoped:

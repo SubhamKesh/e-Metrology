@@ -5,6 +5,11 @@ from pydantic import BaseModel
 
 class ApplicationCreate(BaseModel):
     instrument_id: str
+    # Optional: the certificate being renewed. The server decides the application
+    # type itself -- an instrument that already has a certificate is a renewal --
+    # and links the newest certificate when this is omitted, so older clients and
+    # emailed "Renew now" links keep working.
+    previous_certificate_id: Optional[str] = None
 
 
 class HistoryEntry(BaseModel):
@@ -32,3 +37,9 @@ class ApplicationOut(BaseModel):
     # filtering/routing is a plain indexed match, not a join per query.
     state_code: str
     district_code: str
+    # "initial" for a first verification, "renewal" for a re-verification that
+    # follows an earlier certificate. Records created before this field existed
+    # are initial.
+    application_type: str = "initial"
+    previous_certificate_id: Optional[str] = None
+    previous_cert_no: Optional[str] = None

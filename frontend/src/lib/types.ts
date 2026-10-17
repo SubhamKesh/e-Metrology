@@ -96,6 +96,10 @@ export interface Application {
   owner_id: string;
   status: ApplicationStatus;
   assigned_officer_id: string | null;
+  // "renewal" = re-verification following an earlier certificate. Absent on old records (= initial).
+  application_type?: "initial" | "renewal";
+  previous_certificate_id?: string | null;
+  previous_cert_no?: string | null;
   history?: ApplicationHistoryEntry[];
   created_at?: string;
   // Present on list endpoints that join instrument data server-side.
@@ -141,6 +145,10 @@ export interface CertificateVerifyResponse {
 
 export interface Certificate extends CertificateSummary {
   cert_no?: string | null;
+  instrument_id?: string | null;
+  application_type?: "initial" | "renewal";
+  previous_certificate_id?: string | null;
+  previous_cert_no?: string | null;
   application_id?: string;
   instrument?: {
     type: string | null;

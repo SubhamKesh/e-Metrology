@@ -23,7 +23,7 @@ export const HOW_IT_WORKS_FAQ: FaqItem[] = [
   {
     question: "How long is a digital verification certificate valid?",
     answer:
-      "A MaapSetu certificate is valid for one year from the day it is issued, and it shows its own valid-until date. MaapSetu marks certificates as expiring soon and then expired, so you can apply for re-verification in time.",
+      "A MaapSetu certificate is valid for one year from the day it is issued, and it shows its own valid-until date. MaapSetu marks certificates as expiring soon and then expired, so you know when to act. Re-verification opens once the certificate has expired.",
   },
   {
     question: "Can I verify water, gas or energy meters as well as weighing machines?",

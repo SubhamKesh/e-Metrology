@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Panel } from "@/components/ui/Card";
-import { ApplicationStatusBadge } from "@/components/ui/StatusBadge";
+import { ApplicationStatusBadge, Badge } from "@/components/ui/StatusBadge";
 import { LifecycleTimeline } from "./LifecycleTimeline";
 import { useInstrument } from "@/hooks/useData";
 import { Skeleton } from "@/components/ui/States";
@@ -20,7 +20,13 @@ export function ApplicationOverview({ application, actions }: { application: App
               {isLoading ? <Skeleton className="h-7 w-40" /> : instrument?.type ?? "Instrument"}
             </h1>
             <ApplicationStatusBadge status={application.status} />
+            {application.application_type === "renewal" && <Badge tone="info">Re-verification</Badge>}
           </div>
+          {application.application_type === "renewal" && application.previous_cert_no && (
+            <p className="mt-1 text-xs text-slate-500">
+              Renews certificate <span className="font-mono">{application.previous_cert_no}</span>
+            </p>
+          )}
         </div>
         {actions}
       </div>

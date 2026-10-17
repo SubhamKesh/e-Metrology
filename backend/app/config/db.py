@@ -73,6 +73,8 @@ def init_indexes():
     users_col.create_index("email", unique=True)
     instruments_col.create_index("uiid", unique=True)
     applications_col.create_index("status")
+    applications_col.create_index([("instrument_id", 1), ("status", 1)])
+    certificates_col.create_index([("instrument_id", 1), ("valid_until", -1)])
     certificates_col.create_index("cert_no", unique=True)
     # One certificate per application, enforced by the DB so a retried job and the
     # reconciler can never double-issue. Isolated in its own try: if legacy

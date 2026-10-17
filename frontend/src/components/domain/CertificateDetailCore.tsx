@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
 import { CertificateApi } from "@/lib/endpoints";
 import { Panel } from "@/components/ui/Card";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import type { Certificate } from "@/lib/types";
 
-export function CertificateDetailCore({ certificate }: { certificate: Certificate }) {
+export function CertificateDetailCore({ certificate, extraActions }: { certificate: Certificate; extraActions?: ReactNode }) {
   const verifyUrl = `${window.location.origin}/verify/${certificate.id}`;
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -90,6 +90,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
               label="Valid until"
               value={new Date(certificate.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" })}
             />
+            {certificate.previous_cert_no && <Field label="Re-verification of" value={certificate.previous_cert_no} />}
           </dl>
           <div className="flex flex-col items-center gap-2 justify-self-center">
             <div className="rounded-md border border-line bg-white p-3">
@@ -120,6 +121,7 @@ export function CertificateDetailCore({ certificate }: { certificate: Certificat
               Open public verification page
             </Button>
           </a>
+          {extraActions}
         </div>
         {downloadError && <p className="px-6 pb-4 text-sm text-danger">{downloadError}</p>}
         <div ref={qrCanvasRef} className="hidden" aria-hidden="true">

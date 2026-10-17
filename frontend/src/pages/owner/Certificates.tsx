@@ -3,8 +3,8 @@ import { PageHeader } from "@/components/layout/AppShell";
 import { CertificatesTable } from "@/components/domain/CertificatesTable";
 import { CertificateDetailCore } from "@/components/domain/CertificateDetailCore";
 import { ErrorState, Skeleton } from "@/components/ui/States";
-import { Button } from "@/components/ui/Button";
-import { useCertificate, useCertificates, useGenerateCertificate, usePendingCertificates } from "@/hooks/useData";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { useApplications, useCertificate, useCertificates, useGenerateCertificate, usePendingCertificates } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 
 // Certified applications with no certificate yet: generation is still running, or it
@@ -71,9 +71,39 @@ export function OwnerCertificates() {
 export function OwnerCertificateDetail() {
   const { id } = useParams();
   const { data, isLoading, isError, error, refetch } = useCertificate(id);
+  const { data: allCertificates } = useCertificates();
+  const { data: applications } = useApplications();
   if (isLoading) return <Skeleton className="h-64 w-full max-w-2xl" />;
   if (isError || !data) {
     return <ErrorState message={error instanceof ApiError ? error.message : "Certificate not found."} onRetry={refetch} />;
   }
-  return <CertificateDetailCore certificate={data} />;
+  // Renew only the newest certificate of an instrument, only after it has expired, and not while an application is already running.
+  const isLatest =
+    !data.instrument_id ||
+    !(allCertificates ?? []).some(
+      (c) => c.instrument_id === data.instrument_id && new Date(c.valid_until) > new Date(data.valid_until),
+    );
+  const inProgress = (applications ?? []).some(
+    (a) => a.instrument_id === data.instrument_id && ["submitted", "scheduled", "inspected"].includes(a.status),
+  );
+  const renew =
+    data.instrument_id && isLatest ? (
+      !data.is_expired ? (
+        <Button size="sm" disabled title="Re-verification opens once this certificate has expired">
+          Renewable after {new Date(data.valid_until).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+        </Button>
+      ) : inProgress ? (
+        <Button size="sm" disabled>
+          Renewal in progress
+        </Button>
+      ) : (
+        <ButtonLink
+          size="sm"
+          to={`/app/owner/applications/new?instrument=${data.instrument_id}&renew=${data.id}&cert_no=${encodeURIComponent(data.cert_no ?? "")}`}
+        >
+          Renew certificate
+        </ButtonLink>
+      )
+    ) : undefined;
+  return <CertificateDetailCore certificate={data} extraActions={renew} />;
 }

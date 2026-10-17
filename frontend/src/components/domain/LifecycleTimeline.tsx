@@ -61,7 +61,7 @@ export function LifecycleTimeline({ current }: { current: ApplicationStatus }) {
           )}
         >
           {current === "expiring"
-            ? "Certificate is within 30 days of expiry — renewal reminder sent."
+            ? "Certificate is within 30 days of expiry — you can apply for re-verification once it expires."
             : "Certificate has expired. A re-verification application is required."}
         </div>
       )}

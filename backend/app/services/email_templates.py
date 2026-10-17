@@ -266,7 +266,7 @@ def _certificate_issued(ctx: dict):
         paragraphs=[
             f"Your instrument is now legally verified. Certificate {ctx['cert_no']} is valid until "
             f"{_fmt_date(ctx.get('valid_until'))}.",
-            "We will remind you before it expires so you can renew in time. Anyone can confirm the "
+            "We will remind you as it nears expiry. Once it has expired you can apply for re-verification. Anyone can confirm the "
             "certificate is genuine by scanning its QR code or using the verification link.",
         ],
         rows=rows,
@@ -287,8 +287,8 @@ def _expiry_reminder(ctx: dict):
         paragraphs=[
             f"Certificate {ctx['cert_no']} for your {inst.get('type')} is valid until "
             f"{_fmt_date(ctx.get('valid_until'))}.",
-            "Once it expires the instrument is no longer legally verified. Submit a re-verification "
-            "application now so the inspection can be completed before the expiry date.",
+            "Once it expires the instrument is no longer legally verified. You can submit a re-verification "
+            "application as soon as the certificate has expired.",
         ],
         rows=[
             ("Certificate no.", ctx["cert_no"]),

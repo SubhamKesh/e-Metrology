@@ -211,6 +211,8 @@ def _generate_pdf_bytes(cert_no, instrument, inspection, application, owner, val
         ("Date of Issue", _fmt_date(issued_at)),
         ("Valid Until", _fmt_date(valid_until)),
     ]
+    if application.get("previous_cert_no"):
+        rows.insert(1, ("Re-verification of", application["previous_cert_no"]))
     data = [[Paragraph(escape(l).upper(), label_st), cell(v)] for l, v in rows]
     table = Table(data, colWidths=[content_w * 0.34, content_w * 0.66])
     table.setStyle(TableStyle([
@@ -384,6 +386,10 @@ def issue_certificate(inspection_id) -> dict:
             "application_id": application["_id"],
             "instrument_id": instrument["_id"],
             "cert_no": cert_no,
+            # Re-verification trail: which certificate this one replaces (None for a first verification).
+            "application_type": application.get("application_type") or "initial",
+            "previous_certificate_id": application.get("previous_certificate_id"),
+            "previous_cert_no": application.get("previous_cert_no"),
             "qr_url": qr_url,
             "pdf_url": pdf_url,
             "issued_at": issued_at,

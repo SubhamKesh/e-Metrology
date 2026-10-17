@@ -58,6 +58,7 @@ export function ApplicationsTable({
       cell: (a) => (
         <span className="flex flex-wrap items-center gap-2">
           <ApplicationStatusBadge status={a.status} />
+          {a.application_type === "renewal" && <Badge tone="info">Renewal</Badge>}
           {draftIds?.has(a.id) && <Badge tone="warning">Draft</Badge>}
         </span>
       ),

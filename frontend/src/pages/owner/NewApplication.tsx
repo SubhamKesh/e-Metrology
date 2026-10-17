@@ -14,13 +14,20 @@ export default function NewApplication() {
   const { data: instruments, isLoading } = useInstruments();
   const create = useCreateApplication();
   const [instrumentId, setInstrumentId] = useState(params.get("instrument") ?? "");
+  // Set by the Renew button on a certificate; the server links the newest certificate otherwise.
+  const renewCertId = params.get("renew") ?? undefined;
+  const renewCertNo = params.get("cert_no");
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      const app = await create.mutateAsync({ instrument_id: instrumentId });
+      const app = await create.mutateAsync({
+        instrument_id: instrumentId,
+        // Only meaningful while the instrument still matches the one being renewed.
+        previous_certificate_id: renewCertId && instrumentId === params.get("instrument") ? renewCertId : undefined,
+      });
       navigate(`/app/owner/applications/${app.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
@@ -58,6 +65,11 @@ export default function NewApplication() {
               label: `${i.type} · ${i.uiid}`,
             }))}
           />
+          {renewCertId && renewCertNo && instrumentId === params.get("instrument") && (
+            <p className="text-sm text-slate-600">
+              Re-verification of certificate <span className="font-mono text-xs">{renewCertNo}</span>.
+            </p>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row">
             <Button type="submit" loading={create.isPending} disabled={!instrumentId}>

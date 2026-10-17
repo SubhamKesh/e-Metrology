@@ -152,7 +152,7 @@ export const GeoApi = {
 
 // ---- Applications ----
 export const ApplicationApi = {
-  create: (body: { instrument_id: string }) => api.post<Application>("/applications", body),
+  create: (body: { instrument_id: string; previous_certificate_id?: string }) => api.post<Application>("/applications", body),
   list: (params?: { mine?: boolean; status?: string }) => {
     const usp = new URLSearchParams();
     if (params?.mine) usp.set("mine", "true");

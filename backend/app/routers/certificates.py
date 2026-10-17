@@ -36,6 +36,10 @@ def _serialize_cert(cert: dict, instrument: dict | None = None) -> dict:
         "id": cert["_id"],
         "cert_no": cert.get("cert_no"),
         "application_id": str(cert["application_id"]),
+        "instrument_id": str(cert["instrument_id"]) if cert.get("instrument_id") else None,
+        "application_type": cert.get("application_type") or "initial",
+        "previous_certificate_id": cert.get("previous_certificate_id"),
+        "previous_cert_no": cert.get("previous_cert_no"),
         "instrument": (
             {
                 "type": instrument.get("type"),
