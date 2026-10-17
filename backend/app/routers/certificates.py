@@ -106,7 +106,10 @@ def verify_certificate(cert_id: str):
     genuinely time-sensitive, so it's recomputed fresh on every call, cache
     hit or not, rather than trusting whatever value happened to be cached.
     """
-    cache_key = f"cert-verify:{cert_id}"
+    # Accept either the internal certificate id (what the QR code carries) or
+    # the human-readable certificate number printed on the PDF (CERT-YYYYMMDD-XXXXXX).
+    cert_id = cert_id.strip()
+    cache_key = f"cert-verify:{cert_id.upper()}"
     cached = cache_get(cache_key)
     if cached is not None:
         if cached.get("valid") and cached.get("certificate"):
@@ -117,7 +120,8 @@ def verify_certificate(cert_id: str):
             cached["certificate"]["is_expired"] = valid_until < datetime.now(timezone.utc)
         return cached
 
-    cert = read_replica(certificates_col).find_one({"_id": cert_id})
+    certs = read_replica(certificates_col)
+    cert = certs.find_one({"_id": cert_id}) or certs.find_one({"cert_no": cert_id.upper()})
     if not cert:
         result = {"valid": False, "reason": "not_found"}
         # Short TTL — just enough to blunt someone hammering a bad/guessed
@@ -138,6 +142,7 @@ def verify_certificate(cert_id: str):
         "valid": True,
         "certificate": {
             "id": cert["_id"],
+            "cert_no": cert.get("cert_no"),
             "verified_on": issued_at.isoformat(),
             "valid_until": valid_until.isoformat(),
             "is_expired": is_expired,

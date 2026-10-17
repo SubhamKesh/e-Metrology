@@ -89,6 +89,16 @@ def test_serialized_certificate_has_number_instrument_and_utc_dates(world):
     assert cert["is_expired"] is False
 
 
+def test_public_verify_accepts_internal_id_and_printed_cert_number(world):
+    by_id = certs.verify_certificate("cert-a")
+    by_no = certs.verify_certificate("CERT-A")
+    by_no_lower = certs.verify_certificate(" cert-a ")
+    assert by_id["valid"] and by_no["valid"] and by_no_lower["valid"]
+    assert by_no["certificate"]["id"] == "cert-a"
+    assert by_no["certificate"]["cert_no"] == "CERT-A"
+    assert certs.verify_certificate("CERT-NOPE")["valid"] is False
+
+
 # ---- generation dispatch -------------------------------------------------
 
 class _FakeThread:

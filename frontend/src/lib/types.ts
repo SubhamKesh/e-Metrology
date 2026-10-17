@@ -125,6 +125,7 @@ export interface Inspection {
 
 export interface CertificateSummary {
   id: string;
+  cert_no?: string | null;
   verified_on: string;
   valid_until: string;
   is_expired: boolean;

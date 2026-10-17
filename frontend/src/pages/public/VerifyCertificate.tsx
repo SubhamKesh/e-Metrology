@@ -99,7 +99,7 @@ export default function VerifyCertificate() {
           label="Valid until"
           value={certificate ? new Date(certificate.valid_until).toLocaleDateString("en-IN", { dateStyle: "long" }) : "—"}
         />
-        <Row label="Certificate ID" value={certificate?.id} className="font-mono text-xs" />
+        <Row label="Certificate ID" value={certificate?.cert_no ?? certificate?.id} className="font-mono text-xs" />
       </div>
       <p className="mt-6 text-xs text-slate-500">
         This result is generated live from the MaapSetu verification registry.
