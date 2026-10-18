@@ -261,8 +261,21 @@ REPORT_MAX_ROWS = _int_env("REPORT_MAX_ROWS", 5000, 1)
 # inspected) after this many days counts as "overdue" on the pendency and district pages. It is a
 # monitoring target only; nothing is blocked or escalated automatically.
 PENDENCY_TARGET_DAYS = _int_env("PENDENCY_TARGET_DAYS", 30, 1)
-# The enforcement list looks at no more than this many expired applications per request (newest first).
-ENFORCEMENT_MAX_SCAN = _int_env("ENFORCEMENT_MAX_SCAN", 10000, 100)
+# Safety ceiling for the enforcement list: the most lapsed instruments one request will list. The list is
+# worked out from the certificates' own expiry dates, most overdue first, so reaching this only drops the
+# least overdue ones (and the page says so). Normal registries stay far below it.
+ENFORCEMENT_MAX_SCAN = _int_env("ENFORCEMENT_MAX_SCAN", 50000, 100)
+# An instrument that has been registered for MORE than this many days and has never had a certificate
+# shows up in the enforcement "Never certified" list. 30 matches PENDENCY_TARGET_DAYS: an owner has a month
+# to apply, and an application they did make is shown as a mitigating note, not hidden.
+NEVER_CERTIFIED_GRACE_DAYS = _int_env("NEVER_CERTIFIED_GRACE_DAYS", 30, 1)
+
+# Enforcement cases (app/routers/enforcement_cases.py). A case whose last notice is at least this many
+# calendar days old (India time) and is still unresolved is escalated one level (LMO -> GATC -> admin) by
+# the hourly job; officers can also escalate by hand at any time.
+ESCALATION_AFTER_DAYS = _int_env("ESCALATION_AFTER_DAYS", 15, 1)
+# Minimum calendar days between two notices on the same case (stops an accidental double send).
+NOTICE_MIN_GAP_DAYS = _int_env("NOTICE_MIN_GAP_DAYS", 3, 0)
 
 # Field verification form (app/config/inspection_forms.py). With strict on, a passed inspection must
 # carry the test points, the required checks and a seal number. Switch off only while old app

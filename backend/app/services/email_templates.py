@@ -365,6 +365,46 @@ def _certificate_expired(ctx: dict):
     )
 
 
+def _enforcement_notice(ctx: dict):
+    inst = ctx["instrument"]
+    lapsed = ctx.get("kind") == "lapsed"
+    if lapsed:
+        heading = "Notice: your instrument has no valid certificate"
+        first = (
+            f"Certificate {ctx.get('cert_no') or '-'} for this instrument expired on "
+            f"{_fmt_date(ctx.get('valid_until'))}. Until it is re-verified, the instrument is not legally verified "
+            "and must not be used for trade."
+        )
+        action = "Please submit a re-verification application without delay."
+        rows = [("Certificate no.", ctx.get("cert_no") or "-"), ("Expired on", _fmt_date(ctx.get("valid_until")))]
+        cta = ("Renew now", ctx["renew_url"])
+    else:
+        heading = "Notice: your instrument has not been verified"
+        first = (
+            f"This instrument was registered on {_fmt_date(ctx.get('registered_on'))} but has never been verified, "
+            "so it has no valid certificate. An unverified instrument must not be used for trade."
+        )
+        action = "Please submit a verification application without delay."
+        rows = [("Registered on", _fmt_date(ctx.get("registered_on")))]
+        cta = ("Apply for verification", ctx["renew_url"])
+    paragraphs = [first, action]
+    if ctx.get("message"):
+        paragraphs.append(f"Message from the officer: {ctx['message']}")
+    paragraphs.append(
+        "If you have already applied or the certificate was renewed, no further action is needed and this "
+        "notice will be closed automatically."
+    )
+    return _build(
+        subject=f"Notice from Legal Metrology: {inst.get('uiid')}",
+        owner_name=ctx["owner_name"],
+        heading=heading,
+        paragraphs=paragraphs,
+        rows=[*rows, *_instrument_rows(inst), ("Issued by", ctx.get("issued_by") or "Legal Metrology Department")],
+        tone="danger",
+        cta=cta,
+    )
+
+
 # --------------------------------------------------------------------------
 # OTP mails (signup verification + password reset). Sent from the no-reply
 # sender (see mailer.noreply_sender). The plain-text part is kept simple on
@@ -441,6 +481,7 @@ _BUILDERS = {
     "certificate_issued": _certificate_issued,
     "expiry_reminder": _expiry_reminder,
     "certificate_expired": _certificate_expired,
+    "enforcement_notice": _enforcement_notice,
 }
 
 

@@ -12,6 +12,7 @@ Owners get an email for every step of an instrument's life:
   certificate_issued      -> certificate ready (PDF + verify link)
   expiry_reminder         -> 30 / 15 / 7 / 1 days before expiry (settings)
   certificate_expired     -> certificate has expired
+  enforcement_notice      -> an officer sent a notice about a lapsed / never-verified instrument
 
 Design rules
   * Never break the caller. Every public notify_*() swallows and logs its own
@@ -463,4 +464,36 @@ def notify_certificate_expired(cert: dict, *, inline: bool = True) -> None:
             "renew_url": _renew_url(instrument["_id"]),
         },
         inline=inline,
+    )
+
+
+def can_email_owner(owner_id) -> bool:
+    """True if a notice mail could be sent right now (mail configured and the owner has an address)."""
+    if not _enabled():
+        return False
+    owner = _get_owner(owner_id)
+    return bool(owner and owner.get("email"))
+
+
+@_never_raises
+def notify_enforcement_notice(case: dict, instrument: dict, *, dedupe_key: str, message: Optional[str],
+                              issued_by: str, cert: Optional[dict] = None, registered_on=None) -> None:
+    """Email the owner a notice from an officer. Never raises; the caller records whether it was sendable
+    (`can_email_owner`) because a notice stays on record and visible in the app either way."""
+    if not _enabled():
+        return
+    _send(
+        "enforcement_notice",
+        dedupe_key,
+        instrument["owner_id"],
+        instrument,
+        {
+            "kind": case["kind"],
+            "message": message,
+            "issued_by": issued_by,
+            "cert_no": (cert or {}).get("cert_no"),
+            "valid_until": _as_utc((cert or {}).get("valid_until")),
+            "registered_on": registered_on,
+            "renew_url": _renew_url(instrument["_id"]),
+        },
     )

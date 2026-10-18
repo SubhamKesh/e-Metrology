@@ -4,21 +4,25 @@ import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { Panel, StatCard } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { ExportButtons } from "@/components/domain/ExportButtons";
+import { CaseCell } from "@/components/domain/CaseCell";
+import { CaseStatusBadge, KIND_LABEL, LevelBadge } from "@/components/domain/CaseBadges";
 import { SelectInput } from "@/components/ui/Field";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ErrorState, Skeleton } from "@/components/ui/States";
 import { ApplicationStatusBadge, Badge } from "@/components/ui/StatusBadge";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/cn";
-import { GeoApi, OversightApi } from "@/lib/endpoints";
-import type { DistrictRow, EnforcementBand, EnforcementItem, PendencyReport } from "@/lib/types";
+import { CasesApi, GeoApi, OversightApi } from "@/lib/endpoints";
+import type { CaseKind, CaseListItem, DistrictRow, EnforcementBand, EnforcementItem, PendencyReport, UncertifiedItem } from "@/lib/types";
 
-type Tab = "pendency" | "districts" | "enforcement";
+type Tab = "pendency" | "districts" | "enforcement" | "cases";
 
 const TABS: { id: Tab; label: string; hint: string }[] = [
   { id: "pendency", label: "Pendency ageing", hint: "Applications still waiting, by how long" },
   { id: "districts", label: "District-wise", hint: "Instruments and applications per district" },
-  { id: "enforcement", label: "Enforcement", hint: "Instruments whose certificate has lapsed" },
+  { id: "enforcement", label: "Enforcement", hint: "Instruments with a lapsed certificate, or never certified" },
+  { id: "cases", label: "Cases", hint: "Notices sent to owners and cases passed up to senior officers" },
 ];
 
 const PAGE_SIZE = 25;
@@ -55,7 +59,7 @@ export default function Oversight() {
     <div>
       <PageHeader
         title="Oversight"
-        description={isAdmin ? "Pendency, district position and lapsed certificates across the registry." : "Pendency, district position and lapsed certificates in your jurisdiction."}
+        description={isAdmin ? "Pendency, district position, enforcement and cases across the registry." : "Pendency, district position, enforcement and cases in your jurisdiction."}
       />
 
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
@@ -103,7 +107,8 @@ export default function Oversight() {
       <div className="mt-4" role="tabpanel">
         {tab === "pendency" && <PendencyView place={place} />}
         {tab === "districts" && <DistrictsView place={place} />}
-        {tab === "enforcement" && <EnforcementView place={place} />}
+        {tab === "enforcement" && <EnforcementTab place={place} />}
+        {tab === "cases" && <CasesView place={place} />}
       </div>
     </div>
   );
@@ -165,9 +170,12 @@ function PendencyView({ place }: { place: Place }) {
       </div>
 
       <Panel className="mt-6 p-4 sm:p-6">
-        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-          <h2 className="font-display text-lg text-ink">How long applications have waited</h2>
-          <span className="text-xs text-slate-500">Days since submission, open applications only</span>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-display text-lg text-ink">How long applications have waited</h2>
+            <span className="text-xs text-slate-500">Days since submission, open applications only</span>
+          </div>
+          <ExportButtons kind="oversight-pendency" params={place} keeps="longest-waiting" disabled={data.total_open === 0} />
         </div>
         <ul className="flex flex-col gap-3">
           {data.buckets.map((b) => (
@@ -237,9 +245,12 @@ function DistrictsView({ place }: { place: Place }) {
         <StatCard label="Expired" value={fmt(data.totals.expired)} tone="warning" />
       </div>
       <Panel className="mt-6 p-4 sm:p-6">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-          <h2 className="font-display text-lg text-ink">District-wise position</h2>
-          <span className="text-xs text-slate-500">Most overdue first. Verified and expired count applications.</span>
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-display text-lg text-ink">District-wise position</h2>
+            <span className="text-xs text-slate-500">Most overdue first. Verified and expired count applications.</span>
+          </div>
+          <ExportButtons kind="oversight-districts" params={place} disabled={data.rows.length === 0} />
         </div>
         <DataTable
           columns={columns}
@@ -256,7 +267,7 @@ function DistrictsView({ place }: { place: Place }) {
 
 // ------------------------------------------------------------------ enforcement
 
-function EnforcementView({ place }: { place: Place }) {
+function LapsedView({ place }: { place: Place }) {
   const [reverification, setReverification] = useState<"" | "applied" | "none">("");
   const [minDays, setMinDays] = useState("0");
   const [page, setPage] = useState(1);
@@ -335,6 +346,7 @@ function EnforcementView({ place }: { place: Place }) {
           <Badge tone="danger">Not applied</Badge>
         ),
     },
+    { header: "Case", cell: (r) => <CaseCell instrumentId={r.instrument_id} caseRef={r.case} /> },
   ];
 
   const pages = Math.max(1, Math.ceil(data.total / data.page_size));
@@ -372,9 +384,17 @@ function EnforcementView({ place }: { place: Place }) {
       </div>
 
       <Panel className="mt-4 p-4 sm:p-6">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-          <h2 className="font-display text-lg text-ink">Instruments without a valid certificate</h2>
-          <span className="text-xs text-slate-500">Longest lapsed first. Applying to renew does not make the certificate valid.</span>
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-display text-lg text-ink">Instruments without a valid certificate</h2>
+            <span className="text-xs text-slate-500">Longest lapsed first. Applying to renew does not make the certificate valid.</span>
+          </div>
+          <ExportButtons
+            kind="oversight-enforcement"
+            params={{ ...place, reverification: reverification || undefined, min_days_overdue: Number(minDays) || undefined }}
+            keeps="most overdue"
+            disabled={data.total === 0}
+          />
         </div>
         <DataTable
           columns={columns}
@@ -384,7 +404,7 @@ function EnforcementView({ place }: { place: Place }) {
           emptyDescription="Nothing matches these filters."
         />
         {data.truncated && (
-          <p className="mt-3 text-xs text-warning">Only the most recent expired applications were checked, so this list may be incomplete. Narrow it by state or district.</p>
+          <p className="mt-3 text-xs text-warning">This list hit its safety limit, so only the most overdue instruments are shown. Narrow it by state or district to see the rest.</p>
         )}
         {data.total > data.page_size && (
           <div className="mt-4 flex items-center justify-between gap-3">
@@ -397,6 +417,339 @@ function EnforcementView({ place }: { place: Place }) {
             </Button>
           </div>
         )}
+      </Panel>
+      <GeneratedAt iso={data.generated_at} />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- enforcement: lapsed / never certified
+
+function EnforcementTab({ place }: { place: Place }) {
+  const [list, setList] = useState<"lapsed" | "uncertified">("lapsed");
+  const options = [
+    { id: "lapsed" as const, label: "Lapsed certificates" },
+    { id: "uncertified" as const, label: "Never certified" },
+  ];
+  return (
+    <>
+      <div role="group" aria-label="Enforcement list" className="mb-4 inline-flex gap-1 rounded-lg border border-line bg-white p-1 shadow-panel">
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            aria-pressed={list === o.id}
+            onClick={() => setList(o.id)}
+            className={cn(
+              "h-10 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 sm:px-4",
+              list === o.id ? "bg-ink text-white" : "text-slate-600 hover:bg-paper2",
+            )}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {list === "lapsed" ? <LapsedView place={place} /> : <UncertifiedView place={place} />}
+    </>
+  );
+}
+
+function Pager({ page, total, pageSize, fetching, onPage }: { page: number; total: number; pageSize: number; fetching: boolean; onPage: (p: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= pageSize) return null;
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3">
+      <Button variant="secondary" size="sm" disabled={page <= 1 || fetching} onClick={() => onPage(page - 1)}>
+        Previous
+      </Button>
+      <span className="text-sm text-slate-600">Page {page} of {pages}</span>
+      <Button variant="secondary" size="sm" disabled={page >= pages || fetching} onClick={() => onPage(page + 1)}>
+        Next
+      </Button>
+    </div>
+  );
+}
+
+function UncertifiedView({ place }: { place: Place }) {
+  const [application, setApplication] = useState<"" | "applied" | "none">("");
+  const [minDays, setMinDays] = useState("0");
+  const [page, setPage] = useState(1);
+  const query = {
+    ...place,
+    application: application || undefined,
+    min_days: Number(minDays) || undefined,
+    page,
+    page_size: PAGE_SIZE,
+  };
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ["oversight", "uncertified", query],
+    queryFn: () => OversightApi.uncertified(query),
+    placeholderData: keepPreviousData,
+  });
+
+  const [lastPlace, setLastPlace] = useState(JSON.stringify(place));
+  if (lastPlace !== JSON.stringify(place)) {
+    setLastPlace(JSON.stringify(place));
+    setPage(1);
+  }
+
+  if (isLoading) return <Loading />;
+  if (isError || !data) return <ErrorState message="Couldn't load the never-certified list." onRetry={() => refetch()} />;
+
+  const s = data.summary;
+  const columns: Column<UncertifiedItem>[] = [
+    {
+      header: "Instrument",
+      cell: (r) => (
+        <div>
+          <span className="font-mono text-xs">{r.uiid ?? "-"}</span>
+          <div className="text-xs text-slate-500">{r.instrument_type ?? "-"}</div>
+        </div>
+      ),
+    },
+    {
+      header: "Owner",
+      cell: (r) => (
+        <div>
+          {r.org_name || r.owner_name || "-"}
+          {r.org_name && r.owner_name && <div className="text-xs text-slate-500">{r.owner_name}</div>}
+        </div>
+      ),
+    },
+    {
+      header: "Location",
+      cell: (r) => (
+        <div>
+          {[r.district_name, r.state_name].filter(Boolean).join(", ") || "-"}
+          {r.address_line && <div className="max-w-[16rem] truncate text-xs text-slate-500" title={r.address_line}>{r.address_line}</div>}
+        </div>
+      ),
+    },
+    {
+      header: "Registered",
+      cell: (r) => (
+        <div>
+          {formatDate(r.registered_on)}
+          <div className="mt-0.5">
+            <Badge tone={r.days_since_registered > 90 ? "danger" : "warning"}>{r.days_since_registered} d ago</Badge>
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: "Application",
+      cell: (r) =>
+        r.application ? (
+          <div>
+            <Badge tone="info">Applied {formatDate(r.application.applied_on)}</Badge>
+            <div className="mt-0.5"><ApplicationStatusBadge status={r.application.status} /></div>
+          </div>
+        ) : (
+          <Badge tone="danger">Not applied</Badge>
+        ),
+    },
+    { header: "Case", cell: (r) => <CaseCell instrumentId={r.instrument_id} caseRef={r.case} /> },
+  ];
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label="Never certified" value={fmt(s.total)} tone={s.total ? "danger" : "success"} />
+        <StatCard label="Not applied" value={fmt(s.not_applied)} tone={s.not_applied ? "danger" : "neutral"} />
+        <StatCard label="Application pending" value={fmt(s.applied)} tone="info" />
+        <StatCard label="Counted after" value={`${data.grace_days} days`} detail="Registered longer ago than this" />
+      </div>
+
+      <div className="mt-6 grid gap-4 rounded-xl border border-line bg-white p-4 shadow-panel sm:grid-cols-2 lg:grid-cols-4">
+        <SelectInput
+          label="Application"
+          value={application}
+          onChange={(e) => { setApplication(e.target.value as "" | "applied" | "none"); setPage(1); }}
+          options={[
+            { value: "", label: "Any" },
+            { value: "none", label: "Not applied" },
+            { value: "applied", label: "Applied, pending" },
+          ]}
+        />
+        <SelectInput
+          label="Registered for"
+          value={minDays}
+          onChange={(e) => { setMinDays(e.target.value); setPage(1); }}
+          options={[
+            { value: "0", label: "Any time" },
+            { value: "61", label: "More than 60 days" },
+            { value: "91", label: "More than 90 days" },
+          ]}
+        />
+      </div>
+
+      <Panel className="mt-4 p-4 sm:p-6">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="font-display text-lg text-ink">Instruments that were never verified</h2>
+            <span className="text-xs text-slate-500">
+              Registered more than {data.grace_days} days ago with no certificate, longest first. An application in progress is
+              shown, but the instrument is still not verified.
+            </span>
+          </div>
+          <ExportButtons
+            kind="oversight-uncertified"
+            params={{ ...place, application: application || undefined, min_days: Number(minDays) || undefined }}
+            keeps="longest registered"
+            disabled={data.total === 0}
+          />
+        </div>
+        <DataTable
+          columns={columns}
+          rows={data.items}
+          rowKey={(r) => r.instrument_id}
+          emptyTitle="No unverified instruments"
+          emptyDescription="Nothing matches these filters."
+        />
+        {data.truncated && (
+          <p className="mt-3 text-xs text-warning">This list hit its safety limit, so only the longest-registered instruments are shown. Narrow it by state or district to see the rest.</p>
+        )}
+        <Pager page={data.page} total={data.total} pageSize={data.page_size} fetching={isFetching} onPage={setPage} />
+      </Panel>
+      <GeneratedAt iso={data.generated_at} />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------- cases
+
+type CaseView = "active" | "mine" | "due" | "resolved" | "all";
+
+const CASE_VIEWS: { value: CaseView; label: string }[] = [
+  { value: "active", label: "All open cases" },
+  { value: "mine", label: "With me" },
+  { value: "due", label: "Due for escalation" },
+  { value: "resolved", label: "Resolved" },
+  { value: "all", label: "Everything" },
+];
+
+function CasesView({ place }: { place: Place }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [view, setView] = useState<CaseView>("active");
+  const [kind, setKind] = useState<"" | CaseKind>("");
+  const [page, setPage] = useState(1);
+  const query = {
+    ...place,
+    status: view === "resolved" ? ("resolved" as const) : view === "all" ? ("all" as const) : view === "due" ? undefined : ("active" as const),
+    due: view === "due" || undefined,
+    with_me: view === "mine" || undefined,
+    kind: kind || undefined,
+    page,
+    page_size: PAGE_SIZE,
+  };
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ["oversight", "cases", query],
+    queryFn: () => CasesApi.list(query),
+    placeholderData: keepPreviousData,
+  });
+
+  const [lastPlace, setLastPlace] = useState(JSON.stringify(place));
+  if (lastPlace !== JSON.stringify(place)) {
+    setLastPlace(JSON.stringify(place));
+    setPage(1);
+  }
+
+  if (isLoading) return <Loading />;
+  if (isError || !data) return <ErrorState message="Couldn't load the cases." onRetry={() => refetch()} />;
+
+  const s = data.summary;
+  const go = (c: CaseListItem) => navigate(`/app/${user?.role}/oversight/cases/${c.id}`);
+  const columns: Column<CaseListItem>[] = [
+    {
+      header: "Instrument",
+      cell: (r) => (
+        <div>
+          <span className="font-mono text-xs">{r.instrument.uiid ?? "-"}</span>
+          <div className="text-xs text-slate-500">{r.instrument.type ?? "-"}</div>
+        </div>
+      ),
+    },
+    {
+      header: "Owner",
+      cell: (r) => r.owner.org_name || r.owner.name || "-",
+    },
+    {
+      header: "Location",
+      cell: (r) => [r.district_name, r.state_name].filter(Boolean).join(", ") || "-",
+    },
+    {
+      header: "Case",
+      cell: (r) => (
+        <div className="flex flex-col items-start gap-1">
+          <span className="text-xs text-slate-500">{KIND_LABEL[r.kind]}</span>
+          <div className="flex flex-wrap gap-1">
+            <CaseStatusBadge status={r.status} />
+            {r.status !== "resolved" && <LevelBadge level={r.level} />}
+            {r.escalation_due && <Badge tone="warning">Due for escalation</Badge>}
+          </div>
+        </div>
+      ),
+    },
+    {
+      header: "Notices",
+      cell: (r) => (r.notice_count ? `${r.notice_count}${r.last_notice_at ? `, last ${formatDate(r.last_notice_at)}` : ""}` : "None yet"),
+    },
+    {
+      header: "",
+      className: "text-right",
+      cell: (r) => (
+        <Button variant="secondary" size="sm" onClick={() => go(r)}>
+          Open
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard label="Open cases" value={fmt(s.active)} tone={s.active ? "info" : "neutral"} detail={`${fmt(s.notice_sent)} notice sent, ${fmt(s.escalated)} escalated`} />
+        <StatCard label="With me" value={fmt(s.with_me)} tone={s.with_me ? "warning" : "neutral"} detail="Waiting for your action" />
+        <StatCard label="Due for escalation" value={fmt(s.escalation_due)} tone={s.escalation_due ? "danger" : "neutral"} />
+        <StatCard label="Resolved" value={fmt(s.resolved)} tone="success" />
+      </div>
+
+      <div className="mt-6 grid gap-4 rounded-xl border border-line bg-white p-4 shadow-panel sm:grid-cols-2 lg:grid-cols-4">
+        <SelectInput
+          label="Show"
+          value={view}
+          onChange={(e) => { setView(e.target.value as CaseView); setPage(1); }}
+          options={CASE_VIEWS}
+        />
+        <SelectInput
+          label="Type"
+          value={kind}
+          onChange={(e) => { setKind(e.target.value as "" | CaseKind); setPage(1); }}
+          options={[
+            { value: "", label: "All types" },
+            { value: "lapsed", label: "Lapsed certificate" },
+            { value: "never_certified", label: "Never certified" },
+          ]}
+        />
+      </div>
+
+      <Panel className="mt-4 p-4 sm:p-6">
+        <div className="mb-3">
+          <h2 className="font-display text-lg text-ink">Enforcement cases</h2>
+          <span className="text-xs text-slate-500">
+            Open a case from the Enforcement tab. A case closes by itself once the instrument has a valid certificate.
+          </span>
+        </div>
+        <DataTable
+          columns={columns}
+          rows={data.items}
+          rowKey={(r) => r.id}
+          onRowClick={go}
+          emptyTitle="No cases here"
+          emptyDescription="Open a case from the Enforcement tab to send a notice to an owner."
+        />
+        <Pager page={data.page} total={data.total} pageSize={data.page_size} fetching={isFetching} onPage={setPage} />
       </Panel>
       <GeneratedAt iso={data.generated_at} />
     </>

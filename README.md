@@ -328,7 +328,7 @@ Items are tagged with the officer's user id and only that officer's session read
 
 Text is matched case-insensitively and **literally** (never as a regular expression). Dates are India calendar days. A filter can only narrow a list: who may see what is decided first (owner → own records, officer → their jurisdiction, admin → all), then the filters are applied on top.
 
-**Reports.** `GET /reports/{applications|certificates|instruments|audit-logs}?format=csv|pdf` takes the same filters as the list it belongs to (the audit-log report takes the audit viewer's filters and is admin-only; the instrument register is for owners and admins, like the instrument list).
+**Reports.** `GET /reports/{applications|certificates|instruments|audit-logs|oversight-pendency|oversight-districts|oversight-enforcement|oversight-uncertified}?format=csv|pdf` takes the same filters as the list it belongs to (the four `oversight-*` reports follow the Oversight screens and their jurisdiction rules for admin, LMO and GATC; the audit-log report takes the audit viewer's filters and is admin-only; the instrument register is for owners and admins, like the instrument list).
 
 - **CSV** — UTF-8 with a byte-order mark so Excel opens it correctly; carries every column. Any cell that a spreadsheet could read as a formula (`=`, `+`, `-`, `@`…) is prefixed with an apostrophe.
 - **PDF** — A4 landscape summary with who made it, when (IST), which filters were used, how many records, a repeating table header and page numbers. It uses the built-in PDF fonts, so characters outside Western European text print as `?`; the CSV keeps them.
@@ -341,15 +341,25 @@ In the app: a search/filter bar and **Export CSV / Export PDF** buttons sit abov
 
 ## 📊 Oversight
 
-**Admin → Oversight** (and **Oversight** in the LMO / GATC menu) has three read-only tabs:
+**Admin → Oversight** (and **Oversight** in the LMO / GATC menu) has four tabs:
 
-- **Pendency ageing** — applications still open (`submitted`, `scheduled`, `inspected`) in age buckets (0-7, 8-14, 15-30, 31-60, over 60 days since submission), how many are unassigned or have waited longer than `PENDENCY_TARGET_DAYS`, and the ten longest waiting.
+- **Pendency ageing** — applications still open (`submitted`, `scheduled`, `inspected`) in age buckets (0-7, 8-14, 15-30, 31-60, over 60 days since submission, counted in India calendar days), how many are unassigned or have waited longer than `PENDENCY_TARGET_DAYS`, and the ten longest waiting.
 - **District-wise** — one row per district: instruments registered, open applications, open applications over the target, verified (`certified` / `expiring`) and expired applications. Most overdue first.
 - **Enforcement** — instruments whose **newest** certificate has run out, longest lapsed first, with owner, address, certificate number and days lapsed (up to 30 / 31-90 / over 90). An instrument that has been renewed, or has a newer valid certificate, is not listed. If the owner has an open re-verification application the row shows **Applied** with its status; this is a mitigating note only, since the certificate is still not in force. Filter by re-verification and by how long it has lapsed.
 
 **Who sees what.** Admins see the whole country and can narrow by state and district. An LMO or GATC officer sees only their own jurisdiction (the same rule as the application queue); a filter can only narrow that, never widen it, and an officer with no jurisdiction on file sees nothing. Owners have no access. Endpoints: `GET /oversight/pendency`, `/oversight/districts`, `/oversight/enforcement` ([`docs/api-contract.md`](docs/api-contract.md) → "Oversight").
 
-**Limits.** The enforcement list is a worklist, not a case system: nothing is written, no notice is sent and nothing is escalated. It relies on the hourly expiry job having moved lapsed applications to `expired`, and only covers instruments that were certified at least once (an instrument never certified is not listed). It checks at most `ENFORCEMENT_MAX_SCAN` expired applications per request and says when that limit was hit. The numbers may lag a moment when `MONGO_READ_PREFERENCE` uses replicas.
+**Never certified.** The Enforcement tab has a second list, *Never certified*: instruments registered more than `NEVER_CERTIFIED_GRACE_DAYS` (30) days ago that have no certificate at all, longest first. 30 days matches the inspection target, so an owner has a month to apply. An open application is shown as a mitigating note, not hidden, because the instrument is still not verified. (Instruments carry no date field; the registration time is read from the instrument's ID, so this works for instruments already in the database.)
+
+**Cases, notices and escalation.** Every row in both lists has **Open case** (or the case's status and **View case**). A case is the record kept for one instrument, with a timeline:
+
+- **Send notice**: emails the owner (standard text plus an optional line from the officer), records it, and shows it on the owner's dashboard until the case is resolved. A notice is recorded even if no email could be sent; the timeline says which. A second notice must wait `NOTICE_MIN_GAP_DAYS` days.
+- **Add note**: internal, officers only. **Close case**: needs a reason.
+- **Escalate**: moves the case up one level, LMO to GATC to admin. Only the level holding the case (or an admin) can send notices, escalate or close; anyone in the jurisdiction can read it and add notes. If a case has had no result `ESCALATION_AFTER_DAYS` (15) days after its last notice, the hourly job escalates it automatically and the case is flagged *Due for escalation*.
+- A case **resolves itself** when the instrument gets a valid certificate (checked when the case is opened or viewed, and hourly). One open case per instrument; closed cases stay as history.
+- The **Cases** tab lists them (open, with me, due for escalation, resolved) with counts. Opening, notices, escalations and closures are audit-logged (`enforcement_case_*`, `enforcement_notice_sent`).
+
+**Limits.** A case is a record and a notice; nothing here fines, blocks or sanctions anyone, and officers are not emailed when a case reaches them (they see it under *With me*). Notices go to the owner's email and dashboard only (no SMS). The lapsed list is worked out from the certificates' own expiry dates, so it does not depend on the hourly expiry job. One request lists at most `ENFORCEMENT_MAX_SCAN` instruments (default 50,000, most overdue first) and says when that ceiling was hit. The numbers may lag a moment when `MONGO_READ_PREFERENCE` uses replicas (cases themselves always read the primary). The PDF uses built-in fonts, so non-Latin text prints as `?`.
 
 ---
 
@@ -629,7 +639,10 @@ docker compose --profile redis up --build
 | `INSPECTION_FORM_STRICT` | A Pass must carry test readings, every required check and a seal number. `false` also accepts the old short form (only while old app versions or phone-queued inspections still need to be accepted) | `true` |
 | `REPORT_MAX_ROWS` | Most rows one CSV/PDF report may hold; when more match, the newest are exported and the file says so | `5000` |
 | `PENDENCY_TARGET_DAYS` | Days an application may stay open before the Oversight pages count it as overdue (monitoring only) | `30` |
-| `ENFORCEMENT_MAX_SCAN` | Most expired applications the Oversight enforcement list checks per request | `10000` |
+| `ENFORCEMENT_MAX_SCAN` | Safety ceiling: most lapsed instruments one Oversight enforcement request lists (most overdue first) | `50000` |
+| `NEVER_CERTIFIED_GRACE_DAYS` | An instrument registered more than this many days ago with no certificate is listed as never certified | `30` |
+| `ESCALATION_AFTER_DAYS` | Days after the last notice before an unanswered enforcement case moves up a level | `15` |
+| `NOTICE_MIN_GAP_DAYS` | Days that must pass before a second notice can be sent on the same case | `3` |
 | `EXPIRY_REMINDER_DAYS` | Comma-separated days before expiry at which a reminder is emailed | `30,15,7,1` |
 | `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` / `SUPER_ADMIN_NAME` | Used once by `seed_super_admin.py` | — |
 
@@ -663,7 +676,7 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | **Certificates** | `GET /certificates/` *(search/filters: `q`, `status`, `application_type`, `instrument_type`, `date_from`, `date_to`)* · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
 | **Uploads** | `POST /uploads/photo` |
 | **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` *(search: `q`, `role`, `status`)* · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` · `GET /admin/audit-logs` *(read-only; filters: event, outcome, role, email text, date range; paginated)* |
-| **Reports** | `GET /reports/applications` · `/certificates` · `/instruments` · `/audit-logs` *(admin)* — `?format=csv\|pdf` plus the matching list's filters |
+| **Reports** | `GET /reports/applications` · `/certificates` · `/instruments` · `/audit-logs` *(admin)* · `/oversight-pendency` · `/oversight-districts` · `/oversight-enforcement` *(admin, LMO, GATC)* — `?format=csv\|pdf` plus the matching list's filters |
 | **Dashboard** | `GET /dashboard/owner` · `/lmo` · `/gatc` · `/admin` |
 | **Oversight** | `GET /oversight/pendency` · `/districts` · `/enforcement` *(admin: national; `lmo`/`gatc`: own jurisdiction)* — optional `state_code`, `district_code`; enforcement also `reverification`, `min_days_overdue`, `page`, `page_size` |
 | **WebSocket** | `/ws/notifications?token=<access token>` — live application, queue, and certificate updates |

@@ -48,6 +48,7 @@ def test_templates_escape_user_input_and_render_every_event():
         "days_left": 7, "valid_until": datetime(2027, 1, 1), "observations": "<img src=x>",
         "scheduled_date": "2026-11-02", "slot_label": "Morning (10:00 AM - 1:00 PM)",
         "previous_slot_text": "2026-11-01", "reason": "<i>officer on leave</i>",
+        "kind": "lapsed", "message": "<img src=x>",
         "instrument": {"type": "Platform Scale", "uiid": "LM-1", "manufacturer": "<b>Acme</b>", "model": "M", "serial_no": "S"},
     }
     for event in email_templates._BUILDERS:
@@ -56,6 +57,18 @@ def test_templates_escape_user_input_and_render_every_event():
         assert "<script>" not in html and "<b>Acme</b>" not in html and "<img src=x>" not in html
         assert "<i>officer on leave</i>" not in html
         assert "\n" not in subject
+
+
+def test_enforcement_notice_template_covers_both_kinds():
+    base = {
+        "owner_name": "Asha", "renew_url": "https://app/renew", "message": "Please act <b>now</b>",
+        "issued_by": "GATC", "cert_no": "C1", "valid_until": datetime(2026, 6, 1), "registered_on": datetime(2026, 5, 1),
+        "instrument": {"type": "Platform Scale", "uiid": "LM-1", "manufacturer": "A", "model": "M", "serial_no": "S"},
+    }
+    subject, text, html = email_templates.render("enforcement_notice", {**base, "kind": "lapsed"})
+    assert "LM-1" in subject and "expired on 01 Jun 2026" in text and "Renew now" in html and "<b>now</b>" not in html
+    subject, text, html = email_templates.render("enforcement_notice", {**base, "kind": "never_certified"})
+    assert "never been verified" in text and "registered on 01 May 2026" in text and "Apply for verification" in html
 
 
 def test_registered_email_goes_to_owner_with_html_and_text(env):

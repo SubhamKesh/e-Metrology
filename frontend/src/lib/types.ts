@@ -347,6 +347,7 @@ export interface EnforcementItem {
   days_overdue: number;
   band: EnforcementBand;
   reverification: { status: ApplicationStatus; applied_on: string } | null;
+  case: CaseRef | null;
 }
 
 export interface EnforcementReport {
@@ -364,6 +365,115 @@ export interface EnforcementReport {
   page_size: number;
   truncated: boolean;
   items: EnforcementItem[];
+}
+
+// ---- Never-certified instruments ----
+export interface UncertifiedItem {
+  instrument_id: string;
+  uiid: string | null;
+  instrument_type: string | null;
+  owner_name: string | null;
+  org_name: string | null;
+  address_line: string | null;
+  state_code: string;
+  state_name: string | null;
+  district_code: string;
+  district_name: string | null;
+  registered_on: string;
+  days_since_registered: number;
+  application: { status: ApplicationStatus; applied_on: string } | null;
+  case: CaseRef | null;
+}
+
+export interface UncertifiedReport {
+  generated_at: string;
+  grace_days: number;
+  summary: { total: number; applied: number; not_applied: number };
+  total: number;
+  page: number;
+  page_size: number;
+  truncated: boolean;
+  items: UncertifiedItem[];
+}
+
+// ---- Enforcement cases (notices and escalation) ----
+export type CaseKind = "lapsed" | "never_certified";
+export type CaseStatus = "open" | "notice_sent" | "escalated" | "resolved";
+export type CaseLevel = "lmo" | "gatc" | "admin";
+
+export interface CaseRef {
+  id: string;
+  status: CaseStatus;
+  level: CaseLevel;
+}
+
+export interface CaseListItem {
+  id: string;
+  kind: CaseKind;
+  status: CaseStatus;
+  level: CaseLevel;
+  instrument: { id: string; uiid: string | null; type: string | null; address_line: string | null };
+  owner: { name: string | null; org_name: string | null };
+  state_name: string | null;
+  district_name: string | null;
+  opened_at: string;
+  last_notice_at: string | null;
+  notice_count: number;
+  escalation_due: boolean;
+  resolved_at: string | null;
+  resolution: "renewed" | "certified" | "closed" | null;
+  held_by_me: boolean;
+}
+
+export interface CaseEvent {
+  at: string;
+  action: "opened" | "notice" | "note" | "escalated" | "resolved";
+  by_name: string | null; // null = done by the system
+  by_role: Role | null;
+  text: string | null;
+  to_level: CaseLevel | null;
+  emailed: boolean | null;
+}
+
+export interface CaseDetail extends CaseListItem {
+  state_code: string | null;
+  district_code: string | null;
+  opened_by_name: string | null;
+  escalation_after_days: number;
+  events: CaseEvent[];
+  can: { note: boolean; notice: boolean; escalate: boolean; close: boolean; notice_available_on: string | null };
+  cert_no: string | null;
+  valid_until: string | null;
+  registered_on: string | null;
+}
+
+export interface CaseListReport {
+  generated_at: string;
+  summary: {
+    active: number;
+    open: number;
+    notice_sent: number;
+    escalated: number;
+    escalation_due: number;
+    with_me: number;
+    resolved: number;
+  };
+  total: number;
+  page: number;
+  page_size: number;
+  items: CaseListItem[];
+}
+
+export interface OwnerNotice {
+  case_id: string;
+  kind: CaseKind;
+  instrument_id: string;
+  uiid: string | null;
+  instrument_type: string | null;
+  sent_at: string;
+  message: string | null;
+  issued_by: string;
+  notice_count: number;
 }
 
 // ---- Security audit log (admin only; read-only) ----

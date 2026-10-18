@@ -1,5 +1,6 @@
 import { ActionCard, DashboardHero, SectionTitle, StatCard } from "@/components/ui/Card";
 import { ButtonLink } from "@/components/ui/Button";
+import { OwnerNotices } from "@/components/domain/OwnerNotices";
 import { ErrorState, Skeleton } from "@/components/ui/States";
 import { useDashboard } from "@/hooks/useData";
 import type { OwnerDashboard } from "@/lib/types";
@@ -19,6 +20,8 @@ export default function OwnerDashboardPage() {
         description="Here's where your instruments stand today."
         action={<ButtonLink to="/app/owner/instruments/new">Register instrument</ButtonLink>}
       />
+
+      <OwnerNotices />
 
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">

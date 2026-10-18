@@ -64,6 +64,13 @@ class ReverificationInfo(BaseModel):
     applied_on: str
 
 
+class CaseRef(BaseModel):
+    """The open enforcement case of an instrument, shown next to its row in a list."""
+    id: str
+    status: str  # open | notice_sent | escalated
+    level: str   # lmo | gatc | admin (who holds it now)
+
+
 class EnforcementItem(BaseModel):
     instrument_id: str
     uiid: Optional[str] = None
@@ -80,6 +87,7 @@ class EnforcementItem(BaseModel):
     days_overdue: int
     band: str  # recent | overdue | long_overdue
     reverification: Optional[ReverificationInfo] = None
+    case: Optional[CaseRef] = None
 
 
 class EnforcementSummary(BaseModel):
@@ -99,3 +107,37 @@ class EnforcementReport(BaseModel):
     page_size: int
     truncated: bool
     items: list[EnforcementItem]
+
+
+class UncertifiedItem(BaseModel):
+    instrument_id: str
+    uiid: Optional[str] = None
+    instrument_type: Optional[str] = None
+    owner_name: Optional[str] = None
+    org_name: Optional[str] = None
+    address_line: Optional[str] = None
+    state_code: str
+    state_name: Optional[str] = None
+    district_code: str
+    district_name: Optional[str] = None
+    registered_on: str
+    days_since_registered: int
+    application: Optional[ReverificationInfo] = None  # an open application is a mitigating note
+    case: Optional[CaseRef] = None
+
+
+class UncertifiedSummary(BaseModel):
+    total: int
+    applied: int
+    not_applied: int
+
+
+class UncertifiedReport(BaseModel):
+    generated_at: str
+    grace_days: int
+    summary: UncertifiedSummary
+    total: int
+    page: int
+    page_size: int
+    truncated: bool
+    items: list[UncertifiedItem]

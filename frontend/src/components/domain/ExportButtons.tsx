@@ -9,11 +9,13 @@ interface Props {
   /** The filters currently applied to the list, so the file holds exactly what is on screen. */
   params?: object;
   disabled?: boolean;
+  /** Which rows a file keeps when more match than the export limit. Defaults to "newest". */
+  keeps?: string;
 }
 
 // "Export CSV" / "Export PDF" for the list on screen. The file is built by the server from the same
 // filters, limited to what this person may see.
-export function ExportButtons({ kind, params, disabled }: Props) {
+export function ExportButtons({ kind, params, disabled, keeps = "newest" }: Props) {
   const [busy, setBusy] = useState<ReportFormat | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
@@ -27,7 +29,7 @@ export function ExportButtons({ kind, params, disabled }: Props) {
         file.truncated
           ? {
               tone: "error",
-              text: `Saved the newest ${file.rows.toLocaleString("en-IN")} of ${file.total.toLocaleString("en-IN")} records. Narrow the filters to get the rest.`,
+              text: `Saved the ${keeps} ${file.rows.toLocaleString("en-IN")} of ${file.total.toLocaleString("en-IN")} records. Narrow the filters to get the rest.`,
             }
           : { tone: "ok", text: `Saved ${file.rows.toLocaleString("en-IN")} record${file.rows === 1 ? "" : "s"}.` },
       );

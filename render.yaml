@@ -83,12 +83,20 @@ services:
       # the response say when more matched.
       - key: REPORT_MAX_ROWS
         value: "5000"
-      # Oversight pages: days an open application may wait before it counts as overdue, and how many
-      # expired applications the enforcement list checks per request.
+      # Oversight pages: days an open application may wait before it counts as overdue, and the most
+      # lapsed instruments one enforcement request will list (safety ceiling).
       - key: PENDENCY_TARGET_DAYS
         value: "30"
       - key: ENFORCEMENT_MAX_SCAN
-        value: "10000"
+        value: "50000"
+      # Enforcement cases: days after registration before a never-certified instrument is listed, days
+      # after the last notice before an unanswered case moves up a level, and days between two notices.
+      - key: NEVER_CERTIFIED_GRACE_DAYS
+        value: "30"
+      - key: ESCALATION_AFTER_DAYS
+        value: "15"
+      - key: NOTICE_MIN_GAP_DAYS
+        value: "3"
 
   # ---------- Optional: dedicated queue worker (paid plans only) ----------
   # Render's free plan has no Background Workers. On a paid plan, uncomment this, set

@@ -9,6 +9,10 @@ apply the role and jurisdiction rules first. A filter can only narrow, never wid
   GET /reports/certificates   owner (own), officer (jurisdiction), admin (all)
   GET /reports/instruments    owner (own), admin (all)
   GET /reports/audit-logs     admin
+  GET /reports/oversight-pendency      admin (country), LMO / GATC (own jurisdiction)
+  GET /reports/oversight-districts     same
+  GET /reports/oversight-enforcement   same
+  GET /reports/oversight-uncertified   same
 
 `format=csv` (default) or `format=pdf`. At most REPORT_MAX_ROWS rows (newest first); when more match,
 the file holds the newest ones and the response says so in `X-Report-Total` / `X-Report-Truncated`
@@ -28,6 +32,8 @@ from app.config.settings import EXPIRY_REMINDER_DAYS, REPORT_MAX_ROWS
 from app.middleware.auth import get_current_user, role_required
 from app.rate_limit import RATE_LIMIT_REPORTS, limiter
 from app.routers import admin_audit
+from app.routers import oversight as ov
+from app.services.enforcement_cases import ROLE_TITLE
 from app.routers.applications import find_applications
 from app.routers.certificates import find_certificates
 from app.routers.instruments import find_instruments
@@ -444,3 +450,202 @@ def audit_logs_report(
     )
     report = _build("Audit log report", columns, rows, total, filters, current_user)
     return _deliver(report, format, "audit-logs", current_user, request)
+
+
+# --- oversight (pendency, district-wise, enforcement) ----------------------------------------------
+# The same numbers and the same jurisdiction rules as the Oversight screens: the rows come from the
+# builders in routers/oversight.py, so an export can never show more than the screen does. When more
+# than REPORT_MAX_ROWS match, the file keeps the longest-waiting / most-overdue rows.
+
+OfficerOrAdmin = Depends(role_required("admin", "lmo", "gatc"))
+
+
+def _case_text(case) -> str:
+    """The open enforcement case on an instrument, e.g. "Notice sent - GATC" (empty when there is none)."""
+    if case is None:
+        return ""
+    return f"{_label(case.status)} - {ROLE_TITLE.get(case.level, case.level)}"
+
+
+@router.get("/oversight-pendency")
+@limiter.limit(RATE_LIMIT_REPORTS)
+def oversight_pendency_report(
+    request: Request,
+    format: Format = "csv",
+    state_code: search_utils.StateCodeParam = None,
+    district_code: search_utils.DistrictCodeParam = None,
+    current_user: dict = OfficerOrAdmin,
+):
+    """Every open application (submitted, scheduled, inspected), longest waiting first."""
+    items, total = ov.open_applications(current_user, state_code, district_code, REPORT_MAX_ROWS)
+    rows = [
+        {
+            "uiid": i.uiid or "",
+            "instrument_type": i.instrument_type or "",
+            "kind": "Re-verification" if i.application_type == "renewal" else "First verification",
+            "status": _label(i.status),
+            "state": i.state_name or "",
+            "district": i.district_name or "",
+            "submitted_on": rx.fmt_date(i.submitted_at),
+            "waiting_days": i.age_days,
+            "over_target": "Yes" if i.age_days > ov.PENDENCY_TARGET_DAYS else "No",
+            "assigned": "Assigned" if i.assigned else "Unassigned",
+            "application_id": i.application_id,
+        }
+        for i in items
+    ]
+    columns = [
+        Column("uiid", "Instrument UIID", weight=1.4),
+        Column("instrument_type", "Instrument type", weight=1.8),
+        Column("kind", "Type", weight=1.3),
+        Column("status", "Status", weight=1.1),
+        Column("state", "State", weight=1.3),
+        Column("district", "District", weight=1.3),
+        Column("submitted_on", "Submitted on", weight=1.2),
+        Column("waiting_days", "Days waiting", weight=0.9),
+        Column("over_target", f"Over {ov.PENDENCY_TARGET_DAYS} days", weight=0.9),
+        Column("assigned", "Officer", weight=1.0),
+        Column("application_id", "Application ID", in_pdf=False),
+    ]
+    filters = _filters(("State", state_code), ("District", district_code), ("Target", f"{ov.PENDENCY_TARGET_DAYS} days"))
+    report = _build("Pendency report - open applications", columns, rows, total, filters, current_user)
+    return _deliver(report, format, "oversight-pendency", current_user, request)
+
+
+@router.get("/oversight-districts")
+@limiter.limit(RATE_LIMIT_REPORTS)
+def oversight_districts_report(
+    request: Request,
+    format: Format = "csv",
+    state_code: search_utils.StateCodeParam = None,
+    district_code: search_utils.DistrictCodeParam = None,
+    current_user: dict = OfficerOrAdmin,
+):
+    """One row per district, the same numbers as the District-wise screen."""
+    data = ov.districts_report(current_user=current_user, state_code=state_code, district_code=district_code)
+    total = len(data.rows)
+    rows = [r.model_dump() if hasattr(r, "model_dump") else r.dict() for r in data.rows[:REPORT_MAX_ROWS]]
+    columns = [
+        Column("district_name", "District", weight=1.6),
+        Column("state_name", "State / UT", weight=1.6),
+        Column("instruments", "Instruments", weight=1.0),
+        Column("open_applications", "Open applications", weight=1.1),
+        Column("overdue_applications", f"Open over {data.target_days} days", weight=1.2),
+        Column("verified", "Verified", weight=1.0),
+        Column("expired", "Expired", weight=1.0),
+    ]
+    filters = _filters(("State", state_code), ("District", district_code), ("Target", f"{data.target_days} days"))
+    report = _build("District-wise report", columns, rows, total, filters, current_user)
+    return _deliver(report, format, "oversight-districts", current_user, request)
+
+
+@router.get("/oversight-enforcement")
+@limiter.limit(RATE_LIMIT_REPORTS)
+def oversight_enforcement_report(
+    request: Request,
+    format: Format = "csv",
+    state_code: search_utils.StateCodeParam = None,
+    district_code: search_utils.DistrictCodeParam = None,
+    reverification: Annotated[Optional[Literal["applied", "none"]], Query()] = None,
+    min_days_overdue: Annotated[int, Query(ge=0, le=36500)] = 0,
+    current_user: dict = OfficerOrAdmin,
+):
+    """Instruments whose newest certificate has lapsed, most overdue first. Owner contact details are not included."""
+    result = ov.build_enforcement(current_user, state_code, district_code, reverification, min_days_overdue)
+    total = len(result.entries)
+    items = ov.enforcement_items(result.entries[:REPORT_MAX_ROWS])
+    band = {"recent": "Up to 30 days", "overdue": "31-90 days", "long_overdue": "Over 90 days"}
+    rows = [
+        {
+            "uiid": i.uiid or "",
+            "instrument_type": i.instrument_type or "",
+            "owner": i.org_name or i.owner_name or "",
+            "address": i.address_line or "",
+            "state": i.state_name or "",
+            "district": i.district_name or "",
+            "cert_no": i.cert_no or "",
+            "lapsed_on": rx.fmt_date(i.valid_until),
+            "days_overdue": i.days_overdue,
+            "band": band.get(i.band, i.band),
+            "reverification": f"Applied - {_label(i.reverification.status)}" if i.reverification else "Not applied",
+            "applied_on": rx.fmt_date(i.reverification.applied_on) if i.reverification else "",
+            "case": _case_text(i.case),
+        }
+        for i in items
+    ]
+    columns = [
+        Column("uiid", "Instrument UIID", weight=1.4),
+        Column("instrument_type", "Instrument type", weight=1.6),
+        Column("owner", "Owner", weight=1.8),
+        Column("address", "Address", in_pdf=False),
+        Column("state", "State", weight=1.2),
+        Column("district", "District", weight=1.2),
+        Column("cert_no", "Certificate no.", weight=1.8),
+        Column("lapsed_on", "Lapsed on", weight=1.1),
+        Column("days_overdue", "Days overdue", weight=0.9),
+        Column("band", "Band", in_pdf=False),
+        Column("reverification", "Re-verification", weight=1.5),
+        Column("applied_on", "Applied on", in_pdf=False),
+        Column("case", "Case", weight=1.4),
+    ]
+    filters = _filters(
+        ("State", state_code), ("District", district_code),
+        ("Re-verification", {"applied": "Applied, pending", "none": "Not applied"}.get(reverification)),
+        ("Lapsed for at least", f"{min_days_overdue} days" if min_days_overdue else None),
+    )
+    report = _build("Enforcement report - lapsed certificates", columns, rows, total, filters, current_user)
+    return _deliver(report, format, "oversight-enforcement", current_user, request)
+
+
+@router.get("/oversight-uncertified")
+@limiter.limit(RATE_LIMIT_REPORTS)
+def oversight_uncertified_report(
+    request: Request,
+    format: Format = "csv",
+    state_code: search_utils.StateCodeParam = None,
+    district_code: search_utils.DistrictCodeParam = None,
+    application: Annotated[Optional[Literal["applied", "none"]], Query()] = None,
+    min_days: Annotated[int, Query(ge=0, le=36500)] = 0,
+    current_user: dict = OfficerOrAdmin,
+):
+    """Instruments registered long ago that never got a certificate, longest registered first. No owner contact details."""
+    result = ov.build_uncertified(current_user, state_code, district_code, application, min_days)
+    total = len(result.entries)
+    items = ov.uncertified_items(result.entries[:REPORT_MAX_ROWS])
+    rows = [
+        {
+            "uiid": i.uiid or "",
+            "instrument_type": i.instrument_type or "",
+            "owner": i.org_name or i.owner_name or "",
+            "address": i.address_line or "",
+            "state": i.state_name or "",
+            "district": i.district_name or "",
+            "registered_on": rx.fmt_date(i.registered_on),
+            "days": i.days_since_registered,
+            "application": f"Applied - {_label(i.application.status)}" if i.application else "Not applied",
+            "applied_on": rx.fmt_date(i.application.applied_on) if i.application else "",
+            "case": _case_text(i.case),
+        }
+        for i in items
+    ]
+    columns = [
+        Column("uiid", "Instrument UIID", weight=1.4),
+        Column("instrument_type", "Instrument type", weight=1.6),
+        Column("owner", "Owner", weight=1.8),
+        Column("address", "Address", in_pdf=False),
+        Column("state", "State", weight=1.2),
+        Column("district", "District", weight=1.2),
+        Column("registered_on", "Registered on", weight=1.1),
+        Column("days", "Days since registered", weight=1.0),
+        Column("application", "Application", weight=1.5),
+        Column("applied_on", "Applied on", in_pdf=False),
+        Column("case", "Case", weight=1.4),
+    ]
+    filters = _filters(
+        ("State", state_code), ("District", district_code),
+        ("Application", {"applied": "Applied, pending", "none": "Not applied"}.get(application)),
+        ("Registered at least", f"{min_days} days" if min_days else None),
+        ("Never certified after", f"{ov.NEVER_CERTIFIED_GRACE_DAYS} days"),
+    )
+    report = _build("Never-certified instruments", columns, rows, total, filters, current_user)
+    return _deliver(report, format, "oversight-uncertified", current_user, request)

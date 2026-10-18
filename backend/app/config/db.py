@@ -60,6 +60,10 @@ otp_verifications_col = db["otp_verifications"]
 # app/services/audit.py. Never read or modified by the API itself.
 audit_logs_col = db["audit_logs"]
 
+# Enforcement cases (notices + escalation) for lapsed / never-certified instruments; see
+# app/routers/enforcement_cases.py. At most one *active* case per instrument.
+enforcement_cases_col = db["enforcement_cases"]
+
 # Reference data (seeded by scripts/seed_geo.py) — states/UTs and their
 # districts. Kept as data, not code, so a boundary change doesn't need a
 # deploy. Every state_code/district_code stored elsewhere in the app is
@@ -117,6 +121,17 @@ def init_indexes():
             "Could not create the unique index on inspections.seal_number (duplicate seal numbers already stored?).",
             exc_info=True,
         )
+
+    # One open case per instrument, enforced by the DB (partial: resolved cases are kept as history).
+    try:
+        enforcement_cases_col.create_index(
+            "instrument_id", unique=True, partialFilterExpression={"active": True},
+        )
+        enforcement_cases_col.create_index([("state_code", 1), ("district_code", 1), ("status", 1)])
+        enforcement_cases_col.create_index("owner_id")
+    except Exception:
+        import logging
+        logging.getLogger("maapsetu").warning("Could not create the enforcement_cases indexes.", exc_info=True)
 
     # Geo reference lookups.
     states_col.create_index("code", unique=True)

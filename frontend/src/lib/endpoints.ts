@@ -18,9 +18,14 @@ import type {
   StateOption,
   User,
   AuditLogPage,
+  CaseDetail,
+  CaseKind,
+  CaseListReport,
   DistrictReport,
   EnforcementReport,
+  OwnerNotice,
   PendencyReport,
+  UncertifiedReport,
 } from "./types";
 
 // Builds "?a=1&b=2" from the filters that have a value (empty strings, undefined and false are left out).
@@ -253,10 +258,41 @@ export interface EnforcementQuery extends OversightPlace {
   page_size?: number;
 }
 
+export interface UncertifiedQuery extends OversightPlace {
+  application?: "applied" | "none";
+  min_days?: number;
+  page?: number;
+  page_size?: number;
+}
+export interface CaseQuery extends OversightPlace {
+  status?: "active" | "open" | "notice_sent" | "escalated" | "resolved" | "all";
+  kind?: CaseKind;
+  due?: boolean;
+  with_me?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
 export const OversightApi = {
   pendency: (q: OversightPlace = {}) => api.get<PendencyReport>(`/oversight/pendency${toQuery(q)}`),
   districts: (q: OversightPlace = {}) => api.get<DistrictReport>(`/oversight/districts${toQuery(q)}`),
   enforcement: (q: EnforcementQuery = {}) => api.get<EnforcementReport>(`/oversight/enforcement${toQuery(q)}`),
+  uncertified: (q: UncertifiedQuery = {}) => api.get<UncertifiedReport>(`/oversight/uncertified${toQuery(q)}`),
+};
+
+// ---- Enforcement cases: notices and escalation (officers) and the owner's notices ----
+export const CasesApi = {
+  list: (q: CaseQuery = {}) => api.get<CaseListReport>(`/oversight/cases${toQuery(q)}`),
+  get: (id: string) => api.get<CaseDetail>(`/oversight/cases/${id}`),
+  open: (instrumentId: string) => api.post<CaseDetail>("/oversight/cases", { instrument_id: instrumentId }),
+  notice: (id: string, message?: string) => api.post<CaseDetail>(`/oversight/cases/${id}/notice`, { message: message?.trim() || null }),
+  note: (id: string, text: string) => api.post<CaseDetail>(`/oversight/cases/${id}/note`, { text }),
+  escalate: (id: string, reason?: string) => api.post<CaseDetail>(`/oversight/cases/${id}/escalate`, { reason: reason?.trim() || null }),
+  close: (id: string, reason: string) => api.post<CaseDetail>(`/oversight/cases/${id}/close`, { reason }),
+};
+
+export const NoticesApi = {
+  mine: () => api.get<OwnerNotice[]>("/notices/mine"),
 };
 
 // ---- Certificates ----
@@ -281,7 +317,15 @@ export const UploadApi = {
 
 // ---- Reports (CSV / PDF downloads) ----
 // Same filters as the lists, so a file holds exactly what the screen shows.
-export type ReportKind = "applications" | "certificates" | "instruments" | "audit-logs";
+export type ReportKind =
+  | "applications"
+  | "certificates"
+  | "instruments"
+  | "audit-logs"
+  | "oversight-pendency"
+  | "oversight-districts"
+  | "oversight-enforcement"
+  | "oversight-uncertified";
 export type ReportFormat = "csv" | "pdf";
 
 export const ReportsApi = {

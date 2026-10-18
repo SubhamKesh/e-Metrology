@@ -140,6 +140,18 @@ def check_expired_certificates():
             notify_certificate_expired(cert)
 
 
+def check_enforcement_cases():
+    """Hourly: close enforcement cases whose instrument now has a valid certificate, and escalate cases
+    that were left unanswered for ESCALATION_AFTER_DAYS after the last notice."""
+    if not _acquire_run_lock("check_enforcement_cases"):
+        return
+    from app.services.enforcement_cases import run_maintenance
+
+    result = run_maintenance()
+    if result["resolved"] or result["escalated"]:
+        logger.info("Enforcement cases: %s", result)
+
+
 def reconcile_missing_certificates_job():
     """Safety net: issue certificates for 'certified' applications that never got one
     (see services/jobs.py). Runs shortly after boot and then every 15 minutes."""
@@ -156,6 +168,7 @@ def start_expiry_scheduler():
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_expiring_certificates, "interval", hours=1)
     scheduler.add_job(check_expired_certificates, "interval", hours=1)
+    scheduler.add_job(check_enforcement_cases, "interval", hours=1)
     # First run ~45s after startup so a freshly (re)started or woken-up host
     # immediately picks up anything that was stranded while it was down.
     scheduler.add_job(

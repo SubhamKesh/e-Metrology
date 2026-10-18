@@ -371,7 +371,7 @@ Same response shape for both — each officer only ever sees their own numbers, 
 Read-only monitoring views. Role: `admin` (whole country), `lmo` / `gatc` (own jurisdiction, same rule as the application queue; an officer with no jurisdiction gets empty results). `owner` and anonymous → `403` / `401`. A `state_code` / `district_code` filter only narrows what the role may already see. Reads may come from a replica (`MONGO_READ_PREFERENCE`), so figures can lag a moment. Responses are not cached.
 
 ### GET `/oversight/pendency?state_code=&district_code=`
-Open applications (`submitted`, `scheduled`, `inspected`) by age in whole days since `submitted_at`.
+Open applications (`submitted`, `scheduled`, `inspected`) by age in whole **India calendar days** since `submitted_at` (submitted today IST = 0, yesterday = 1, whatever the time of day).
 ```json
 {
   "generated_at": "2026-10-18T09:00:00+00:00",
@@ -427,11 +427,59 @@ Instruments whose **newest** certificate has run out, longest lapsed first.
       "state_code": "WB", "state_name": "West Bengal", "district_code": "319", "district_name": "Murshidabad",
       "cert_no": "CERT-20250101-ABC123", "valid_until": "2026-06-20T00:00:00+00:00",
       "days_overdue": 120, "band": "long_overdue",
-      "reverification": { "status": "scheduled", "applied_on": "2026-10-16T06:00:00+00:00" } }
+      "reverification": { "status": "scheduled", "applied_on": "2026-10-16T06:00:00+00:00" },
+      "case": { "id": "…", "status": "notice_sent", "level": "lmo" } }
   ]
 }
 ```
-`band` is `recent` (up to 30 days lapsed), `overdue` (31-90) or `long_overdue` (over 90). `summary` covers every match, not just the page. `reverification` is `null` when no re-verification application is open; when present it is a mitigating note, the certificate is still not in force. An instrument with a newer valid certificate is not listed, and neither is one that was never certified. Owner contact details are not returned. `truncated` is `true` when more than `ENFORCEMENT_MAX_SCAN` (default 10000) expired applications matched and only the newest were checked. Based on application status `expired`, so it relies on the hourly expiry job.
+`band` is `recent` (up to 30 days lapsed), `overdue` (31-90) or `long_overdue` (over 90). `summary` covers every match, not just the page. `reverification` is `null` when no re-verification application is open; when present it is a mitigating note, the certificate is still not in force. An instrument with a newer valid certificate is not listed, and neither is one that was never certified. Owner contact details are not returned. `truncated` is `true` only when more than `ENFORCEMENT_MAX_SCAN` (default 50000) instruments are lapsed in scope; the most overdue are kept. Based on each instrument's newest certificate (`valid_until` in the past), not on application status, so it does not wait for the hourly expiry job; the place is the instrument's registered state / district.
+
+`case` is the open enforcement case on the instrument (`open`, `notice_sent` or `escalated`; `level` is who holds it), or `null`.
+
+### GET `/oversight/uncertified`
+Instruments registered more than `NEVER_CERTIFIED_GRACE_DAYS` (default 30) India calendar days ago that have **no certificate at all**, longest registered first. Same access and place rules as the other oversight endpoints.
+
+| Query | Meaning |
+|-------|---------|
+| `state_code`, `district_code` | Narrow the place |
+| `application` | `applied` (an open application exists) or `none` |
+| `min_days` | Only instruments registered at least this many days ago (0-36500) |
+| `page`, `page_size` | Default 1 and 25; `page_size` max 100 |
+
+```json
+{
+  "generated_at": "…", "grace_days": 30,
+  "summary": { "total": 2, "applied": 1, "not_applied": 1 },
+  "total": 2, "page": 1, "page_size": 25, "truncated": false,
+  "items": [
+    { "instrument_id": "…", "uiid": "LM-26-00000011", "instrument_type": "Platform Scale",
+      "owner_name": "Anil", "org_name": "Alpha Traders", "address_line": "Main Road",
+      "state_code": "WB", "state_name": "West Bengal", "district_code": "319", "district_name": "Murshidabad",
+      "registered_on": "2026-08-20T07:00:00+00:00", "days_since_registered": 59,
+      "application": { "status": "scheduled", "applied_on": "2026-10-10T06:00:00+00:00" },
+      "case": null }
+  ]
+}
+```
+The registration time is read from the instrument's ObjectId (instruments carry no date field). `application` is an open application (a mitigating note); `truncated` is `true` only if more than `ENFORCEMENT_MAX_SCAN` instruments match.
+
+### Enforcement cases
+Roles `admin`, `lmo`, `gatc` (owners get `403`). A case belongs to one instrument (one active case at a time) and has a timeline. `kind` is `lapsed` or `never_certified`; `status` is `open`, `notice_sent`, `escalated` or `resolved`; `level` is `lmo`, `gatc` or `admin` (who holds it). Cases outside the caller's jurisdiction are `404`.
+
+| Endpoint | What it does |
+|----------|--------------|
+| `POST /oversight/cases` `{ "instrument_id" }` | Open a case. The instrument must be on one of the two lists (else `409`) and in the caller's jurisdiction (else `404`). Opening again returns the same case. The case starts at the opener's level. |
+| `GET /oversight/cases` | List. Query: `status` (`active` default, `open`, `notice_sent`, `escalated`, `resolved`, `all`), `kind`, `due=true` (due for escalation), `with_me=true`, `state_code`, `district_code`, `page`, `page_size`. Returns `summary` counts (`active`, `open`, `notice_sent`, `escalated`, `escalation_due`, `with_me`, `resolved`) and `items`. |
+| `GET /oversight/cases/{id}` | One case with `events` (opened / notice / note / escalated / resolved, newest last), `can` (`note`, `notice`, `escalate`, `close`, `notice_available_on`) and the certificate or registration facts. |
+| `POST /oversight/cases/{id}/notice` `{ "message"? }` | Record and email a notice to the owner. Only the level holding the case, or an admin (else `403`). `409` if resolved, or if a notice was sent within `NOTICE_MIN_GAP_DAYS` days. Recorded even when no email could be sent (`emailed: false`). |
+| `POST /oversight/cases/{id}/note` `{ "text" }` | Internal note; any officer in the jurisdiction. |
+| `POST /oversight/cases/{id}/escalate` `{ "reason"? }` | Move up one level (`lmo` to `gatc` to `admin`). Holder or admin only; `409` at admin level. |
+| `POST /oversight/cases/{id}/close` `{ "reason" }` | Close with a reason. Holder or admin only. |
+
+`escalation_due` is `true` when the status is `notice_sent`, the last notice is at least `ESCALATION_AFTER_DAYS` (default 15) India calendar days old and the level is not `admin`; the hourly job then escalates the case automatically (the timeline shows the system did it). A case also resolves itself (`resolution` `renewed` or `certified`) when the instrument gets a valid certificate. Opening, notices, escalations and closures are audit-logged (`enforcement_case_opened`, `enforcement_notice_sent`, `enforcement_case_escalated`, `enforcement_case_closed`). Owner contact details are never returned.
+
+### GET `/notices/mine` — owner
+The latest notice on each of the owner's instruments whose case is still open, newest first (up to 50). Each item: `case_id`, `kind`, `instrument_id`, `uiid`, `instrument_type`, `sent_at`, `message`, `issued_by` (a role title such as "Legal Metrology Officer", never a person's name) and `notice_count`. Internal notes are not included. A notice disappears once the case is resolved.
 
 ---
 
@@ -491,8 +539,8 @@ Used by `GET /applications`, `GET /certificates/`, `GET /instruments`, `GET /adm
 
 ## Reports
 
-### GET `/reports/applications` · `/reports/certificates` · `/reports/instruments` · `/reports/audit-logs`
-Downloads the rows of the matching list as a file. Same roles, same scoping and same filters as the list (`/reports/applications` also takes `mine=true`, like the list; `/reports/instruments` is for `owner` and `admin` only, `403` otherwise; `/reports/audit-logs` is `admin` only and takes the audit viewer's filters — `event`, `outcome`, `role`, `search`, `date_from`, `date_to` in UTC days).
+### GET `/reports/applications` · `/reports/certificates` · `/reports/instruments` · `/reports/audit-logs` · `/reports/oversight-pendency` · `/reports/oversight-districts` · `/reports/oversight-enforcement` · `/reports/oversight-uncertified`
+Downloads the rows of the matching list as a file. Same roles, same scoping and same filters as the list (`/reports/applications` also takes `mine=true`, like the list; `/reports/instruments` is for `owner` and `admin` only, `403` otherwise; `/reports/audit-logs` is `admin` only and takes the audit viewer's filters — `event`, `outcome`, `role`, `search`, `date_from`, `date_to` in UTC days). `/reports/oversight-pendency`, `/reports/oversight-districts`, `/reports/oversight-enforcement` and `/reports/oversight-uncertified` are for `admin`, `lmo` and `gatc` (owners get `403`), take the same `state_code` / `district_code` (and, for enforcement, `reverification` and `min_days_overdue`) as the Oversight endpoints, and apply the same jurisdiction rules. When more than `REPORT_MAX_ROWS` rows match, the file keeps the longest-waiting (pendency) or most overdue (enforcement) rows and `X-Report-Truncated` is `true`. Owner contact details are never included.
 
 | Query parameter | Meaning |
 |---|---|
