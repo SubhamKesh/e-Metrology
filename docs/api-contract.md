@@ -168,6 +168,7 @@ Security events are written to the `audit_logs` collection (retained `AUDIT_LOG_
 | `password_changed` | `success`; `detail: "other_sessions_revoked"` |
 | `password_change_failed` | `failure`; `wrong_current_password`, `same_as_current` |
 | `admin_password_reset` | `success`; `actor_id` is the admin who did it |
+| `report_exported` | `success`; the account that downloaded a CSV/PDF report; `detail`: `<report> <csv\|pdf> rows=<n> total=<n>` — never the data itself |
 
 ---
   "next_expiry": {
@@ -203,6 +204,8 @@ Role-scoped:
 - `admin` → all instruments; optionally filter with `?owner_id=<id>`
 - `lmo` / `gatc` → **403**, not authorized (officers reach instruments via their assigned applications instead)
 
+Optional search filters (all roles that may list; combined with AND; they only narrow the role's own scope — see [Search filters](#search-filters)): `q`, `type` (exact instrument type; unknown → `400`), `state_code`, `district_code`.
+
 ### GET `/instruments/{instrument_id}`
 Returns one instrument. Only its owner or an admin can view it.
 
@@ -223,7 +226,7 @@ Role-scoped:
 - `lmo` / `gatc` → the unclaimed queue (`status=submitted`, unassigned) by default; pass `?mine=true` to see applications assigned to them instead
 - `admin` → everything
 
-Optional query param for all roles: `?status=<status>` to filter by status.
+Optional query params for all roles: `?status=<status>` to filter by status, plus the search filters below (`q`, `application_type`, `instrument_type`, `state_code`, `district_code`, `date_from`, `date_to`). `date_from`/`date_to` are India calendar days of submission. `application_type` is `initial` or `renewal` (records from before re-verification count as `initial`).
 
 ### GET `/applications/{application_id}`
 Returns one application with its full status `history[]`. Visible to its owner, its assigned officer, or an admin.
@@ -399,6 +402,47 @@ Lists certificates, scoped by role:
 - `owner` → only certificates tied to their own applications
 - `lmo` / `gatc` → only certificates tied to applications assigned to them
 - `admin` → everything
+
+Optional search filters: `q` (certificate number, seal number, the number it renews, the certificate id, or the instrument's UIID / serial number / manufacturer / model / type), `status` (`valid` / `expiring` / `expired` — `expiring` means still valid but within the first expiry-reminder window, 30 days by default), `application_type`, `instrument_type`, `date_from`, `date_to` (India days of issue). See [Search filters](#search-filters).
+
+---
+
+## Search filters
+
+Used by `GET /applications`, `GET /certificates/`, `GET /instruments`, `GET /admin/users` and the matching [reports](#reports). All are optional and combine with AND; omitting them returns exactly what the endpoint returned before filters existed.
+
+- **Scope first, filters second.** What a role may see (owner → own records, officer → their jurisdiction or queue, admin → everything) is decided before any filter is applied. A filter can only narrow it: an owner searching for someone else's UIID gets an empty list, an officer filtering on another district gets an empty list.
+- `q` — free text, max 100 characters, trimmed. Matched case-insensitively as a *literal* substring (`.*` or `(` are ordinary characters, never a pattern). Which fields it searches is listed under each endpoint.
+- `date_from`, `date_to` — `YYYY-MM-DD`, both days inclusive, **India time** (a record submitted at 01:30 IST on 18 Oct counts as 18 Oct). `date_from` after `date_to` → `400`; a malformed date → `422`. (The audit log keeps its own UTC days.)
+- `instrument_type` / `type` — an exact value from `GET /instruments/meta/types`; anything else → `400`.
+- Text and type filters on applications and certificates are answered by first finding up to 10,000 matching instruments; a filter broader than that (for example every scale in the country) should be narrowed with a state or district.
+- `GET /admin/users` (admin): `q` (name, email or organisation), `role` (`lmo` / `gatc`), `status` (`pending` / `active` / `rejected`; accounts with no status count as active).
+
+---
+
+## Reports
+
+### GET `/reports/applications` · `/reports/certificates` · `/reports/instruments` · `/reports/audit-logs`
+Downloads the rows of the matching list as a file. Same roles, same scoping and same filters as the list (`/reports/applications` also takes `mine=true`, like the list; `/reports/instruments` is for `owner` and `admin` only, `403` otherwise; `/reports/audit-logs` is `admin` only and takes the audit viewer's filters — `event`, `outcome`, `role`, `search`, `date_from`, `date_to` in UTC days).
+
+| Query parameter | Meaning |
+|---|---|
+| `format` | `csv` (default) or `pdf`; anything else → `422` |
+| …the list's filters | see [Search filters](#search-filters) |
+
+**Response** `200`: the file, with `Content-Disposition: attachment; filename="maapsetu-<report>-<YYYYMMDD-HHMM>.<ext>"` (India time) and `Cache-Control: no-store`.
+
+| Header | Meaning |
+|---|---|
+| `X-Report-Rows` | rows in the file |
+| `X-Report-Total` | rows that matched |
+| `X-Report-Truncated` | `true` when more matched than `REPORT_MAX_ROWS` (default 5000); the file then holds the **newest** rows (PDF: with a note) |
+| `Access-Control-Expose-Headers` | lists the above so a browser app can read them |
+
+- **CSV**: UTF-8 with a byte-order mark, header row, every column. Cells that start with `=`, `+`, `-`, `@`, tab or carriage return are prefixed with `'` so a spreadsheet shows them as text instead of running them.
+- **PDF**: A4 landscape summary (fewer columns than the CSV) with title, who generated it, time (IST), filters used, record count, repeating table header and page numbers. Characters outside Windows-1252 print as `?`.
+- Columns: *applications* — application ID, type, status, instrument UIID / type / manufacturer / model / serial, state, district, applied on, inspection date and slot, certificate renewed, its expiry (+ assigned officer and owner organisation for admins). *certificates* — certificate no., status (Valid / Expiring soon / Expired), instrument details, seal no., place, type, certificate renewed, verified on, valid from / until (+ owner organisation for admins). *instruments* — UIID, type, manufacturer, model, capacity, serial, place, address, latest certificate and its status (Valid / Expiring soon / Expired / Not yet verified) (+ owner organisation for admins). *audit-logs* — time (IST), event, outcome, account, role, done by, IP address, detail.
+- Rate limit: `20/10minutes` per IP (`429`). Every successful download is written to the audit log as `report_exported` (account, role, and `detail` like `applications csv rows=120 total=120`); a refused request is not.
 
 ---
 

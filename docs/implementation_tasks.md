@@ -137,6 +137,20 @@ Infrastructure:
 - `.github/workflows/ci.yml` — compose validation + optional deploy job; `render.yaml` — `OTP_PEPPER`, `MFA_ENCRYPTION_KEY`, CDN cache headers
 - `docs/deployment-scaling.md` *(new)*
 
+## 6) Search + CSV/PDF report export (roadmap #7) — DONE
+
+Optional filters on the applications, certificates, instruments and officer lists, and downloadable CSV/PDF reports of the same rows. Guide: README → "Search & Reports"; API: `docs/api-contract.md` → "Search filters" and "Reports". Files touched:
+
+Backend:
+- `backend/app/utils/search.py` *(new)*, `backend/app/services/report_export.py` *(new)*, `backend/app/routers/reports.py` *(new)*, `backend/app/main.py` (router)
+- `routers/applications.py` (`find_applications`), `routers/certificates.py` (`find_certificates`), `routers/instruments.py` (`find_instruments`), `routers/admin_users.py` (officer filters), `routers/admin_audit.py` (`build_query`)
+- `services/audit.py` (`report_exported`), `config/settings.py` (`REPORT_MAX_ROWS`), `rate_limit.py` (`RATE_LIMIT_REPORTS`), `render.yaml`, `backend/.env.example`
+- Tests: `backend/tests/test_report_export.py` *(new)*, `backend/tests/test_search_and_reports.py` *(new)*
+
+Frontend:
+- `src/hooks/useFilters.ts`, `src/components/domain/{FilterBar,ExportButtons,ApplicationsFilterBar,CertificatesFilterBar}.tsx`, `src/lib/{saveFile,filterOptions}.ts` *(all new)*
+- `lib/api.ts` (`downloadFile`), `lib/endpoints.ts`, `hooks/useData.ts`, `lib/offlineCache.ts`, and the admin / owner / officer list pages
+
 ---
 
 ## Suggested process for the team

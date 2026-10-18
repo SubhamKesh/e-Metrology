@@ -45,6 +45,7 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 🧰 **Instrument Registry** | Owners register instruments from a controlled list of instrument types, with a unique serial number and auto-generated UIID |
 | 📝 **Application Lifecycle** | State machine enforced server-side: `submitted → scheduled → inspected → certified/rejected → expiring → expired` |
 | 🗓️ **Inspection Scheduling** | Claiming books a date and one of two daily slots (Sundays off, per-officer capacity). Officers and admins can reschedule; admins can assign or reassign an officer within their jurisdiction. Everyone sees the booking and can add it to Google Calendar or download an `.ics` file (no account linking) |
+| 🔍 **Search & Reports** | Every list (applications, certificates, instruments, officer accounts) has a search box and filters, and the application, certificate and instrument lists and the audit log export to files: free text over UIID, serial number, manufacturer, model, certificate and seal numbers; status/validity, first-vs-re-verification, instrument type, state/district and date range (India days). **Export CSV** / **Export PDF** downloads exactly what the filters show, limited to what your role may see (an owner's own, an officer's jurisdiction, everything for an admin). Spreadsheet formulas in the data are defused, large exports are capped and say so, and every download is written to the audit trail (see [Search & Reports](#-search--reports)) |
 | 🔎 **Inspection Workflow** | Officers claim applications, scan the instrument's QR with the in-app camera scanner (or type the UIID), review instrument details, and record outcomes with photo evidence. A GPS fix is **mandatory** and stored with every inspection, along with how the instrument was identified (`qr` / `manual`) |
 | 🧪 **Detailed Inspection Form** | What an officer records depends on the instrument type (`backend/app/config/inspection_forms.py`): test readings against a reference standard (the error is worked out for them), yes/no checks, and the number of the verification seal fixed on the instrument. A Pass needs all three; a seal number can be used only once. The record is shown on the application page (owners don't see the officer or GPS position), and the seal number is printed on the certificate and shown on the public verify page |
 | 📴 **Offline Inspections** | The app **opens with no signal** and an officer's assigned applications and instruments are kept on the device, so an inspection can be started and finished in a dead zone. A finished inspection (and its photos) is saved on the device and sent automatically when the connection returns. Each inspection carries an idempotency key, so a retry or double sync can never create a duplicate, and the time the officer actually pressed Submit is kept. Photos are compressed before upload, and a failed send shows the real reason (see [Offline Inspections](#-offline-inspections)) |
@@ -313,6 +314,30 @@ Items are tagged with the officer's user id and only that officer's session read
 
 ---
 
+## 🔍 Search & Reports
+
+**Search.** `GET /applications`, `/certificates/`, `/instruments` and `/admin/users` accept optional filters; they combine with AND, and an absent filter changes nothing, so older clients get the same lists as before.
+
+| List | Filters |
+|---|---|
+| Applications | `q` (instrument UIID, serial number, manufacturer, model or type; the certificate number being renewed; or the full application id), `status`, `application_type` (`initial` / `renewal`), `instrument_type`, `state_code`, `district_code`, `date_from`, `date_to` (day of submission) |
+| Certificates | `q` (certificate no., seal no., the number it renews, certificate id, or the instrument's UIID / serial / manufacturer / model / type), `status` (`valid` / `expiring` / `expired`), `application_type`, `instrument_type`, `date_from`, `date_to` (day of issue) |
+| Instruments | `q`, `type`, `state_code`, `district_code` (admins also `owner_id`) |
+| Officer accounts | `q` (name, email, organisation), `role`, `status` |
+
+Text is matched case-insensitively and **literally** (never as a regular expression). Dates are India calendar days. A filter can only narrow a list: who may see what is decided first (owner → own records, officer → their jurisdiction, admin → all), then the filters are applied on top.
+
+**Reports.** `GET /reports/{applications|certificates|instruments|audit-logs}?format=csv|pdf` takes the same filters as the list it belongs to (the audit-log report takes the audit viewer's filters and is admin-only; the instrument register is for owners and admins, like the instrument list).
+
+- **CSV** — UTF-8 with a byte-order mark so Excel opens it correctly; carries every column. Any cell that a spreadsheet could read as a formula (`=`, `+`, `-`, `@`…) is prefixed with an apostrophe.
+- **PDF** — A4 landscape summary with who made it, when (IST), which filters were used, how many records, a repeating table header and page numbers. It uses the built-in PDF fonts, so characters outside Western European text print as `?`; the CSV keeps them.
+- **Limit** — at most `REPORT_MAX_ROWS` (default 5000) rows, newest first. If more match, the file holds the newest ones and says so (`X-Report-Total`, `X-Report-Truncated`, a note on the PDF, and a message in the app).
+- **Privacy** — owner organisation and assigned officer columns appear for admins only; responses are `Cache-Control: no-store`; downloads are rate-limited (20 per 10 minutes per IP) and every one is audit-logged as `report_exported` (who, which report, how many rows — never the data).
+
+In the app: a search/filter bar and **Export CSV / Export PDF** buttons sit above each list (owner, officer and admin pages) and on **Admin → Audit log**.
+
+---
+
 ## 👤 User Roles
 
 | Role | Access | Onboarding |
@@ -395,6 +420,7 @@ e-Metrology-main/
 │   │   │   ├── uploads.py
 │   │   │   ├── admin_users.py      # Officer creation, approval queue, suspend, admin-initiated officer password reset and two-step reset
 │   │   │   ├── admin_audit.py      # Read-only, filterable view of the audit log (admin only)
+│   │   │   ├── reports.py          # CSV / PDF downloads of applications, certificates, instruments and the audit log
 │   │   │   └── ws.py               # /ws/notifications
 │   │   ├── services/
 │   │   │   ├── cert_generator.py   # PDF certificate generation
@@ -407,10 +433,12 @@ e-Metrology-main/
 │   │   │   ├── ws_pubsub.py        # Redis pub/sub subscriber for cross-instance fan-out
 │   │   │   ├── otp.py              # OTP generation, hashing, verification (signup + password reset)
 │   │   │   ├── audit.py            # Security audit trail (audit_logs collection + app.audit log stream)
+│   │   │   ├── report_export.py    # Rows -> CSV (formula-safe, Excel-friendly) or PDF (ReportLab); no DB or web code
 │   │   │   ├── mailer.py           # SMTP email dispatch (30 s timeout), incl. password-changed / admin-reset notices
 │   │   │   ├── owner_notifications.py # Owner status emails: dedupe via email_log, queue/thread dispatch
 │   │   │   └── email_templates.py  # HTML + plain-text email templates for every owner event
 │   │   └── utils/
+│   │       ├── search.py           # Shared search-filter helpers (literal text match, India-day date ranges, filter AND-ing)
 │   │       ├── security.py         # Password hashing, access/refresh tokens, two-step "MFA step" token
 │   │       ├── totp.py             # RFC 6238 TOTP (stdlib only): secrets, verification window, replay guard, otpauth URI
 │   │       ├── mfa.py              # TOTP-secret encryption, recovery codes, QR code data URI
@@ -447,13 +475,13 @@ e-Metrology-main/
     │   │   └── public/             # VerifyCertificate.tsx — public QR verification page
     │   ├── components/
     │   │   ├── ui/                 # Reusable primitives (Button, Card, DataTable, Field, StatusBadge...)
-    │   │   ├── domain/             # CertificateDetailCore, LifecycleTimeline, PhotoUploader...
+    │   │   ├── domain/             # CertificateDetailCore, LifecycleTimeline, PhotoUploader, FilterBar + Applications/CertificatesFilterBar, ExportButtons...
     │   │   └── layout/AppShell.tsx
     │   ├── context/AuthContext.tsx
     │   ├── routes/ProtectedRoute.tsx
-    │   ├── hooks/                  # useData.ts (React Query hooks), useOfflineSync.ts (send-queue sync engine),
+    │   ├── hooks/                  # useData.ts (React Query hooks), useFilters.ts (search/filter state, debounced), useOfflineSync.ts (send-queue sync engine),
     │   │                           # useOfflineData.ts (cached assignments), useDrafts.ts (inspection drafts)
-    │   └── lib/                    # api.ts, endpoints.ts, types.ts, validation.ts, nav.ts, roleHome.ts,
+    │   └── lib/                    # api.ts (incl. downloadFile), saveFile.ts, filterOptions.ts, endpoints.ts, types.ts, validation.ts, nav.ts, roleHome.ts,
     │                               # geo.ts (GPS), pwa.ts (install prompt), offlineQueue.ts + offlineSync.ts (send queue),
     │                               # offlineStore.ts + offlineCache.ts (cached assignments, offline sign-in profile),
     │                               # offlineDrafts.ts (drafts), imageCompress.ts (photo resizing before upload)
@@ -582,6 +610,7 @@ docker compose --profile redis up --build
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` / `SMTP_USE_TLS` | Outgoing mail (OTP codes, officer credentials, owner status emails). `SMTP_USE_TLS=true` uses STARTTLS (port 587), `false` uses SSL (port 465) | *(optional — no-ops if `SMTP_HOST`/`SMTP_FROM` unset)* |
 | `OWNER_EMAIL_NOTIFICATIONS_ENABLED` | Master switch for owner status emails | `true` |
 | `INSPECTION_FORM_STRICT` | A Pass must carry test readings, every required check and a seal number. `false` also accepts the old short form (only while old app versions or phone-queued inspections still need to be accepted) | `true` |
+| `REPORT_MAX_ROWS` | Most rows one CSV/PDF report may hold; when more match, the newest are exported and the file says so | `5000` |
 | `EXPIRY_REMINDER_DAYS` | Comma-separated days before expiry at which a reminder is emailed | `30,15,7,1` |
 | `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` / `SUPER_ADMIN_NAME` | Used once by `seed_super_admin.py` | — |
 
@@ -609,12 +638,13 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | **Auth** | `POST /auth/register` · `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `POST /auth/logout-all` · `GET /auth/me` · `POST /auth/change-password` · `POST /auth/forgot-password` **(public)** · `POST /auth/reset-password` **(public)** · `POST /auth/mfa/setup` · `POST /auth/mfa/confirm-setup` · `POST /auth/mfa/verify` *(the three `mfa` calls take the short-lived `mfa_token` from `/auth/login`, not a Bearer token)* |
 | **OTP** | `POST /otp/send` (5 per IP / 15 min, one per address / 60 s → `429`) · `POST /otp/verify` **(public)** |
 | **Geo** | `GET /geo/states` · `GET /geo/states/{state_code}/districts` |
-| **Instruments** | `POST /instruments` · `GET /instruments` · `GET /instruments/{id}` · `GET /instruments/by-uiid/{uiid}` · `GET /instruments/meta/types` |
-| **Applications** | `POST /applications` · `GET /applications` · `GET /applications/{id}` · `POST /applications/{id}/claim` · `POST /applications/{id}/schedule` · `POST /applications/{id}/assign` · `GET /applications/slots` |
+| **Instruments** | `POST /instruments` · `GET /instruments` *(search: `q`, `type`, `state_code`, `district_code`)* · `GET /instruments/{id}` · `GET /instruments/by-uiid/{uiid}` · `GET /instruments/meta/types` |
+| **Applications** | `POST /applications` · `GET /applications` *(search/filters: `q`, `status`, `application_type`, `instrument_type`, `state_code`, `district_code`, `date_from`, `date_to`)* · `GET /applications/{id}` · `POST /applications/{id}/claim` · `POST /applications/{id}/schedule` · `POST /applications/{id}/assign` · `GET /applications/slots` |
 | **Inspections** | `POST /inspections` *(requires a GPS `location`; a Pass also needs the test readings, checks and seal number; optional `client_id` makes it idempotent, optional `captured_at` records when it was really done)* · `GET /inspections/form-spec` · `GET /inspections/by-application/{id}` · `GET /inspections/{id}` |
-| **Certificates** | `GET /certificates/` · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
+| **Certificates** | `GET /certificates/` *(search/filters: `q`, `status`, `application_type`, `instrument_type`, `date_from`, `date_to`)* · `GET /certificates/{cert_id}` · `GET /certificates/verify/{cert_id}` **(public)** |
 | **Uploads** | `POST /uploads/photo` |
-| **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` · `GET /admin/audit-logs` *(read-only; filters: event, outcome, role, email text, date range; paginated)* |
+| **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` *(search: `q`, `role`, `status`)* · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` · `GET /admin/audit-logs` *(read-only; filters: event, outcome, role, email text, date range; paginated)* |
+| **Reports** | `GET /reports/applications` · `/certificates` · `/instruments` · `/audit-logs` *(admin)* — `?format=csv\|pdf` plus the matching list's filters |
 | **Dashboard** | `GET /dashboard/owner` · `/lmo` · `/gatc` · `/admin` |
 | **WebSocket** | `/ws/notifications?token=<access token>` — live application, queue, and certificate updates |
 | **Health** | `GET /api/v1/health` |
@@ -669,7 +699,7 @@ npm run lint
 npm run build     # type-checks and builds
 ```
 
-The backend suite also covers inspections (mandatory GPS location, identity method, access rules, and offline-sync idempotency and capture-time handling). It covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), the audit-log viewer (admin-only, filters, pagination, read-only, event list can't drift from the code), OTP send/verify limits, email retry backoff, read-replica routing (and that security-critical modules never use it), the Redis-backed limiter setting, production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
+The backend suite also covers search and report export (every filter on each list, that no filter can widen what a role may see, CSV/PDF content, spreadsheet-formula defusing, the row limit, admin-only columns and reports, and the audit record of each download; the CSV/PDF renderer is tested on its own in `tests/test_report_export.py`), inspections (mandatory GPS location, identity method, access rules, and offline-sync idempotency and capture-time handling). It covers auth hardening (lockout, refresh rotation, logout-all, headers, body limits), password recovery (forgot/reset flow, single-use and attempt-capped codes, no account enumeration, cooldown, officer/admin restrictions, admin-initiated reset), the password policy, "Remember me" (owner-only, preserved across refresh and password change), sign-out of other sessions on password change, two-step verification (TOTP checked against the RFC 6238 vectors; enrolment; replay protection; recovery codes; lockout; token type/purpose/expiry/revocation; refresh gating; admin and operator resets), the audit trail (login, session, password and account-lifecycle events; no secrets recorded; logging failures never break a request), the audit-log viewer (admin-only, filters, pagination, read-only, event list can't drift from the code), OTP send/verify limits, email retry backoff, read-replica routing (and that security-critical modules never use it), the Redis-backed limiter setting, production startup guards, application-ID matching, WebSocket notification scoping, and owner email notifications (template rendering and escaping, send-once dedupe, claim release on failed sends, stale-claim takeover, no-op without SMTP, reminder milestones, and expiry-cron behaviour for renewed or long-expired certificates). It runs against `mongomock`, so no live database is required.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`:
 1. **Backend** — lint (`ruff`) → test (`pytest` against `mongomock`, no live DB required)
@@ -685,7 +715,7 @@ Handy manual checks: `python burst_test.py` fires a burst of requests to exercis
 - **Scaling — done:** Redis-backed DDoS state, rate-limit counters, WebSocket fan-out, scheduler run-lock, read-through caching, audience-scoped notifications; certificate generation, officer emails and owner status emails on a background worker (now also in `docker-compose.yml`, with retry backoff); MongoDB read replicas for read-heavy paths (`MONGO_READ_PREFERENCE`); a load-balancer config and multi-instance rehearsal stack; CDN cache headers; an optional CI deploy step.
 - **Scaling — what the repo can't do:** actually provisioning a load balancer, autoscaling and a CDN is done in your hosting provider (Render/Atlas/Cloudflare/NIC…). [`docs/deployment-scaling.md`](docs/deployment-scaling.md) has the configuration and templates; autoscaling and background workers need a paid Render plan, and more than one backend instance needs `REDIS_URL`.
 - **Account security — still to do:** CAPTCHA on forgot-password. Two-step verification is in place for officers/admin (owners don't need it; it could be offered to them as an option later), with a self-service "regenerate recovery codes" screen as a possible follow-up. For a real government deployment, a CERT-In-empanelled security audit, hosting on NIC / MeitY-empanelled cloud, and GIGW 3.0 / DPDP Act compliance are outside this repo's code.
-- **Field readiness:** installable PWA, in-app QR scanning, GPS stamping, offline app launch, cached assignments, inspection drafts and offline inspections with automatic sync are in; they need testing on real phones. Possible follow-ups: server-side drafts (so work follows an officer across devices), a "ready for offline" indicator on the dashboard, and true background sync where browsers support it. The remaining gap-closing items are tracked in [`docs/CHANGELOG-requirements.md`](docs/CHANGELOG-requirements.md).
+- **Field readiness:** installable PWA, in-app QR scanning, GPS stamping, offline app launch, cached assignments, inspection drafts and offline inspections with automatic sync are in; they need testing on real phones. Possible follow-ups: server-side drafts (so work follows an officer across devices), a "ready for offline" indicator on the dashboard, and true background sync where browsers support it. Search and CSV/PDF report export (#7) are in; the rest of the gap-closing items, starting with dashboards for pendency ageing and district-wise views (#8), are tracked in [`docs/CHANGELOG-requirements.md`](docs/CHANGELOG-requirements.md).
 - See [`docs/implementation_tasks.md`](docs/implementation_tasks.md) for the team task breakdown.
 
 ---

@@ -1,29 +1,17 @@
-import { useState } from "react";
 import { PageHeader } from "@/components/layout/AppShell";
-import { SelectInput } from "@/components/ui/Field";
 import { ApplicationsTable } from "@/components/domain/ApplicationsTable";
+import { ApplicationsFilterBar, EMPTY_APPLICATION_FILTERS } from "@/components/domain/ApplicationsFilterBar";
 import { useApplications } from "@/hooks/useData";
-import type { ApplicationStatus } from "@/lib/types";
-import { APPLICATION_STATUS_LABEL } from "@/components/ui/StatusBadge";
-
-const STATUS_OPTIONS = Object.entries(APPLICATION_STATUS_LABEL).map(([value, label]) => ({ value, label }));
+import { useFilters } from "@/hooks/useFilters";
 
 export default function AdminApplications() {
-  const [status, setStatus] = useState<ApplicationStatus | "">("");
-  const { data, isLoading, isError, error, refetch } = useApplications(status ? { status } : undefined);
+  const filters = useFilters(EMPTY_APPLICATION_FILTERS);
+  const { data, isLoading, isError, error, refetch } = useApplications(filters.query);
 
   return (
     <div>
-      <PageHeader title="All applications" description="Every verification application across the system." />
-      <div className="mb-4 max-w-xs">
-        <SelectInput
-          label="Filter by status"
-          placeholder="All statuses"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as ApplicationStatus | "")}
-          options={STATUS_OPTIONS}
-        />
-      </div>
+      <PageHeader title="All applications" description="Every verification application across the system. Search, filter and export what you see." />
+      <ApplicationsFilterBar filters={filters} />
       <ApplicationsTable
         applications={data}
         isLoading={isLoading}
@@ -31,6 +19,8 @@ export default function AdminApplications() {
         error={error}
         onRetry={refetch}
         basePath="/app/admin/applications"
+        emptyTitle={filters.active ? "No applications match" : undefined}
+        emptyDescription={filters.active ? "Try a different search or clear the filters." : undefined}
       />
     </div>
   );

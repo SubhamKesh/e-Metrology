@@ -13,7 +13,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 4 | Re-verification flow (application type, link to previous certificate, Renew button) | ✅ (code complete; backend `pytest` and frontend build pass) |
 | 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ✅ (backend `pytest` 322 passed; frontend lint and build pass; not tried in a browser) |
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ✅ (backend `pytest` 345 passed; frontend lint and build pass; not tried in a browser or on a device) |
-| 7 | Search + CSV/PDF report export | ⬜ |
+| 7 | Search + CSV/PDF report export | ✅ (code complete; ruff and the export-rendering tests pass here; the router tests, full `pytest` and frontend lint/build still need running — no PyPI/npm access when written; not tried in a browser) |
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ⬜ |
 | 9 | Configurable validity per instrument type | ⬜ |
 | 10 | Owner supporting-document upload, profile editing | ⬜ |
@@ -199,3 +199,24 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - The "what to test" lists (test counts, check wording) are sensible field defaults, not statutory text. Have a Legal Metrology officer review `inspection_forms.py` before real use; it is the only file to edit.
 - Checked here: backend `pytest` 345 passed (was 322), `ruff check` clean; frontend `tsc -b`, `eslint .`, `npm run build` pass. Not tried in a browser or on a phone. Suggested check: open an inspection, fill readings and checks, try Pass without a seal (blocked), pass with one, open the application as the owner, then re-use the seal number on another inspection (expect the 409 message).
 
+### 2026-10-18 — #7 Search + CSV/PDF report export
+**What people can now do**
+- **Search and filter** the lists they already had: applications (text, status, type, instrument type, state, district, dates), certificates (text, validity Valid / Expiring soon / Expired, type, instrument type, dates), instruments (text, type, state, district), officer accounts (text, role, status). Filters narrow what a role may already see; they never widen it.
+- **Download** the matching rows as **CSV** or **PDF** (applications, certificates, instruments; the audit log for admins). The file holds exactly what the list shows for those filters.
+
+**Added**
+- Backend: `app/utils/search.py` (shared filter types and helpers: literal case-insensitive text match, India-day date ranges, instrument filter), `app/services/report_export.py` (CSV with Excel-safe BOM and formula defusing; PDF A4 landscape with filters, generator, time, record count, repeating header, page numbers), `app/routers/reports.py` (`GET /reports/applications|certificates|instruments|audit-logs?format=csv|pdf`).
+- `report_exported` audit event for every successful download (who, which report, format, row counts; never the data). Rate limit `RATE_LIMIT_REPORTS` (`20/10minutes`). `REPORT_MAX_ROWS` (default 5000; the newest rows are kept and the file and `X-Report-*` headers say when more matched).
+- Frontend: `useFilters` (debounced text, reversed-date guard), `FilterBar`, `ApplicationsFilterBar`, `CertificatesFilterBar`, `ExportButtons`, `lib/saveFile.ts`, `lib/filterOptions.ts`; `downloadFile` in `lib/api.ts`.
+- Tests: `tests/test_report_export.py` (rendering) and `tests/test_search_and_reports.py` (filters, role scoping, report endpoints, audit, truncation).
+
+**Changed**
+- `find_applications`, `find_certificates`, `find_instruments` are shared by the list endpoints and the reports, so a report can never show more than the list. `list_*` accept the new optional filters; with none given they return what they did before. `admin_audit` now builds its query through a shared `build_query`.
+- Officer pages (Queue, Assignments), owner and admin Applications / Certificates / Instruments, Admin Users and Audit Log gained filters and export buttons. The offline cache stores only the unfiltered "my applications" list, so a search is never saved as the officer's offline copy.
+- `README.md`, `docs/api-contract.md` ("Search filters", "Reports", audit event table), `render.yaml`, `backend/.env.example`, `docs/implementation_tasks.md`, `docs/security-hardening-status.md`.
+
+**Notes**
+- **Not run in full.** When this was written PyPI and npm were unreachable, so the checks done were `ruff check app tests`, the rendering tests (`test_report_export.py`), a stubbed check of the search helpers, and a look at a generated PDF. Please run: `cd backend && pytest tests/` and `ruff check app/`, then `cd frontend && npm ci && npm run lint && npm run build`.
+- Limits: the PDF uses built-in fonts, so Devanagari and other non-Latin text prints as `?` (the CSV keeps it); text and instrument-type filters on applications and certificates look up at most 10,000 matching instruments first (narrow with state or district); the officer-accounts list is searchable but has no export.
+- Suggested manual check: as an owner search by a UIID and export both formats; as an officer confirm a district you do not cover returns nothing; as admin download the audit log and see the `report_exported` row; open the CSV in Excel (Hindi text, and a manufacturer starting with `=` shows as text).
+- The zip contained stray compiled `src/lib/*.js` files next to the `.ts` sources (see #5); they were not touched.

@@ -58,6 +58,7 @@ KNOWN_AUDIT_EVENTS = (
     "password_changed",
     "password_change_failed",
     "admin_password_reset",
+    "report_exported",
 )
 
 

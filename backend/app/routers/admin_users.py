@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Annotated, Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from bson import ObjectId
 from bson.errors import InvalidId
 from pymongo.errors import DuplicateKeyError
@@ -7,6 +9,7 @@ from app.config.db import users_col, states_col, districts_col, refresh_tokens_c
 from app.middleware.auth import role_required
 from app.models.user import UserOut, OfficerCreate, OfficerCreatedOut
 from app.models.geo import JurisdictionIn
+from app.utils import search as search_utils
 from app.utils.security import hash_password, generate_temp_password
 from app.services.audit import log_event
 from app.services.mailer import (
@@ -195,9 +198,23 @@ def list_pending_users(current_user: dict = Depends(role_required("admin"))):
 
 
 @router.get("", response_model=list[UserOut])
-def list_all_officers(current_user: dict = Depends(role_required("admin"))):
-    """All lmo/gatc accounts regardless of status, for the minister's oversight view."""
-    docs = users_col.find({"role": {"$in": ["lmo", "gatc"]}})
+def list_all_officers(
+    q: search_utils.SearchText = None,
+    role: Annotated[Optional[Literal["lmo", "gatc"]], Query()] = None,
+    status: Annotated[Optional[Literal["pending", "active", "rejected"]], Query()] = None,
+    current_user: dict = Depends(role_required("admin")),
+):
+    """All lmo/gatc accounts regardless of status, for the minister's oversight view.
+    Optional filters, combined with AND: `q` matches name, email or organisation; `role`; `status`."""
+    query: dict = {"role": role or {"$in": ["lmo", "gatc"]}}
+    if status:
+        # Accounts created before the status field existed count as active.
+        query["status"] = {"$in": ["active", None]} if status == "active" else status
+    text = search_utils.clean_query(q)
+    if text:
+        pattern = search_utils.contains(text)
+        query["$or"] = [{"name": pattern}, {"email": pattern}, {"org_name": pattern}]
+    docs = users_col.find(query)
     return [_to_user_out(d) for d in docs]
 
 

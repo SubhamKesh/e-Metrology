@@ -1,10 +1,13 @@
 import { PageHeader } from "@/components/layout/AppShell";
 import { ButtonLink } from "@/components/ui/Button";
 import { ApplicationsTable } from "@/components/domain/ApplicationsTable";
+import { ApplicationsFilterBar, EMPTY_APPLICATION_FILTERS } from "@/components/domain/ApplicationsFilterBar";
 import { useApplications } from "@/hooks/useData";
+import { useFilters } from "@/hooks/useFilters";
 
 export default function OwnerApplications() {
-  const { data, isLoading, isError, error, refetch } = useApplications();
+  const filters = useFilters(EMPTY_APPLICATION_FILTERS);
+  const { data, isLoading, isError, error, refetch } = useApplications(filters.query);
 
   return (
     <div>
@@ -15,6 +18,7 @@ export default function OwnerApplications() {
           <ButtonLink to="/app/owner/applications/new">Apply for verification</ButtonLink>
         }
       />
+      <ApplicationsFilterBar filters={filters} />
       <ApplicationsTable
         applications={data}
         isLoading={isLoading}
@@ -22,7 +26,10 @@ export default function OwnerApplications() {
         error={error}
         onRetry={refetch}
         basePath="/app/owner/applications"
-        emptyDescription="Once you apply for verification on an instrument, it'll show up here."
+        emptyTitle={filters.active ? "No applications match" : undefined}
+        emptyDescription={
+          filters.active ? "Try a different search or clear the filters." : "Once you apply for verification on an instrument, it'll show up here."
+        }
       />
     </div>
   );

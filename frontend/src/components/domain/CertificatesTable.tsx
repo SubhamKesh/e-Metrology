@@ -12,6 +12,8 @@ export function CertificatesTable({
   error,
   onRetry,
   basePath,
+  emptyTitle = "No certificates yet",
+  emptyDescription = "Certificates appear here once an instrument passes verification.",
 }: {
   certificates?: Certificate[];
   isLoading: boolean;
@@ -19,6 +21,8 @@ export function CertificatesTable({
   error?: unknown;
   onRetry: () => void;
   basePath: string;
+  emptyTitle?: string;
+  emptyDescription?: string;
 }) {
   const navigate = useNavigate();
 
@@ -59,8 +63,8 @@ export function CertificatesTable({
         rowKey={(c) => c.id}
         isLoading={isLoading}
         onRowClick={(c) => navigate(`${basePath}/${c.id}`)}
-        emptyTitle="No certificates yet"
-        emptyDescription="Certificates appear here once an instrument passes verification."
+        emptyTitle={emptyTitle}
+        emptyDescription={emptyDescription}
       />
     </div>
   );

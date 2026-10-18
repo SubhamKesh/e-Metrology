@@ -123,6 +123,10 @@ checkbox).
 - No CAPTCHA on forgot-password; no self-service "regenerate recovery codes" screen (an admin resets an officer's two-step verification instead); two-step verification isn't offered to owner accounts.
 - Safari/privacy browsers block third-party cookies, so "Remember me" may not persist while the frontend and API are on different domains — proxy `/api` through the frontend host or serve both from one domain.
 
+**Search and report export pass**
+- Filters are applied *after* role scoping, so a filter can only narrow what a role may see. Search text is escaped and matched literally (no regex injection); inputs are length-limited; a reversed date range is a 400.
+- Reports reuse the list queries, so they cannot return more than the list. CSV cells beginning with `=`, `+`, `-`, `@`, tab or CR are prefixed with `'` (spreadsheet formula injection). Downloads are `Cache-Control: no-store`, rate-limited (`RATE_LIMIT_REPORTS`, default `20/10minutes`), capped at `REPORT_MAX_ROWS`, and each success is audited as `report_exported` (account, role, report, row counts; never the data). The audit-log report is admin-only.
+
 **DevOps**
 - `backend/Dockerfile` — multi-stage, non-root user, HEALTHCHECK
 - `docker-compose.yml` — local dev only (backend + Mongo), not the prod deploy shape

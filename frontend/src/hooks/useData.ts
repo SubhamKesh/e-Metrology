@@ -1,5 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  type ApplicationFilters,
+  type CertificateFilters,
+  type InstrumentFilters,
   ApplicationApi,
   CertificateApi,
   DashboardApi,
@@ -31,9 +34,10 @@ export function useDashboard(role: Role) {
 }
 
 // ---- Instruments ----
-export function useInstruments(params?: { owner_id?: string }) {
+export function useInstruments(params?: InstrumentFilters) {
   return useQuery({
     queryKey: ["instruments", params],
+    placeholderData: keepPreviousData, // keep the rows on screen while a search is typed
     queryFn: async () => {
       try {
         return await InstrumentApi.list(params);
@@ -101,12 +105,14 @@ export function useGeoDistricts(stateCode?: string) {
 }
 
 // ---- Applications ----
-export function useApplications(params?: { mine?: boolean; status?: string; pollInterval?: number }) {
+export function useApplications(params?: ApplicationFilters & { mine?: boolean; pollInterval?: number }) {
+  const { pollInterval, ...filters } = params ?? {};
   return useQuery({
-    queryKey: ["applications", { mine: params?.mine, status: params?.status }],
-    queryFn: () => ApplicationApi.list(params),
+    queryKey: ["applications", filters],
+    queryFn: () => ApplicationApi.list(filters),
+    placeholderData: keepPreviousData, // keep the rows on screen while a search is typed
     // Optional polling for views that want near-real-time updates (officer queue)
-    refetchInterval: params?.pollInterval ?? false,
+    refetchInterval: pollInterval ?? false,
   });
 }
 
@@ -228,8 +234,12 @@ export function useUploadPhoto() {
 }
 
 // ---- Certificates ----
-export function useCertificates() {
-  return useQuery({ queryKey: ["certificates"], queryFn: CertificateApi.list });
+export function useCertificates(params?: CertificateFilters) {
+  return useQuery({
+    queryKey: ["certificates", params ?? {}],
+    queryFn: () => CertificateApi.list(params),
+    placeholderData: keepPreviousData,
+  });
 }
 
 // Certified applications whose certificate isn't generated yet. Polls while any

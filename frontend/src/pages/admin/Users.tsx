@@ -1,5 +1,5 @@
 import { type FormEvent, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AdminUsersApi, type CreateOfficerPayload } from "@/lib/endpoints";
 import { ApiError } from "@/lib/api";
 import type { User } from "@/lib/types";
@@ -10,7 +10,9 @@ import { DataTable } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/ui/States";
 import { Badge } from "@/components/ui/StatusBadge";
 import { JurisdictionText } from "@/components/ui/JurisdictionText";
+import { FilterBar } from "@/components/domain/FilterBar";
 import { useGeoDistricts, useGeoStates } from "@/hooks/useData";
+import { useFilters } from "@/hooks/useFilters";
 
 const USER_STATUS_TONE = {
   active: "success",
@@ -29,9 +31,11 @@ const ROLE_OPTIONS = [
 
 export default function AdminUsers() {
   const qc = useQueryClient();
+  const officerFilters = useFilters({ q: "", role: "", status: "" });
   const { data: officers, isLoading, error, refetch } = useQuery<User[]>({
-    queryKey: ["admin", "officers"],
-    queryFn: () => AdminUsersApi.listOfficers(),
+    queryKey: ["admin", "officers", officerFilters.query],
+    queryFn: () => AdminUsersApi.listOfficers(officerFilters.query),
+    placeholderData: keepPreviousData,
   });
 
   const [form, setForm] = useState({
@@ -364,6 +368,32 @@ export default function AdminUsers() {
           </form>
         )}
         <div className="mt-4">
+          <FilterBar
+            search={officerFilters.values.q}
+            onSearch={(v) => officerFilters.set("q", v)}
+            searchLabel="Search officers"
+            searchPlaceholder="Name, email or organisation"
+            active={officerFilters.active}
+            onClear={officerFilters.clear}
+          >
+            <SelectInput
+              label="Role"
+              value={officerFilters.values.role}
+              onChange={(e) => officerFilters.set("role", e.target.value)}
+              options={[{ value: "", label: "Any" }, ...ROLE_OPTIONS]}
+            />
+            <SelectInput
+              label="Status"
+              value={officerFilters.values.status}
+              onChange={(e) => officerFilters.set("status", e.target.value)}
+              options={[
+                { value: "", label: "Any" },
+                { value: "active", label: "Active" },
+                { value: "pending", label: "Pending" },
+                { value: "rejected", label: "Suspended" },
+              ]}
+            />
+          </FilterBar>
           {error ? (
             <ErrorState message="Couldn't load officer accounts." onRetry={() => refetch()} />
           ) : (
@@ -451,8 +481,8 @@ export default function AdminUsers() {
               rows={officers ?? []}
               rowKey={(u) => u.id}
               isLoading={isLoading}
-              emptyTitle="No officer accounts yet"
-              emptyDescription="Create the first LMO or GATC account above."
+              emptyTitle={officerFilters.active ? "No officers match" : "No officer accounts yet"}
+              emptyDescription={officerFilters.active ? "Try a different search or clear the filters." : "Create the first LMO or GATC account above."}
             />
           )}
         </div>

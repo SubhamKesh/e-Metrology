@@ -253,6 +253,10 @@ SLOT_CAPACITY_PER_OFFICER = _int_env("SLOT_CAPACITY_PER_OFFICER", 4, 1)
 SCHEDULE_MIN_LEAD_DAYS = _int_env("SCHEDULE_MIN_LEAD_DAYS", 0, 0)
 SCHEDULE_MAX_AHEAD_DAYS = _int_env("SCHEDULE_MAX_AHEAD_DAYS", 60, 1)
 
+# CSV / PDF report export (app/routers/reports.py). The most rows one download may hold; when more
+# match, the report holds the newest ones and says so (X-Report-Truncated header, note on the PDF).
+REPORT_MAX_ROWS = _int_env("REPORT_MAX_ROWS", 5000, 1)
+
 # Field verification form (app/config/inspection_forms.py). With strict on, a passed inspection must
 # carry the test points, the required checks and a seal number. Switch off only while old app
 # versions or inspections queued on officers' phones before the upgrade still need to be accepted.
@@ -321,6 +325,7 @@ class _Settings:
     FRONTEND_BASE_URL = FRONTEND_BASE_URL
     OWNER_EMAIL_NOTIFICATIONS_ENABLED = OWNER_EMAIL_NOTIFICATIONS_ENABLED
     EXPIRY_REMINDER_DAYS = EXPIRY_REMINDER_DAYS
+    REPORT_MAX_ROWS = REPORT_MAX_ROWS
 
 
 settings = _Settings()

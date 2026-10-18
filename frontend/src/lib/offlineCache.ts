@@ -63,7 +63,12 @@ function shouldPersist(key: QueryKey): boolean {
   const [name, arg] = key as [string, unknown];
   if (name === "application" || name === "instrument") return true;
   if (name === "dashboard") return arg === "lmo" || arg === "gatc";
-  if (name === "applications") return typeof arg === "object" && arg !== null && (arg as { mine?: boolean }).mine === true;
+  if (name === "applications") {
+    // Only the plain assignment list; a searched or filtered view is not needed offline.
+    if (typeof arg !== "object" || arg === null) return false;
+    const { mine, ...filters } = arg as { mine?: boolean };
+    return mine === true && Object.values(filters).every((v) => v === undefined || v === "");
+  }
   return false;
 }
 

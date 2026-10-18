@@ -203,6 +203,7 @@ def test_replica_reads_are_used_only_where_staleness_is_harmless():
         "routers/dashboard.py",    # aggregate counts
         "routers/certificates.py", # public certificate verification
         "routers/admin_audit.py",  # audit-log viewer
+        "routers/reports.py",      # audit-log export only (same data as the viewer)
     }
     # ...and within certificates.py only the public verify endpoint uses it.
     src = (APP_DIR / "routers" / "certificates.py").read_text(encoding="utf-8")

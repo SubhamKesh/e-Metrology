@@ -273,3 +273,47 @@ export async function fetchBlob(path: string, _isRetry = false): Promise<Blob> {
   if (!res.ok) throw new ApiError(res.status, STATUS_FALLBACK[res.status] ?? `Request failed (${res.status}).`);
   return res.blob();
 }
+
+export interface DownloadedFile {
+  blob: Blob;
+  filename: string;
+  rows: number; // records in the file
+  total: number; // records that matched (more than `rows` when the export limit cut it short)
+  truncated: boolean;
+}
+
+// Authenticated file download that keeps the server's explanation when it refuses (for example a
+// back-to-front date range), unlike fetchBlob which only knows generic messages.
+export async function downloadFile(path: string, _isRetry = false): Promise<DownloadedFile> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { headers, credentials: "include" });
+  } catch {
+    throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
+  }
+  if (res.status === 401 && !_isRetry && (await tryRefresh())) return downloadFile(path, true);
+  if (!res.ok) {
+    let message: string | undefined;
+    try {
+      const data = (await res.json()) as { detail?: unknown };
+      message = extractDetailMessage(data?.detail);
+    } catch {
+      // not JSON: fall back to the generic text
+    }
+    throw new ApiError(res.status, message ?? STATUS_FALLBACK[res.status] ?? `Request failed (${res.status}).`);
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const name = /filename="?([^";]+)"?/i.exec(disposition)?.[1];
+  const rows = Number(res.headers.get("X-Report-Rows") ?? NaN);
+  const total = Number(res.headers.get("X-Report-Total") ?? NaN);
+  return {
+    blob: await res.blob(),
+    filename: name ?? "maapsetu-report",
+    rows: Number.isFinite(rows) ? rows : 0,
+    total: Number.isFinite(total) ? total : Number.isFinite(rows) ? rows : 0,
+    truncated: res.headers.get("X-Report-Truncated") === "true",
+  };
+}

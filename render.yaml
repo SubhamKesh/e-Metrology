@@ -79,6 +79,10 @@ services:
       # upgrade still need to be accepted.
       - key: INSPECTION_FORM_STRICT
         value: "true"
+      # CSV / PDF report export: the most rows one download may hold (newest first). The file and
+      # the response say when more matched.
+      - key: REPORT_MAX_ROWS
+        value: "5000"
 
   # ---------- Optional: dedicated queue worker (paid plans only) ----------
   # Render's free plan has no Background Workers. On a paid plan, uncomment this, set

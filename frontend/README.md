@@ -52,6 +52,7 @@ data — the API layer is structured so it drops in cleanly once the route exist
 
 - **No scheduling/calendar UI** — there's no `/schedule` endpoint; the lifecycle is
   `submitted → scheduled` via `/applications/{id}/claim`, which is what's built.
+- **Search and export** — the applications, certificates and instruments lists (and the admin officer list) have a filter bar (`useFilters`, `components/domain/FilterBar.tsx`); `ExportButtons` downloads the same filtered rows as CSV or PDF through `downloadFile` in `lib/api.ts`. The server decides what each role may see; the UI only passes the filters.
 - **No notifications panel, no audit log viewer, no user/GATC/LMO management screens** —
   no corresponding endpoints in the contract.
 - **No offline mode for field verification** — no sync strategy exists in the backend, so

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Annotated, Literal, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,6 +8,7 @@ from pymongo import ReturnDocument
 
 from app.config.db import applications_col, certificates_col, instruments_col, users_col
 from app.config.settings import REVERIFY_WINDOW_DAYS
+from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
 from app.services.notifications import broadcast_threadsafe
 from app.services.owner_notifications import (
     notify_application_submitted,
@@ -19,6 +20,7 @@ from app.models.application import (
     ApplicationCreate, ApplicationOut, AssignIn, HistoryEntry, ScheduleHistoryOut, ScheduleIn,
 )
 from app.middleware.auth import get_current_user, role_required, jurisdiction_filter
+from app.utils import search as search_utils
 
 router = APIRouter(prefix="/api/v1/applications", tags=["applications"])
 
@@ -202,40 +204,86 @@ def submit_application(
     return to_application_out(doc)
 
 
-@router.get("", response_model=list[ApplicationOut])
-def list_applications(
-    status: Optional[str] = Query(default=None),
-    mine: bool = Query(default=False),
-    current_user: dict = Depends(get_current_user),
-):
-    query: dict = {}
+def find_applications(
+    current_user: dict,
+    status: Optional[str] = None,
+    mine: bool = False,
+    q: Optional[str] = None,
+    application_type: Optional[str] = None,
+    instrument_type: Optional[str] = None,
+    state_code: Optional[str] = None,
+    district_code: Optional[str] = None,
+    date_from=None,
+    date_to=None,
+) -> list[dict]:
+    """The applications this user may see, narrowed by the optional search filters.
+
+    Used by GET /applications and by the report export, so a downloaded report always holds exactly
+    what the list shows. Who may see what (`scope`) is decided first and can never be widened by a
+    filter: filters are ANDed on top of it.
+    """
+    scope: dict = {}
     user_id = current_user["_id"]
     user_id_str = str(user_id)
 
     if current_user["role"] == "owner":
         # Owners only ever see their own applications. Some historical records may
         # store owner_id as a string while newer ones use ObjectId, so match both.
-        query["owner_id"] = {"$in": [user_id, user_id_str]}
+        scope["owner_id"] = {"$in": [user_id, user_id_str]}
     elif current_user["role"] in ("lmo", "gatc"):
         if mine:
             # "my assigned applications" — already scoped by assignment,
             # no need to also filter by jurisdiction (an officer can only
             # ever be assigned something inside their own scope anyway,
             # since claim_application enforces that — see below).
-            query["assigned_officer_id"] = {"$in": [user_id, user_id_str]}
+            scope["assigned_officer_id"] = {"$in": [user_id, user_id_str]}
         else:
             # The claimable queue — unassigned, still submitted, AND inside
             # this officer's jurisdiction. Without the jurisdiction filter
             # here, an LMO in one district would see (and be able to claim)
             # applications meant for a completely different state.
-            query["status"] = "submitted"
-            query["assigned_officer_id"] = None
-            query.update(jurisdiction_filter(current_user))
+            scope["status"] = "submitted"
+            scope["assigned_officer_id"] = None
+            scope.update(jurisdiction_filter(current_user))
     # admin sees everything by default, optionally filtered by status below
 
     if status:
-        query["status"] = status
+        scope["status"] = status
 
+    extra: list[dict] = []
+    text = search_utils.clean_query(q)
+    search_utils.check_instrument_type(instrument_type, ALLOWED_INSTRUMENT_TYPES)
+    if application_type:
+        # Records from before re-verification existed have no type and count as initial.
+        extra.append({"application_type": "renewal"} if application_type == "renewal"
+                     else {"application_type": {"$ne": "renewal"}})
+    if state_code:
+        extra.append({"state_code": state_code})
+    if district_code:
+        extra.append({"district_code": district_code})
+    window = search_utils.ist_window(date_from, date_to)
+    if window:
+        extra.append({"submitted_at": window})
+
+    # Instrument-based filters (free text and type) resolve to the matching instruments first;
+    # an application does not carry the instrument's own fields.
+    inst_filter = search_utils.instrument_filter(None, instrument_type)
+    if inst_filter:
+        ids = [i["_id"] for i in instruments_col.find(inst_filter, {"_id": 1}).limit(search_utils.MAX_INSTRUMENT_MATCHES)]
+        extra.append({"instrument_id": {"$in": ids}})
+    if text:
+        or_clauses: list[dict] = [{"previous_cert_no": search_utils.contains(text)}]
+        text_filter = search_utils.instrument_filter(text)
+        ids = [i["_id"] for i in instruments_col.find(text_filter, {"_id": 1}).limit(search_utils.MAX_INSTRUMENT_MATCHES)]
+        if ids:
+            or_clauses.append({"instrument_id": {"$in": ids}})
+        try:
+            or_clauses.append({"_id": ObjectId(text)})  # the full application id
+        except (InvalidId, TypeError):
+            pass
+        extra.append({"$or": or_clauses})
+
+    query = search_utils.combine(scope, extra)
     docs = list(applications_col.find(query).sort("submitted_at", -1))
     if current_user["role"] in ("lmo", "gatc") and not mine:
         # Claimable queue: re-verifications first, the one whose certificate runs out
@@ -245,6 +293,30 @@ def list_applications(
             return (0, _as_utc(expiry).timestamp()) if expiry else (1, -_as_utc(d["submitted_at"]).timestamp())
 
         docs.sort(key=_key)
+    return docs
+
+
+@router.get("", response_model=list[ApplicationOut])
+def list_applications(
+    status: Optional[str] = Query(default=None),
+    mine: bool = Query(default=False),
+    q: search_utils.SearchText = None,
+    application_type: Annotated[Optional[Literal["initial", "renewal"]], Query()] = None,
+    instrument_type: search_utils.InstrumentTypeParam = None,
+    state_code: search_utils.StateCodeParam = None,
+    district_code: search_utils.DistrictCodeParam = None,
+    date_from: search_utils.DateFrom = None,
+    date_to: search_utils.DateTo = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Applications this user may see. All search filters are optional and combine with AND:
+    `q` matches the instrument's UIID, serial number, manufacturer, model or type, the certificate
+    number being renewed, or the full application id; the dates are India calendar days of submission."""
+    docs = find_applications(
+        current_user, status=status, mine=mine, q=q, application_type=application_type,
+        instrument_type=instrument_type, state_code=state_code, district_code=district_code,
+        date_from=date_from, date_to=date_to,
+    )
     return [to_application_out(doc) for doc in docs]
 
 

@@ -39,21 +39,16 @@ def _to_out(doc: dict) -> AuditLogOut:
     )
 
 
-@router.get("", response_model=AuditLogPage)
-def list_audit_logs(
-    event: Optional[str] = Query(None, max_length=64, description="Exact event name"),
-    outcome: Optional[Literal["success", "failure", "blocked", "ignored"]] = None,
-    role: Optional[Literal["owner", "lmo", "gatc", "admin"]] = None,
-    search: Optional[str] = Query(
-        None, max_length=100, description="Part of the account's or the acting admin's email (case-insensitive)"
-    ),
-    date_from: Optional[date] = Query(None, description="First day to include (UTC)"),
-    date_to: Optional[date] = Query(None, description="Last day to include (UTC)"),
-    page: int = Query(1, ge=1, le=1000),
-    page_size: int = Query(50, ge=1, le=100),
-    current_user: dict = Depends(role_required("admin")),
-):
-    """Newest first. All filters are optional and combine with AND."""
+def build_query(
+    event: Optional[str],
+    outcome: Optional[str],
+    role: Optional[str],
+    search: Optional[str],
+    date_from: Optional[date],
+    date_to: Optional[date],
+) -> dict:
+    """Mongo filter for the audit viewer's filters. Shared with the CSV/PDF export so a downloaded
+    report holds exactly what the screen shows."""
     if event is not None and event not in audit_service.KNOWN_AUDIT_EVENTS:
         raise HTTPException(status_code=400, detail="Unknown event name.")
     if date_from and date_to and date_from > date_to:
@@ -77,6 +72,25 @@ def list_audit_logs(
         if date_to:
             window["$lt"] = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=timezone.utc)
         query["created_at"] = window
+    return query
+
+
+@router.get("", response_model=AuditLogPage)
+def list_audit_logs(
+    event: Optional[str] = Query(None, max_length=64, description="Exact event name"),
+    outcome: Optional[Literal["success", "failure", "blocked", "ignored"]] = None,
+    role: Optional[Literal["owner", "lmo", "gatc", "admin"]] = None,
+    search: Optional[str] = Query(
+        None, max_length=100, description="Part of the account's or the acting admin's email (case-insensitive)"
+    ),
+    date_from: Optional[date] = Query(None, description="First day to include (UTC)"),
+    date_to: Optional[date] = Query(None, description="Last day to include (UTC)"),
+    page: int = Query(1, ge=1, le=1000),
+    page_size: int = Query(50, ge=1, le=100),
+    current_user: dict = Depends(role_required("admin")),
+):
+    """Newest first. All filters are optional and combine with AND."""
+    query = build_query(event, outcome, role, search, date_from, date_to)
 
     # An audit view is the textbook staleness-tolerant read: use a replica when configured.
     collection = read_replica(audit_service.audit_logs_col)

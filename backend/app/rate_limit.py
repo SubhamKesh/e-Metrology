@@ -34,3 +34,7 @@ RATE_LIMIT_AUTH = "15/15minutes"
 # per-address cooldown (OTP_SEND_COOLDOWN_SECONDS) so many callers can't pile
 # onto one inbox either.
 RATE_LIMIT_OTP_SEND = "5/15minutes"
+
+# CSV / PDF report downloads. Building a report reads many rows (and a PDF is drawn on the CPU), so
+# this is tighter than ordinary reads while staying well above what a person clicking "Export" needs.
+RATE_LIMIT_REPORTS = "20/10minutes"

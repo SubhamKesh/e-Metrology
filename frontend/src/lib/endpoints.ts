@@ -1,4 +1,4 @@
-import { api, fetchBlob } from "./api";
+import { api, downloadFile, fetchBlob } from "./api";
 import type {
   AdminDashboard,
   Application,
@@ -19,6 +19,44 @@ import type {
   User,
   AuditLogPage,
 } from "./types";
+
+// Builds "?a=1&b=2" from the filters that have a value (empty strings, undefined and false are left out).
+export function toQuery(params?: object): string {
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === undefined || value === null || value === "" || value === false) continue;
+    usp.set(key, String(value));
+  }
+  const qs = usp.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// Search filters. All optional; the server combines them with AND and never widens what a role may see.
+export interface ApplicationFilters {
+  q?: string;
+  status?: string;
+  application_type?: string;
+  instrument_type?: string;
+  state_code?: string;
+  district_code?: string;
+  date_from?: string; // YYYY-MM-DD, India day
+  date_to?: string;
+}
+export interface CertificateFilters {
+  q?: string;
+  status?: string; // valid | expiring | expired
+  application_type?: string;
+  instrument_type?: string;
+  date_from?: string;
+  date_to?: string;
+}
+export interface InstrumentFilters {
+  owner_id?: string;
+  q?: string;
+  type?: string;
+  state_code?: string;
+  district_code?: string;
+}
 
 // ---- Auth ----
 export interface RegisterPayload {
@@ -121,7 +159,8 @@ export interface CreateOfficerResponse {
 }
 
 export const AdminUsersApi = {
-  listOfficers: () => api.get<User[]>("/admin/users"),
+  listOfficers: (params?: { q?: string; role?: string; status?: string }) =>
+    api.get<User[]>(`/admin/users${toQuery(params)}`),
   listPending: () => api.get<User[]>("/admin/users/pending"),
   createOfficer: (body: CreateOfficerPayload) =>
     api.post<CreateOfficerResponse>("/admin/users/create-officer", body),
@@ -139,10 +178,7 @@ export const AdminUsersApi = {
 // ---- Instruments ----
 export const InstrumentApi = {
   create: (body: Omit<Instrument, "id" | "owner_id" | "uiid">) => api.post<Instrument>("/instruments", body),
-  list: (params?: { owner_id?: string }) => {
-    const qs = params?.owner_id ? `?owner_id=${encodeURIComponent(params.owner_id)}` : "";
-    return api.get<Instrument[]>(`/instruments${qs}`);
-  },
+  list: (params?: InstrumentFilters) => api.get<Instrument[]>(`/instruments${toQuery(params)}`),
   get: (id: string) => api.get<Instrument>(`/instruments/${id}`),
   typeSpecs: () => api.get<InstrumentTypeSpec[]>("/instruments/meta/types"),
 };
@@ -156,13 +192,7 @@ export const GeoApi = {
 // ---- Applications ----
 export const ApplicationApi = {
   create: (body: { instrument_id: string; previous_certificate_id?: string }) => api.post<Application>("/applications", body),
-  list: (params?: { mine?: boolean; status?: string }) => {
-    const usp = new URLSearchParams();
-    if (params?.mine) usp.set("mine", "true");
-    if (params?.status) usp.set("status", params.status);
-    const qs = usp.toString();
-    return api.get<Application[]>(`/applications${qs ? `?${qs}` : ""}`);
-  },
+  list: (params?: ApplicationFilters & { mine?: boolean }) => api.get<Application[]>(`/applications${toQuery(params)}`),
   get: (id: string) => api.get<Application>(`/applications/${id}`),
   // Claiming books the inspection, so a date and slot are required.
   claim: (id: string, body: ScheduleInput) => api.post<Application>(`/applications/${id}/claim`, body),
@@ -213,7 +243,7 @@ export const CertificateApi = {
   verifyPublic: (certId: string) =>
     api.get<CertificateVerifyResponse>(`/certificates/verify/${encodeURIComponent(certId)}`, { public: true }),
   get: (certId: string) => api.get<Certificate>(`/certificates/${certId}`),
-  list: () => api.get<Certificate[]>("/certificates/"),
+  list: (params?: CertificateFilters) => api.get<Certificate[]>(`/certificates/${toQuery(params)}`),
   pending: () => api.get<PendingCertificate[]>("/certificates/pending"),
   generate: (applicationId: string) => api.post<Certificate>(`/certificates/generate/${applicationId}`),
   pdf: (certId: string) => fetchBlob(`/certificates/${certId}/pdf`),
@@ -226,4 +256,14 @@ export const UploadApi = {
     form.append("file", file);
     return api.post<{ url: string }>("/uploads/photo", form, { isForm: true });
   },
+};
+
+// ---- Reports (CSV / PDF downloads) ----
+// Same filters as the lists, so a file holds exactly what the screen shows.
+export type ReportKind = "applications" | "certificates" | "instruments" | "audit-logs";
+export type ReportFormat = "csv" | "pdf";
+
+export const ReportsApi = {
+  download: (kind: ReportKind, format: ReportFormat, params?: object) =>
+    downloadFile(`/reports/${kind}${toQuery({ ...params, format })}`),
 };

@@ -7,6 +7,7 @@ import { TextInput, SelectInput } from "@/components/ui/Field";
 import { DataTable } from "@/components/ui/DataTable";
 import { ErrorState } from "@/components/ui/States";
 import { Badge } from "@/components/ui/StatusBadge";
+import { ExportButtons } from "@/components/domain/ExportButtons";
 import { AdminAuditApi, type AuditLogQuery } from "@/lib/endpoints";
 import { ApiError } from "@/lib/api";
 import type { AuditLogEntry, AuditOutcome } from "@/lib/types";
@@ -154,6 +155,10 @@ export default function AdminAuditLog() {
             <Button type="button" variant="secondary" onClick={() => refetch()} disabled={isFetching}>
               Refresh
             </Button>
+            <ExportButtons
+              kind="audit-logs"
+              params={Object.fromEntries(Object.entries(applied).filter(([, v]) => v))}
+            />
           </div>
         </form>
         {filterError && <p className="mt-3 text-sm text-danger">{filterError}</p>}

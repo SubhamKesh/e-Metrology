@@ -4,6 +4,8 @@ import { CertificatesTable } from "@/components/domain/CertificatesTable";
 import { CertificateDetailCore } from "@/components/domain/CertificateDetailCore";
 import { ErrorState, Skeleton } from "@/components/ui/States";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { CertificatesFilterBar, EMPTY_CERTIFICATE_FILTERS } from "@/components/domain/CertificatesFilterBar";
+import { useFilters } from "@/hooks/useFilters";
 import { useApplications, useCertificate, useCertificates, useGenerateCertificate, usePendingCertificates } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 
@@ -51,12 +53,16 @@ function PendingCertificates() {
 }
 
 export function OwnerCertificates() {
-  const { data, isLoading, isError, error, refetch } = useCertificates();
+  const filters = useFilters(EMPTY_CERTIFICATE_FILTERS);
+  const { data, isLoading, isError, error, refetch } = useCertificates(filters.query);
   return (
     <div>
       <PageHeader title="Certificates" description="All certificates issued for your instruments." />
       <PendingCertificates />
+      <CertificatesFilterBar filters={filters} />
       <CertificatesTable
+        emptyTitle={filters.active ? "No certificates match" : undefined}
+        emptyDescription={filters.active ? "Try a different search or clear the filters." : undefined}
         certificates={data}
         isLoading={isLoading}
         isError={isError}

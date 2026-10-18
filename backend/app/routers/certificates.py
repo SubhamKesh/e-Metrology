@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Annotated, Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
 import logging
 from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
 
-from app.config.settings import REVERIFY_WINDOW_DAYS
+from app.config.settings import REVERIFY_WINDOW_DAYS, EXPIRY_REMINDER_DAYS
+from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
+from app.utils import search as search_utils
 from app.config.db import certificates_col, applications_col, instruments_col, users_col, inspections_col, read_replica
 from app.utils.location_format import format_location
 from app.utils.cache import cache_get, cache_set
@@ -262,11 +266,20 @@ def get_certificate(cert_id: str, user=Depends(get_current_user)):
     return _serialize_cert(cert, instrument)
 
 
-@router.get("/")
-def list_certificates(user=Depends(get_current_user)):
-    """Certificates the caller is allowed to see, newest first: an owner's own,
-    an officer's jurisdiction, everything for an admin. (This used to return
-    every certificate in the database to any logged-in user.)"""
+def find_certificates(
+    user: dict,
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    application_type: Optional[str] = None,
+    instrument_type: Optional[str] = None,
+    date_from=None,
+    date_to=None,
+) -> tuple[list[dict], dict]:
+    """(certificates, instruments by id) the caller may see, newest first, narrowed by the optional
+    search filters. Shared by GET /certificates and the report export.
+
+    Who may see what is decided first (an owner's own, an officer's jurisdiction, everything for an
+    admin) and no filter can widen it."""
     role = user.get("role")
     if role == "admin":
         app_filter: dict | None = {}
@@ -286,23 +299,80 @@ def list_certificates(user=Depends(get_current_user)):
         app_filter = None
 
     if app_filter is None:
-        return []
-
-    # Self-heal: issue any certificate that failed to generate earlier. Runs in
-    # the background (throttled) so this response is never delayed.
-    start_reconcile(user["_id"] if role == "owner" else None)
+        return [], {}
 
     if app_filter:
         app_ids = [a["_id"] for a in applications_col.find(app_filter, {"_id": 1})]
         if not app_ids:
-            return []
-        cert_filter = {"application_id": {"$in": app_ids}}
+            return [], {}
+        scope: dict = {"application_id": {"$in": app_ids}}
     else:
-        cert_filter = {}
+        scope = {}
 
-    certs = list(certificates_col.find(cert_filter).sort("issued_at", -1))
+    extra: list[dict] = []
+    text = search_utils.clean_query(q)
+    search_utils.check_instrument_type(instrument_type, ALLOWED_INSTRUMENT_TYPES)
+    now = search_utils.now_utc_naive()
+    if status == "valid":
+        extra.append({"valid_until": {"$gte": now}})
+    elif status == "expired":
+        extra.append({"valid_until": {"$lt": now}})
+    elif status == "expiring":
+        # Still valid but inside the first expiry-reminder window (30 days by default).
+        extra.append({"valid_until": {"$gte": now, "$lt": now + timedelta(days=max(EXPIRY_REMINDER_DAYS))}})
+    if application_type:
+        extra.append({"application_type": "renewal"} if application_type == "renewal"
+                     else {"application_type": {"$ne": "renewal"}})
+    window = search_utils.ist_window(date_from, date_to)
+    if window:
+        extra.append({"issued_at": window})
+    inst_filter = search_utils.instrument_filter(None, instrument_type)
+    if inst_filter:
+        ids = [i["_id"] for i in instruments_col.find(inst_filter, {"_id": 1}).limit(search_utils.MAX_INSTRUMENT_MATCHES)]
+        extra.append({"instrument_id": {"$in": ids}})
+    if text:
+        pattern = search_utils.contains(text)
+        or_clauses: list[dict] = [
+            {"_id": text}, {"cert_no": pattern}, {"seal_number": pattern}, {"previous_cert_no": pattern},
+        ]
+        text_filter = search_utils.instrument_filter(text)
+        ids = [i["_id"] for i in instruments_col.find(text_filter, {"_id": 1}).limit(search_utils.MAX_INSTRUMENT_MATCHES)]
+        if ids:
+            or_clauses.append({"instrument_id": {"$in": ids}})
+        extra.append({"$or": or_clauses})
+
+    certs = list(certificates_col.find(search_utils.combine(scope, extra)).sort("issued_at", -1))
     instrument_ids = list({c["instrument_id"] for c in certs if c.get("instrument_id")})
     instruments = {i["_id"]: i for i in instruments_col.find({"_id": {"$in": instrument_ids}})}
+    return certs, instruments
+
+
+@router.get("/")
+def list_certificates(
+    q: search_utils.SearchText = None,
+    status: Annotated[Optional[Literal["valid", "expiring", "expired"]], Query(description="Validity right now")] = None,
+    application_type: Annotated[Optional[Literal["initial", "renewal"]], Query()] = None,
+    instrument_type: search_utils.InstrumentTypeParam = None,
+    date_from: search_utils.DateFrom = None,
+    date_to: search_utils.DateTo = None,
+    user=Depends(get_current_user),
+):
+    """Certificates the caller is allowed to see, newest first: an owner's own,
+    an officer's jurisdiction, everything for an admin. (This used to return
+    every certificate in the database to any logged-in user.)
+
+    Optional search filters, combined with AND: `q` matches the certificate number, seal number,
+    the number it renews, its id, or the instrument's UIID / serial number / manufacturer / model /
+    type; `status` is validity right now (`expiring` = valid but within the first expiry-reminder
+    window); the dates are India calendar days of issue."""
+    if user.get("role") in ("owner", "admin", "lmo", "gatc"):
+        # Self-heal: issue any certificate that failed to generate earlier. Runs in
+        # the background (throttled) so this response is never delayed.
+        start_reconcile(user["_id"] if user.get("role") == "owner" else None)
+    certs, instruments = find_certificates(
+        user, q=q, status=status, application_type=application_type, instrument_type=instrument_type,
+        date_from=date_from, date_to=date_to,
+    )
     return [_serialize_cert(c, instruments.get(c.get("instrument_id"))) for c in certs]
 
 

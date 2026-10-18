@@ -12,6 +12,7 @@ from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
 from app.services.owner_notifications import notify_instrument_registered
 from app.utils.geo_validation import validate_state_district
+from app.utils import search as search_utils
 
 router = APIRouter(prefix="/api/v1/instruments", tags=["instruments"])
 
@@ -115,20 +116,25 @@ def register_instrument(
     return to_instrument_out(doc)
 
 
-@router.get("", response_model=list[InstrumentOut])
-def list_instruments(
-    owner_id: Optional[str] = Query(default=None),
-    current_user: dict = Depends(get_current_user),
-):
+def find_instruments(
+    current_user: dict,
+    owner_id: Optional[str] = None,
+    q: Optional[str] = None,
+    instrument_type: Optional[str] = None,
+    state_code: Optional[str] = None,
+    district_code: Optional[str] = None,
+) -> list[dict]:
+    """The instruments this user may list, narrowed by the optional search filters.
+    Shared by GET /instruments and the report export."""
     # Owners only ever see their own instruments, regardless of query param.
     # Admins can see all, or filter down to a specific owner via ?owner_id=
     if current_user["role"] == "owner":
-        query = {"owner_id": current_user["_id"]}
+        scope: dict = {"owner_id": current_user["_id"]}
     elif current_user["role"] == "admin":
-        query = {}
+        scope = {}
         if owner_id:
             try:
-                query["owner_id"] = ObjectId(owner_id)
+                scope["owner_id"] = ObjectId(owner_id)
             except InvalidId:
                 raise HTTPException(status_code=400, detail="Invalid owner_id")
     else:
@@ -136,7 +142,25 @@ def list_instruments(
         # they reach instruments via their assigned applications instead.
         raise HTTPException(status_code=403, detail="Not authorized for this action")
 
-    docs = instruments_col.find(query)
+    search_utils.check_instrument_type(instrument_type, ALLOWED_INSTRUMENT_TYPES)
+    query = search_utils.combine(scope, [search_utils.instrument_filter(q, instrument_type, state_code, district_code)])
+    return list(instruments_col.find(query))
+
+
+@router.get("", response_model=list[InstrumentOut])
+def list_instruments(
+    owner_id: Optional[str] = Query(default=None),
+    q: search_utils.SearchText = None,
+    type: search_utils.InstrumentTypeParam = None,
+    state_code: search_utils.StateCodeParam = None,
+    district_code: search_utils.DistrictCodeParam = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Optional search filters, combined with AND: `q` matches UIID, serial number, manufacturer,
+    model or type; `type` is an exact instrument type; `state_code` / `district_code` narrow by place."""
+    docs = find_instruments(
+        current_user, owner_id=owner_id, q=q, instrument_type=type, state_code=state_code, district_code=district_code,
+    )
     return [to_instrument_out(doc) for doc in docs]
 
 
