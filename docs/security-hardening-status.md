@@ -113,7 +113,7 @@ checkbox).
 - Admin-only, read-only (no edit/delete route exists), filterable by event / outcome / role / email text / date, paginated. Search text is matched literally, never as a pattern. A source-scanning test fails if a `log_event("…")` name is added without being listed for the viewer's filter. Admin-initiated records carry `actor_email`.
 
 **Read replicas** (`MONGO_READ_PREFERENCE`)
-- Opt-in `secondaryPreferred` reads for staleness-tolerant endpoints only (geo, dashboards, public certificate verification, audit viewer). Sign-in, token/user/suspension checks and read-your-writes lists always use the primary; a test fails if any other module starts using `read_replica`.
+- Opt-in `secondaryPreferred` reads for staleness-tolerant endpoints only (geo, dashboards, the oversight views, public certificate verification, audit viewer). Sign-in, token/user/suspension checks and read-your-writes lists always use the primary; a test fails if any other module starts using `read_replica`.
 
 **Audit trail** (`app/services/audit.py`, collection `audit_logs`, logger `app.audit`)
 - Login success / failure / blocked (locked, pending, rejected), logout, logout-all, replayed refresh tokens, and all password events including admin-initiated resets. Never records passwords, codes or tokens; best-effort so it can't break a request. TTL-indexed (`AUDIT_LOG_RETENTION_DAYS`, default 365, minimum 180). Event list: `docs/api-contract.md` → "Audit log".

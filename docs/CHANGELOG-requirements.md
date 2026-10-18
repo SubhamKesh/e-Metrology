@@ -14,7 +14,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 5 | Real scheduling (admin/LMO allocation, date + slot, reschedule) | ✅ (backend `pytest` 322 passed; frontend lint and build pass; not tried in a browser) |
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ✅ (backend `pytest` 345 passed; frontend lint and build pass; not tried in a browser or on a device) |
 | 7 | Search + CSV/PDF report export | ✅ (code complete; ruff and the export-rendering tests pass here; the router tests, full `pytest` and frontend lint/build still need running — no PyPI/npm access when written; not tried in a browser) |
-| 8 | Dashboards: pendency ageing, district-wise, enforcement module | ⬜ |
+| 8 | Dashboards: pendency ageing, district-wise, enforcement module | ✅ (backend `pytest` 452 passed, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
 | 9 | Configurable validity per instrument type | ⬜ |
 | 10 | Owner supporting-document upload, profile editing | ⬜ |
 | 11 | SMS / WhatsApp alerts | ⬜ |
@@ -220,3 +220,25 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 - Limits: the PDF uses built-in fonts, so Devanagari and other non-Latin text prints as `?` (the CSV keeps it); text and instrument-type filters on applications and certificates look up at most 10,000 matching instruments first (narrow with state or district); the officer-accounts list is searchable but has no export.
 - Suggested manual check: as an owner search by a UIID and export both formats; as an officer confirm a district you do not cover returns nothing; as admin download the audit log and see the `report_exported` row; open the CSV in Excel (Hindi text, and a manufacturer starting with `=` shows as text).
 - The zip contained stray compiled `src/lib/*.js` files next to the `.ts` sources (see #5); they were not touched.
+
+### 2026-10-18 — #8 Dashboards: pendency ageing, district-wise, enforcement
+**What was built.** The roadmap line gives only the three names, so the scope below is the smallest reading of them, plus the two hooks #4 left for this item (a target time for inspections and "applied, pending" as a mitigating status). Please confirm it matches what is wanted; the exact rules are easy to change in `backend/app/routers/oversight.py`.
+- **Pendency ageing** — open applications (`submitted`, `scheduled`, `inspected`) in age buckets (0-7, 8-14, 15-30, 31-60, over 60 whole days since submission), split by status, with the unassigned count, the count over a target (`PENDENCY_TARGET_DAYS`, default 30; monitoring only, nothing is escalated) and the ten longest waiting.
+- **District-wise** — per district: instruments, open applications, open over the target, verified (`certified`/`expiring`) and expired applications.
+- **Enforcement** — instruments whose newest certificate has lapsed, longest first, with owner, address, certificate number and days lapsed (bands up to 30 / 31-90 / over 90). Renewed instruments are not listed. An open re-verification application is shown as a mitigating note ("Applied" + its status), not as compliance. Filters: re-verification, lapsed for at least N days, state and district; paged.
+- **Access** — admin sees the whole country; LMO/GATC see their own jurisdiction (same `jurisdiction_filter` as the queue); filters only narrow; an officer with no jurisdiction sees nothing; owners get `403`.
+
+**Added**
+- Backend: `app/routers/oversight.py` (`GET /api/v1/oversight/pendency`, `/districts`, `/enforcement`), `app/models/oversight.py`, settings `PENDENCY_TARGET_DAYS` and `ENFORCEMENT_MAX_SCAN` (also in `render.yaml` and `backend/.env.example`).
+- Frontend: `pages/oversight/Oversight.tsx` (three tabs, state/district filter for admins), `OversightApi` and types, an "Oversight" menu entry for admin, LMO and GATC, and an "Oversight" card on the admin dashboard. Existing screens are otherwise unchanged.
+- Tests: `backend/tests/test_oversight.py` (17) — bucket counts and edges, status split, per-district numbers, lapsed vs renewed vs still-valid vs never-certified, newest-certificate rule, mitigating status, filters and paging, scan limit, and role scoping (owner/anonymous refused, officer limited to their district or state, no-jurisdiction officer sees nothing). Removing the jurisdiction filter makes 3 of them fail.
+
+**Changed**
+- `backend/tests/test_ops_hardening.py` — the allowlist of files that may read from a replica now includes `routers/oversight.py` (monitoring views, like `dashboard.py`). Owner names are read from the primary, never a replica.
+- `README.md` (feature table, new "Oversight" section, config table, API table, project structure, replica note), `docs/api-contract.md` ("Oversight"), `docs/implementation_tasks.md`, `docs/security-hardening-status.md`.
+
+**Notes**
+- Checked here: backend `pytest tests` 452 passed (was 435 before this item), `ruff check app tests` clean; frontend `npm ci`, `tsc -b`, `eslint .` and `npm run build` pass. That also covers the full-suite, lint and build runs that #7 still listed as outstanding. Not tried in a browser or on a phone: open **Admin → Oversight**, check the three tabs and the state/district filter, then sign in as an LMO and confirm only their district appears.
+- Limits: the enforcement list is read-only (no notices, case records or escalation). It depends on the hourly expiry job having set lapsed applications to `expired`, and it does not list instruments that were never certified. It checks at most `ENFORCEMENT_MAX_SCAN` expired applications per request and says when that cut in. No CSV/PDF export of these views yet. Day counts are whole days in UTC.
+- The "target time for officers to inspect" is a single global number (`PENDENCY_TARGET_DAYS`), not per instrument type or per officer. The 30/90-day enforcement bands are fixed in code.
+- The ZIP sent in had stray compiled `src/lib/*.js` files and `tsconfig.tsbuildinfo` (see #5). They are git-ignored build output, so they were left out of the returned ZIP.

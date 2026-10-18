@@ -201,6 +201,7 @@ def test_replica_reads_are_used_only_where_staleness_is_harmless():
         "config/db.py",            # the helper itself
         "routers/geo.py",          # reference data
         "routers/dashboard.py",    # aggregate counts
+        "routers/oversight.py",    # pendency / district / enforcement monitoring views (users stay on the primary)
         "routers/certificates.py", # public certificate verification
         "routers/admin_audit.py",  # audit-log viewer
         "routers/reports.py",      # audit-log export only (same data as the viewer)

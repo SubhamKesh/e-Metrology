@@ -64,6 +64,7 @@ const AdminCertificateDetail = lazy(() =>
 );
 const AdminUsers = lazy(() => import("@/pages/admin/Users"));
 const AdminAuditLog = lazy(() => import("@/pages/admin/AuditLog"));
+const Oversight = lazy(() => import("@/pages/oversight/Oversight"));
 
 function PageFallback() {
   return <div className="p-8 text-sm text-gray-500">Loading…</div>;
@@ -81,6 +82,7 @@ function OfficerRoutes({ role }: { role: "lmo" | "gatc" }) {
       <Route path="applications/:id/inspect" element={<InspectionWorkflow role={role} />} />
       <Route path="certificates" element={<OfficerCertificates role={role} />} />
       <Route path="certificates/:id" element={<OfficerCertificateDetail />} />
+      <Route path="oversight" element={<Oversight />} />
     </Routes>
   );
 }
@@ -163,6 +165,7 @@ export default function App() {
                   <Route path="applications/:id" element={<AdminApplicationDetail />} />
                   <Route path="certificates" element={<AdminCertificates />} />
                   <Route path="certificates/:id" element={<AdminCertificateDetail />} />
+                  <Route path="oversight" element={<Oversight />} />
                   <Route path="audit-log" element={<AdminAuditLog />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>

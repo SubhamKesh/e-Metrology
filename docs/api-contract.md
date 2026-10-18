@@ -366,6 +366,75 @@ Same response shape for both — each officer only ever sees their own numbers, 
 
 ---
 
+## Oversight
+
+Read-only monitoring views. Role: `admin` (whole country), `lmo` / `gatc` (own jurisdiction, same rule as the application queue; an officer with no jurisdiction gets empty results). `owner` and anonymous → `403` / `401`. A `state_code` / `district_code` filter only narrows what the role may already see. Reads may come from a replica (`MONGO_READ_PREFERENCE`), so figures can lag a moment. Responses are not cached.
+
+### GET `/oversight/pendency?state_code=&district_code=`
+Open applications (`submitted`, `scheduled`, `inspected`) by age in whole days since `submitted_at`.
+```json
+{
+  "generated_at": "2026-10-18T09:00:00+00:00",
+  "target_days": 30,
+  "total_open": 5, "unassigned": 3, "over_target": 2,
+  "by_status": { "submitted": 3, "scheduled": 1, "inspected": 1 },
+  "buckets": [
+    { "label": "0-7 days", "min_days": 0, "max_days": 7, "count": 2,
+      "by_status": { "submitted": 1, "scheduled": 1, "inspected": 0 } },
+    { "label": "Over 60 days", "min_days": 61, "max_days": null, "count": 1, "by_status": { "submitted": 1, "scheduled": 0, "inspected": 0 } }
+  ],
+  "oldest": [
+    { "application_id": "…", "uiid": "LM-26-00000001", "instrument_type": "Platform Scale", "status": "submitted",
+      "application_type": "initial", "state_name": "Bihar", "district_name": "Patna",
+      "submitted_at": "2026-04-01T06:00:00+00:00", "age_days": 200, "assigned": false }
+  ]
+}
+```
+Buckets are 0-7, 8-14, 15-30, 31-60 and over 60 days. `over_target` counts applications older than `PENDENCY_TARGET_DAYS` (default 30). `oldest` holds the ten longest waiting.
+
+### GET `/oversight/districts?state_code=&district_code=`
+One row per district with at least one instrument or application, most overdue first, plus `totals`.
+```json
+{
+  "generated_at": "…", "target_days": 30,
+  "totals": { "instruments": 4, "open_applications": 2, "overdue_applications": 1, "verified": 2, "expired": 1 },
+  "rows": [
+    { "state_code": "WB", "state_name": "West Bengal", "district_code": "319", "district_name": "Murshidabad",
+      "instruments": 2, "open_applications": 2, "overdue_applications": 1, "verified": 2, "expired": 0 }
+  ]
+}
+```
+`verified` counts applications in `certified` / `expiring`; `expired` counts applications in `expired`.
+
+### GET `/oversight/enforcement`
+Instruments whose **newest** certificate has run out, longest lapsed first.
+
+| Query | Meaning |
+|-------|---------|
+| `state_code`, `district_code` | Narrow the place |
+| `reverification` | `applied` (an open application exists) or `none` |
+| `min_days_overdue` | Only instruments lapsed at least this many days (0-36500) |
+| `page`, `page_size` | Default 1 and 25; `page_size` max 100. Anything else → `422` |
+
+```json
+{
+  "generated_at": "…",
+  "summary": { "lapsed": 3, "reverification_applied": 1, "no_reverification": 2, "recent": 1, "overdue": 1, "long_overdue": 1 },
+  "total": 3, "page": 1, "page_size": 25, "truncated": false,
+  "items": [
+    { "instrument_id": "…", "uiid": "LM-26-00000007", "instrument_type": "Platform Scale",
+      "owner_name": "Anil", "org_name": "Alpha Traders", "address_line": "Main Road",
+      "state_code": "WB", "state_name": "West Bengal", "district_code": "319", "district_name": "Murshidabad",
+      "cert_no": "CERT-20250101-ABC123", "valid_until": "2026-06-20T00:00:00+00:00",
+      "days_overdue": 120, "band": "long_overdue",
+      "reverification": { "status": "scheduled", "applied_on": "2026-10-16T06:00:00+00:00" } }
+  ]
+}
+```
+`band` is `recent` (up to 30 days lapsed), `overdue` (31-90) or `long_overdue` (over 90). `summary` covers every match, not just the page. `reverification` is `null` when no re-verification application is open; when present it is a mitigating note, the certificate is still not in force. An instrument with a newer valid certificate is not listed, and neither is one that was never certified. Owner contact details are not returned. `truncated` is `true` when more than `ENFORCEMENT_MAX_SCAN` (default 10000) expired applications matched and only the newest were checked. Based on application status `expired`, so it relies on the hourly expiry job.
+
+---
+
 ## Certificates
 
 ### GET `/certificates/verify/{cert_id}` — **public**, no auth

@@ -33,6 +33,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
       { label: "Queue", to: "/app/gatc/queue" },
       { label: "My assignments", short: "Assigned", to: "/app/gatc/assignments" },
       { label: "Certificates", to: "/app/gatc/certificates" },
+      { label: "Oversight", to: "/app/gatc/oversight" },
     ],
   },
   lmo: {
@@ -43,6 +44,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
       { label: "Queue", to: "/app/lmo/queue" },
       { label: "My assignments", short: "Assigned", to: "/app/lmo/assignments" },
       { label: "Certificates", to: "/app/lmo/certificates" },
+      { label: "Oversight", to: "/app/lmo/oversight" },
     ],
   },
   admin: {
@@ -54,6 +56,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
       { label: "Instruments", to: "/app/admin/instruments" },
       { label: "Applications", to: "/app/admin/applications" },
       { label: "Certificates", short: "Certs", to: "/app/admin/certificates" },
+      { label: "Oversight", to: "/app/admin/oversight" },
       { label: "Audit log", short: "Audit", to: "/app/admin/audit-log" },
     ],
   },

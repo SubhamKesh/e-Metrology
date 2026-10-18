@@ -257,6 +257,13 @@ SCHEDULE_MAX_AHEAD_DAYS = _int_env("SCHEDULE_MAX_AHEAD_DAYS", 60, 1)
 # match, the report holds the newest ones and says so (X-Report-Truncated header, note on the PDF).
 REPORT_MAX_ROWS = _int_env("REPORT_MAX_ROWS", 5000, 1)
 
+# Oversight views (app/routers/oversight.py). An application still open (submitted / scheduled /
+# inspected) after this many days counts as "overdue" on the pendency and district pages. It is a
+# monitoring target only; nothing is blocked or escalated automatically.
+PENDENCY_TARGET_DAYS = _int_env("PENDENCY_TARGET_DAYS", 30, 1)
+# The enforcement list looks at no more than this many expired applications per request (newest first).
+ENFORCEMENT_MAX_SCAN = _int_env("ENFORCEMENT_MAX_SCAN", 10000, 100)
+
 # Field verification form (app/config/inspection_forms.py). With strict on, a passed inspection must
 # carry the test points, the required checks and a seal number. Switch off only while old app
 # versions or inspections queued on officers' phones before the upgrade still need to be accepted.

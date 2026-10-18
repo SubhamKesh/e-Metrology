@@ -83,6 +83,12 @@ services:
       # the response say when more matched.
       - key: REPORT_MAX_ROWS
         value: "5000"
+      # Oversight pages: days an open application may wait before it counts as overdue, and how many
+      # expired applications the enforcement list checks per request.
+      - key: PENDENCY_TARGET_DAYS
+        value: "30"
+      - key: ENFORCEMENT_MAX_SCAN
+        value: "10000"
 
   # ---------- Optional: dedicated queue worker (paid plans only) ----------
   # Render's free plan has no Background Workers. On a paid plan, uncomment this, set

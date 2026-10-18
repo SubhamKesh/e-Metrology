@@ -281,6 +281,91 @@ export interface AdminDashboard {
   by_location: { state_code: string; state_name: string; count: number }[];
 }
 
+// ---- Oversight: pendency ageing, district-wise, enforcement (admin + officers, read-only) ----
+export interface PendencyStatusCounts {
+  submitted: number;
+  scheduled: number;
+  inspected: number;
+}
+
+export interface PendencyReport {
+  generated_at: string;
+  target_days: number;
+  total_open: number;
+  unassigned: number;
+  over_target: number;
+  by_status: PendencyStatusCounts;
+  buckets: { label: string; min_days: number; max_days: number | null; count: number; by_status: PendencyStatusCounts }[];
+  oldest: {
+    application_id: string;
+    uiid: string | null;
+    instrument_type: string | null;
+    status: ApplicationStatus;
+    application_type: string;
+    state_name: string | null;
+    district_name: string | null;
+    submitted_at: string;
+    age_days: number;
+    assigned: boolean;
+  }[];
+}
+
+export interface DistrictRow {
+  state_code: string;
+  state_name: string;
+  district_code: string;
+  district_name: string;
+  instruments: number;
+  open_applications: number;
+  overdue_applications: number;
+  verified: number;
+  expired: number;
+}
+
+export interface DistrictReport {
+  generated_at: string;
+  target_days: number;
+  totals: Omit<DistrictRow, "state_code" | "state_name" | "district_code" | "district_name">;
+  rows: DistrictRow[];
+}
+
+export type EnforcementBand = "recent" | "overdue" | "long_overdue";
+
+export interface EnforcementItem {
+  instrument_id: string;
+  uiid: string | null;
+  instrument_type: string | null;
+  owner_name: string | null;
+  org_name: string | null;
+  address_line: string | null;
+  state_code: string;
+  state_name: string | null;
+  district_code: string;
+  district_name: string | null;
+  cert_no: string | null;
+  valid_until: string;
+  days_overdue: number;
+  band: EnforcementBand;
+  reverification: { status: ApplicationStatus; applied_on: string } | null;
+}
+
+export interface EnforcementReport {
+  generated_at: string;
+  summary: {
+    lapsed: number;
+    reverification_applied: number;
+    no_reverification: number;
+    recent: number;
+    overdue: number;
+    long_overdue: number;
+  };
+  total: number;
+  page: number;
+  page_size: number;
+  truncated: boolean;
+  items: EnforcementItem[];
+}
+
 // ---- Security audit log (admin only; read-only) ----
 export type AuditOutcome = "success" | "failure" | "blocked" | "ignored";
 

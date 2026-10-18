@@ -18,6 +18,9 @@ import type {
   StateOption,
   User,
   AuditLogPage,
+  DistrictReport,
+  EnforcementReport,
+  PendencyReport,
 } from "./types";
 
 // Builds "?a=1&b=2" from the filters that have a value (empty strings, undefined and false are left out).
@@ -236,6 +239,24 @@ export const DashboardApi = {
   lmo: () => api.get<OfficerDashboard>("/dashboard/lmo"),
   gatc: () => api.get<OfficerDashboard>("/dashboard/gatc"),
   admin: () => api.get<AdminDashboard>("/dashboard/admin"),
+};
+
+// ---- Oversight (admin: national; LMO / GATC: own jurisdiction) ----
+export interface OversightPlace {
+  state_code?: string;
+  district_code?: string;
+}
+export interface EnforcementQuery extends OversightPlace {
+  reverification?: "applied" | "none";
+  min_days_overdue?: number;
+  page?: number;
+  page_size?: number;
+}
+
+export const OversightApi = {
+  pendency: (q: OversightPlace = {}) => api.get<PendencyReport>(`/oversight/pendency${toQuery(q)}`),
+  districts: (q: OversightPlace = {}) => api.get<DistrictReport>(`/oversight/districts${toQuery(q)}`),
+  enforcement: (q: EnforcementQuery = {}) => api.get<EnforcementReport>(`/oversight/enforcement${toQuery(q)}`),
 };
 
 // ---- Certificates ----

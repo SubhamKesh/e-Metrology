@@ -151,6 +151,17 @@ Frontend:
 - `src/hooks/useFilters.ts`, `src/components/domain/{FilterBar,ExportButtons,ApplicationsFilterBar,CertificatesFilterBar}.tsx`, `src/lib/{saveFile,filterOptions}.ts` *(all new)*
 - `lib/api.ts` (`downloadFile`), `lib/endpoints.ts`, `hooks/useData.ts`, `lib/offlineCache.ts`, and the admin / owner / officer list pages
 
+## 7) Oversight: pendency ageing, district-wise, enforcement (roadmap #8) — DONE
+
+Read-only views for admins (national) and LMO/GATC officers (own jurisdiction). Guide: README → "Oversight"; API: `docs/api-contract.md` → "Oversight"
+
+Backend:
+- `backend/app/routers/oversight.py` *(new)*, `backend/app/models/oversight.py` *(new)*, `backend/app/main.py` (router), `config/settings.py` (`PENDENCY_TARGET_DAYS`, `ENFORCEMENT_MAX_SCAN`), `render.yaml`, `backend/.env.example`
+- Tests: `backend/tests/test_oversight.py` *(new)*; `backend/tests/test_ops_hardening.py` (the replica-read allowlist now lists `routers/oversight.py`)
+
+Frontend:
+- `src/pages/oversight/Oversight.tsx` *(new)*, `lib/types.ts`, `lib/endpoints.ts` (`OversightApi`), `lib/nav.ts`, `App.tsx` (routes under `/app/admin`, `/app/lmo`, `/app/gatc`), `pages/admin/Dashboard.tsx` (one "Oversight" card)
+
 ---
 
 ## Suggested process for the team

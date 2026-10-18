@@ -46,6 +46,7 @@ Business owners register weighing/measuring instruments, submit them for verific
 | 📝 **Application Lifecycle** | State machine enforced server-side: `submitted → scheduled → inspected → certified/rejected → expiring → expired` |
 | 🗓️ **Inspection Scheduling** | Claiming books a date and one of two daily slots (Sundays off, per-officer capacity). Officers and admins can reschedule; admins can assign or reassign an officer within their jurisdiction. Everyone sees the booking and can add it to Google Calendar or download an `.ics` file (no account linking) |
 | 🔍 **Search & Reports** | Every list (applications, certificates, instruments, officer accounts) has a search box and filters, and the application, certificate and instrument lists and the audit log export to files: free text over UIID, serial number, manufacturer, model, certificate and seal numbers; status/validity, first-vs-re-verification, instrument type, state/district and date range (India days). **Export CSV** / **Export PDF** downloads exactly what the filters show, limited to what your role may see (an owner's own, an officer's jurisdiction, everything for an admin). Spreadsheet formulas in the data are defused, large exports are capped and say so, and every download is written to the audit trail (see [Search & Reports](#-search--reports)) |
+| 📊 **Oversight** | Read-only pages for admins and officers: **pendency ageing** (open applications by days waited, unassigned, over target), **district-wise** position (instruments, open, overdue, verified, expired per district) and an **enforcement** list of instruments whose newest certificate has lapsed, marked when the owner has already applied to renew. Admins see the whole country; LMO/GATC officers see their own jurisdiction |
 | 🔎 **Inspection Workflow** | Officers claim applications, scan the instrument's QR with the in-app camera scanner (or type the UIID), review instrument details, and record outcomes with photo evidence. A GPS fix is **mandatory** and stored with every inspection, along with how the instrument was identified (`qr` / `manual`) |
 | 🧪 **Detailed Inspection Form** | What an officer records depends on the instrument type (`backend/app/config/inspection_forms.py`): test readings against a reference standard (the error is worked out for them), yes/no checks, and the number of the verification seal fixed on the instrument. A Pass needs all three; a seal number can be used only once. The record is shown on the application page (owners don't see the officer or GPS position), and the seal number is printed on the certificate and shown on the public verify page |
 | 📴 **Offline Inspections** | The app **opens with no signal** and an officer's assigned applications and instruments are kept on the device, so an inspection can be started and finished in a dead zone. A finished inspection (and its photos) is saved on the device and sent automatically when the connection returns. Each inspection carries an idempotency key, so a retry or double sync can never create a duplicate, and the time the officer actually pressed Submit is kept. Photos are compressed before upload, and a failed send shows the real reason (see [Offline Inspections](#-offline-inspections)) |
@@ -166,7 +167,7 @@ Set `REDIS_URL` to switch these on. Without it, the app runs as a single-process
 | Officer credential emails | Enqueued to RQ worker (`emailed` in the response means "queued") | Sent inline during officer creation |
 | Owner status emails | Enqueued to RQ worker; a failed send is retried after 10 s, 60 s, then 5 min (`EMAIL_RETRY_INTERVALS`) so a short SMTP outage doesn't use up every attempt | Sent from a short-lived daemon thread (the expiry cron sends inline) |
 
-**MongoDB read replicas.** Set `MONGO_READ_PREFERENCE=secondaryPreferred` (default `primary`) and the read-heavy, staleness-tolerant endpoints — `GET /geo/*`, the dashboards, public certificate verification and the audit-log viewer — read from a replica-set secondary when one is available. Everything that must see its own writes or enforce security (sign-in, token/user/suspension checks, lists a user has just changed) **always** reads the primary; a test enforces which modules may use replica reads. Replica reads can trail the primary by a moment. Don't put `readPreference` in `MONGO_URI` — that would move *every* read, including the security-critical ones.
+**MongoDB read replicas.** Set `MONGO_READ_PREFERENCE=secondaryPreferred` (default `primary`) and the read-heavy, staleness-tolerant endpoints — `GET /geo/*`, the dashboards and oversight views, public certificate verification and the audit-log viewer — read from a replica-set secondary when one is available. Everything that must see its own writes or enforce security (sign-in, token/user/suspension checks, lists a user has just changed) **always** reads the primary; a test enforces which modules may use replica reads. Replica reads can trail the primary by a moment. Don't put `readPreference` in `MONGO_URI` — that would move *every* read, including the security-critical ones.
 
 **Load balancing, autoscaling and CDN.** See [`docs/deployment-scaling.md`](docs/deployment-scaling.md): a working nginx config and `docker-compose.scale.yml` to rehearse several backend instances behind a load balancer, Render autoscaling / worker / Redis templates, and the cache headers that make the CDN effective.
 
@@ -338,6 +339,20 @@ In the app: a search/filter bar and **Export CSV / Export PDF** buttons sit abov
 
 ---
 
+## 📊 Oversight
+
+**Admin → Oversight** (and **Oversight** in the LMO / GATC menu) has three read-only tabs:
+
+- **Pendency ageing** — applications still open (`submitted`, `scheduled`, `inspected`) in age buckets (0-7, 8-14, 15-30, 31-60, over 60 days since submission), how many are unassigned or have waited longer than `PENDENCY_TARGET_DAYS`, and the ten longest waiting.
+- **District-wise** — one row per district: instruments registered, open applications, open applications over the target, verified (`certified` / `expiring`) and expired applications. Most overdue first.
+- **Enforcement** — instruments whose **newest** certificate has run out, longest lapsed first, with owner, address, certificate number and days lapsed (up to 30 / 31-90 / over 90). An instrument that has been renewed, or has a newer valid certificate, is not listed. If the owner has an open re-verification application the row shows **Applied** with its status; this is a mitigating note only, since the certificate is still not in force. Filter by re-verification and by how long it has lapsed.
+
+**Who sees what.** Admins see the whole country and can narrow by state and district. An LMO or GATC officer sees only their own jurisdiction (the same rule as the application queue); a filter can only narrow that, never widen it, and an officer with no jurisdiction on file sees nothing. Owners have no access. Endpoints: `GET /oversight/pendency`, `/oversight/districts`, `/oversight/enforcement` ([`docs/api-contract.md`](docs/api-contract.md) → "Oversight").
+
+**Limits.** The enforcement list is a worklist, not a case system: nothing is written, no notice is sent and nothing is escalated. It relies on the hourly expiry job having moved lapsed applications to `expired`, and only covers instruments that were certified at least once (an instrument never certified is not listed). It checks at most `ENFORCEMENT_MAX_SCAN` expired applications per request and says when that limit was hit. The numbers may lag a moment when `MONGO_READ_PREFERENCE` uses replicas.
+
+---
+
 ## 👤 User Roles
 
 | Role | Access | Onboarding |
@@ -421,6 +436,7 @@ e-Metrology-main/
 │   │   │   ├── admin_users.py      # Officer creation, approval queue, suspend, admin-initiated officer password reset and two-step reset
 │   │   │   ├── admin_audit.py      # Read-only, filterable view of the audit log (admin only)
 │   │   │   ├── reports.py          # CSV / PDF downloads of applications, certificates, instruments and the audit log
+│   │   │   ├── oversight.py        # Pendency ageing, district-wise position, enforcement list (read-only)
 │   │   │   └── ws.py               # /ws/notifications
 │   │   ├── services/
 │   │   │   ├── cert_generator.py   # PDF certificate generation
@@ -472,6 +488,7 @@ e-Metrology-main/
     │   │   ├── owner/              # Dashboard, instruments, applications, certificates
     │   │   ├── officer/            # Queue, inspection workflow (with drafts), dashboard, certificates
     │   │   ├── admin/              # Dashboard, users, instruments, applications, certificates, audit log
+│   │   ├── oversight/          # Oversight page shared by admin and officers (pendency, districts, enforcement)
     │   │   └── public/             # VerifyCertificate.tsx — public QR verification page
     │   ├── components/
     │   │   ├── ui/                 # Reusable primitives (Button, Card, DataTable, Field, StatusBadge...)
@@ -611,6 +628,8 @@ docker compose --profile redis up --build
 | `OWNER_EMAIL_NOTIFICATIONS_ENABLED` | Master switch for owner status emails | `true` |
 | `INSPECTION_FORM_STRICT` | A Pass must carry test readings, every required check and a seal number. `false` also accepts the old short form (only while old app versions or phone-queued inspections still need to be accepted) | `true` |
 | `REPORT_MAX_ROWS` | Most rows one CSV/PDF report may hold; when more match, the newest are exported and the file says so | `5000` |
+| `PENDENCY_TARGET_DAYS` | Days an application may stay open before the Oversight pages count it as overdue (monitoring only) | `30` |
+| `ENFORCEMENT_MAX_SCAN` | Most expired applications the Oversight enforcement list checks per request | `10000` |
 | `EXPIRY_REMINDER_DAYS` | Comma-separated days before expiry at which a reminder is emailed | `30,15,7,1` |
 | `SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD` / `SUPER_ADMIN_NAME` | Used once by `seed_super_admin.py` | — |
 
@@ -646,6 +665,7 @@ Base path: `/api/v1` · Auth: `Authorization: Bearer <token>` (except endpoints 
 | **Admin** | `POST /admin/users/create-officer` · `GET /admin/users` *(search: `q`, `role`, `status`)* · `GET /admin/users/pending` · `POST /admin/users/{id}/approve` · `POST /admin/users/{id}/reject` · `POST /admin/users/{id}/reset-password` · `POST /admin/users/{id}/reset-mfa` · `GET /admin/audit-logs` *(read-only; filters: event, outcome, role, email text, date range; paginated)* |
 | **Reports** | `GET /reports/applications` · `/certificates` · `/instruments` · `/audit-logs` *(admin)* — `?format=csv\|pdf` plus the matching list's filters |
 | **Dashboard** | `GET /dashboard/owner` · `/lmo` · `/gatc` · `/admin` |
+| **Oversight** | `GET /oversight/pendency` · `/districts` · `/enforcement` *(admin: national; `lmo`/`gatc`: own jurisdiction)* — optional `state_code`, `district_code`; enforcement also `reverification`, `min_days_overdue`, `page`, `page_size` |
 | **WebSocket** | `/ws/notifications?token=<access token>` — live application, queue, and certificate updates |
 | **Health** | `GET /api/v1/health` |
 
