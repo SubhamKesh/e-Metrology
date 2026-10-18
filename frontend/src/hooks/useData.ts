@@ -78,9 +78,11 @@ export function useCreateInstrument() {
 
 // Static reference data — types rarely change, so a long staleTime avoids
 // re-fetching on every form mount.
+export const INSTRUMENT_TYPE_SPECS_KEY = ["instrument-type-specs"];
+
 export function useInstrumentTypeSpecs() {
   return useQuery({
-    queryKey: ["instrument-type-specs"],
+    queryKey: INSTRUMENT_TYPE_SPECS_KEY,
     queryFn: InstrumentApi.typeSpecs,
     staleTime: 60 * 60 * 1000,
   });

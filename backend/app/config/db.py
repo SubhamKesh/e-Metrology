@@ -64,6 +64,10 @@ audit_logs_col = db["audit_logs"]
 # app/routers/enforcement_cases.py. At most one *active* case per instrument.
 enforcement_cases_col = db["enforcement_cases"]
 
+# Per-instrument-type certificate validity set by an admin (see app/services/validity.py). One document
+# per type that differs from the default; a type without a document uses DEFAULT_CERT_VALIDITY_DAYS.
+validity_rules_col = db["validity_rules"]
+
 # Reference data (seeded by scripts/seed_geo.py) — states/UTs and their
 # districts. Kept as data, not code, so a boundary change doesn't need a
 # deploy. Every state_code/district_code stored elsewhere in the app is
@@ -132,6 +136,12 @@ def init_indexes():
     except Exception:
         import logging
         logging.getLogger("maapsetu").warning("Could not create the enforcement_cases indexes.", exc_info=True)
+
+    try:
+        validity_rules_col.create_index("type", unique=True)
+    except Exception:
+        import logging
+        logging.getLogger("maapsetu").warning("Could not create the validity_rules index.", exc_info=True)
 
     # Geo reference lookups.
     states_col.create_index("code", unique=True)

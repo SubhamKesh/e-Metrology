@@ -50,6 +50,14 @@ def client(monkeypatch):
 
     monkeypatch.setattr(audit_mod, "audit_logs_col", fake_db["audit_logs"])
 
+    # Certificate validity rules (app/services/validity.py, routers/admin_validity.py), same reason.
+    import app.routers.admin_validity as validity_router
+    import app.services.validity as validity_service
+
+    monkeypatch.setattr(dbmod, "validity_rules_col", fake_db["validity_rules"])
+    monkeypatch.setattr(validity_service, "validity_rules_col", fake_db["validity_rules"])
+    monkeypatch.setattr(validity_router, "validity_rules_col", fake_db["validity_rules"])
+
     # The DDoS middleware counts requests per IP in a process-wide store. Every
     # TestClient request comes from the same IP, so without a fresh store per
     # test the counts pile up across the whole suite and eventually trip the

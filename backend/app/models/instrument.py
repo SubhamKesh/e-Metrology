@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, validator
 
 from app.models.geo import LocationIn, LocationOut
@@ -111,3 +111,6 @@ class InstrumentTypeSpec(BaseModel):
     input_type: str
     step: str
     placeholder: str
+    # How long a certificate for this type stays valid when issued today (services/validity.py).
+    validity_days: Optional[int] = None
+    validity_label: Optional[str] = None

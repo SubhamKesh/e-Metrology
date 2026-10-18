@@ -64,6 +64,7 @@ const AdminCertificateDetail = lazy(() =>
 );
 const AdminUsers = lazy(() => import("@/pages/admin/Users"));
 const AdminAuditLog = lazy(() => import("@/pages/admin/AuditLog"));
+const AdminValidity = lazy(() => import("@/pages/admin/Validity"));
 const Oversight = lazy(() => import("@/pages/oversight/Oversight"));
 const OversightCase = lazy(() => import("@/pages/oversight/CaseDetail"));
 
@@ -169,6 +170,7 @@ export default function App() {
                   <Route path="certificates/:id" element={<AdminCertificateDetail />} />
                   <Route path="oversight" element={<Oversight />} />
                   <Route path="oversight/cases/:id" element={<OversightCase />} />
+                  <Route path="validity" element={<AdminValidity />} />
                   <Route path="audit-log" element={<AdminAuditLog />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>

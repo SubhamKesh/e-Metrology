@@ -162,6 +162,17 @@ Backend:
 Frontend:
 - `src/pages/oversight/Oversight.tsx` *(new)*, `lib/types.ts`, `lib/endpoints.ts` (`OversightApi`), `lib/nav.ts`, `App.tsx` (routes under `/app/admin`, `/app/lmo`, `/app/gatc`), `pages/admin/Dashboard.tsx` (one "Oversight" card)
 
+## 8) Configurable certificate validity per instrument type (roadmap #9) — DONE
+
+Admins set how long a new certificate is valid for each instrument type. Guide: README → "Certificate validity"; API: `docs/api-contract.md` → "Certificate validity"
+
+Backend:
+- `backend/app/services/validity.py` *(new)*, `routers/admin_validity.py` *(new)*, `models/validity.py` *(new)*, `services/cert_generator.py` (`compute_validity(..., days)`, certificate stores `validity_days`), `routers/instruments.py` + `models/instrument.py` (`validity_days` / `validity_label` on `/instruments/meta/types`), `config/db.py` (`validity_rules` collection, unique index on `type`), `config/settings.py` (`DEFAULT_CERT_VALIDITY_DAYS`), `services/audit.py`, `main.py`, `render.yaml`, `backend/.env.example`
+- Tests: `backend/tests/test_validity.py` *(new)*; `backend/tests/conftest.py` (points the new collection at the in-memory database)
+
+Frontend:
+- `src/pages/admin/Validity.tsx` *(new)*, `lib/types.ts`, `lib/endpoints.ts` (`ValidityApi`), `lib/nav.ts`, `App.tsx`, `hooks/useData.ts`, `pages/owner/RegisterInstrument.tsx` (shows the period), `content/faq.ts`
+
 ---
 
 ## Suggested process for the team

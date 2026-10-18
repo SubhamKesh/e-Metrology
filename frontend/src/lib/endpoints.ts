@@ -26,6 +26,8 @@ import type {
   OwnerNotice,
   PendencyReport,
   UncertifiedReport,
+  ValidityRule,
+  ValidityRules,
 } from "./types";
 
 // Builds "?a=1&b=2" from the filters that have a value (empty strings, undefined and false are left out).
@@ -139,6 +141,12 @@ export interface AuditLogQuery {
   page?: number;
   page_size?: number;
 }
+
+export const ValidityApi = {
+  list: () => api.get<ValidityRules>("/admin/validity"),
+  set: (type: string, days: number) => api.put<ValidityRule>(`/admin/validity/${encodeURIComponent(type)}`, { days }),
+  reset: (type: string) => api.del<ValidityRule>(`/admin/validity/${encodeURIComponent(type)}`),
+};
 
 export const AdminAuditApi = {
   list: (query: AuditLogQuery = {}) => {

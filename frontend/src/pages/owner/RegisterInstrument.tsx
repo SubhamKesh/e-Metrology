@@ -106,6 +106,7 @@ export default function RegisterInstrument() {
             options={typeOptions}
             value={form.type}
             onChange={(e) => set("type", e.target.value)}
+            hint={selectedSpec?.validity_label ? `A certificate for this type is valid for ${selectedSpec.validity_label}.` : undefined}
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <TextInput label="Manufacturer" required value={form.manufacturer} onChange={(e) => set("manufacturer", e.target.value)} />

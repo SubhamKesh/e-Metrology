@@ -63,6 +63,8 @@ KNOWN_AUDIT_EVENTS = (
     "enforcement_notice_sent",
     "enforcement_case_escalated",
     "enforcement_case_closed",
+    "validity_rule_changed",
+    "validity_rule_reset",
 )
 
 

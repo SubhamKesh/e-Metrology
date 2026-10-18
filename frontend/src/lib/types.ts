@@ -71,6 +71,27 @@ export interface InstrumentTypeSpec {
   input_type: string;
   step: string;
   placeholder: string;
+  /** How long a certificate for this type is valid when issued today (e.g. "1 year"). */
+  validity_days?: number | null;
+  validity_label?: string | null;
+}
+
+export interface ValidityRule {
+  type: string;
+  days: number;
+  label: string;
+  default_days: number;
+  is_default: boolean;
+  updated_at: string | null;
+  updated_by_name: string | null;
+}
+
+export interface ValidityRules {
+  default_days: number;
+  default_label: string;
+  min_days: number;
+  max_days: number;
+  items: ValidityRule[];
 }
 
 // The full lifecycle as enforced by app/services/status_transition.py.

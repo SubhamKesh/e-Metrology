@@ -97,6 +97,10 @@ services:
         value: "15"
       - key: NOTICE_MIN_GAP_DAYS
         value: "3"
+      # How many days a new certificate is valid when its instrument type has no period of its own
+      # (admins set per-type periods in the app: Admin > Certificate validity).
+      - key: DEFAULT_CERT_VALIDITY_DAYS
+        value: "365"
 
   # ---------- Optional: dedicated queue worker (paid plans only) ----------
   # Render's free plan has no Background Workers. On a paid plan, uncomment this, set

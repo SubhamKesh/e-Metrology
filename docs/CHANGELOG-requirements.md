@@ -15,7 +15,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 6 | Richer inspection form (per-instrument parameters, stamp/seal number) | ✅ (backend `pytest` 345 passed; frontend lint and build pass; not tried in a browser or on a device) |
 | 7 | Search + CSV/PDF report export | ✅ (code complete; ruff and the export-rendering tests pass here; the router tests, full `pytest` and frontend lint/build still need running — no PyPI/npm access when written; not tried in a browser) |
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ✅ (backend `pytest` 452 passed, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
-| 9 | Configurable validity per instrument type | ⬜ |
+| 9 | Configurable validity per instrument type | ✅ (backend `pytest` passes, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
 | 10 | Owner supporting-document upload, profile editing | ⬜ |
 | 11 | SMS / WhatsApp alerts | ⬜ |
 | 12 | Consolidated architecture / security / deployment document | ⬜ |
@@ -282,3 +282,25 @@ The two limits that were left on purpose are now built: the enforcement list use
 **Notes**
 - **Not run.** The sandbox has no network, so the new code and tests were only checked for syntax. Please run `cd backend && pytest tests` and `ruff check app tests`, then in `frontend`: `npm ci`, `npx tsc -b`, `npx eslint .`, `npm run build`. The likeliest trouble spots are mongomock's handling of the `$lookup` in the never-certified query and of the partial unique index (a real MongoDB handles both).
 - **Still limits, on purpose:** a case is a record plus a notice (no fines, blocking or other sanctions); officers are not emailed when a case reaches them (it shows under *With me*); notices go by email and the dashboard only, no SMS; the 30/90-day bands and the 30-day target stay fixed in code.
+
+### 2026-10-19 — #9 Configurable certificate validity per instrument type
+**What was built.** The roadmap line is one sentence, so this is the smallest reading of it. Please confirm it is what is wanted; the rules are easy to change in `backend/app/services/validity.py`.
+- **A validity period per instrument type.** Until now every certificate was hard-coded to 365 days. Now each of the 18 instrument types uses the default (`DEFAULT_CERT_VALIDITY_DAYS`, 365, so nothing changes until an admin changes something) unless an admin gives it its own period in **Admin → Certificate validity** (one row per type: a number of days, Save, and "Use default" to go back). Allowed: 30 to 3650 days; the minimum keeps a new certificate from being inside the 30-day expiry-reminder window the moment it is issued.
+- **Stored as data, not code.** Rules live in a new `validity_rules` collection (one document per type that differs from the default, unique on `type`), so a change needs no deploy. No migration: with no documents everything behaves as before.
+- **Only new certificates are affected.** The period is read when a certificate is issued and the resulting `valid_until` is stored on it (plus `validity_days`, for the record). Existing certificates keep their dates, and the hourly expiry job, reminder emails, re-verification window and enforcement lists all keep following the date printed on each certificate, so changing a rule cannot suddenly lapse or extend anything already issued.
+- **Renewals.** A renewal issued while the old certificate is still valid still starts on the old expiry date; its length is the period of the instrument's type at that time.
+- **Audit.** `validity_rule_changed` and `validity_rule_reset` record who changed which type from how many days to how many.
+- **Owners** see the period when they pick a type on the registration form ("A certificate for this type is valid for 1 year."), and the FAQ no longer says every certificate is valid for exactly one year.
+
+**Added / changed**
+- Backend: `services/validity.py`, `routers/admin_validity.py` (`GET /api/v1/admin/validity`, `PUT` and `DELETE /api/v1/admin/validity/{type}`, admin only), `models/validity.py` (new); `services/cert_generator.py`, `routers/instruments.py`, `models/instrument.py`, `config/db.py`, `config/settings.py`, `services/audit.py`, `main.py`, `render.yaml`, `backend/.env.example`.
+- Frontend: `pages/admin/Validity.tsx` (new); `lib/types.ts`, `lib/endpoints.ts`, `lib/nav.ts`, `App.tsx`, `hooks/useData.ts`, `pages/owner/RegisterInstrument.tsx`, `content/faq.ts`.
+- Tests: `backend/tests/test_validity.py` (new) — dating a certificate from a period (first, chained renewal, renewal after expiry), rule lookup, a certificate takes the period of its own type, a rule change never touches an existing certificate, admin-only access (owner, LMO, GATC and anonymous refused on all three methods), list, set, replace, reset, limits and their edges, unknown type, audit entries, and the period shown to owners. `backend/tests/conftest.py` points the new collection at the in-memory database.
+- Docs: `README.md`, `docs/api-contract.md`, `docs/implementation_tasks.md`.
+
+**Notes**
+- **Not decided for you:** the real periods. Every type is still 365 days, because nothing in the repository says which instruments should differ and I did not want to invent regulatory values. Set them in Admin → Certificate validity (or change `DEFAULT_CERT_VALIDITY_DAYS`).
+- The re-verification window (`REVERIFY_WINDOW_DAYS`, 30) and the reminder days (`EXPIRY_REMINDER_DAYS`) are still global, not per type. With a short period such as 60 days the window and the first reminder fall close together.
+- Limits, on purpose: only admins can change periods (officers cannot); there is no history screen beyond the audit log; the period is in days (an "N years" label is shown when it is a whole number of 365 days).
+- Not tried in a browser. Open **Admin → Certificate validity**, set Water Meter to 730, register a Water Meter as an owner (the form should say 2 years), get it certified, and check the certificate's valid-until date is two years out.
+

@@ -57,6 +57,7 @@ export const ROLE_NAV: Record<Role, RoleNav> = {
       { label: "Applications", to: "/app/admin/applications" },
       { label: "Certificates", short: "Certs", to: "/app/admin/certificates" },
       { label: "Oversight", to: "/app/admin/oversight" },
+      { label: "Certificate validity", short: "Validity", to: "/app/admin/validity" },
       { label: "Audit log", short: "Audit", to: "/app/admin/audit-log" },
     ],
   },

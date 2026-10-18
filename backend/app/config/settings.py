@@ -277,6 +277,11 @@ ESCALATION_AFTER_DAYS = _int_env("ESCALATION_AFTER_DAYS", 15, 1)
 # Minimum calendar days between two notices on the same case (stops an accidental double send).
 NOTICE_MIN_GAP_DAYS = _int_env("NOTICE_MIN_GAP_DAYS", 3, 0)
 
+# Certificate validity (app/services/validity.py). How many days a new certificate is valid when the
+# instrument's type has no rule of its own. An admin can give a type its own period under
+# Admin -> Certificate validity; changing a rule only affects certificates issued afterwards.
+DEFAULT_CERT_VALIDITY_DAYS = _int_env("DEFAULT_CERT_VALIDITY_DAYS", 365, 30)
+
 # Field verification form (app/config/inspection_forms.py). With strict on, a passed inspection must
 # carry the test points, the required checks and a seal number. Switch off only while old app
 # versions or inspections queued on officers' phones before the upgrade still need to be accepted.

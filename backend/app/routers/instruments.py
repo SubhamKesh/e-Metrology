@@ -7,6 +7,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.config.db import instruments_col, applications_col
 from app.config.instrument_specs import INSTRUMENT_SPECS
+from app.services import validity as validity_service
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES, InstrumentCreate, InstrumentOut, InstrumentTypeSpec
 from app.middleware.auth import get_current_user, role_required
 from app.services.uiid_generator import generate_uiid
@@ -67,10 +68,16 @@ def list_instrument_type_specs(current_user: dict = Depends(get_current_user)):
     capacity field's unit/input widget — single source of truth so the
     frontend doesn't hardcode a second copy of ALLOWED_INSTRUMENT_TYPES
     plus units that could silently drift out of sync."""
-    return [
-        InstrumentTypeSpec(type=t, unit=spec["unit"], input_type=spec["input_type"], step=spec["step"], placeholder=spec["placeholder"])
-        for t, spec in INSTRUMENT_SPECS.items()
-    ]
+    stored = validity_service.rules()
+    default = validity_service.default_days()
+    out = []
+    for t, spec in INSTRUMENT_SPECS.items():
+        days = int(stored[t]["days"]) if t in stored else default
+        out.append(InstrumentTypeSpec(
+            type=t, unit=spec["unit"], input_type=spec["input_type"], step=spec["step"],
+            placeholder=spec["placeholder"], validity_days=days, validity_label=validity_service.label(days),
+        ))
+    return out
 
 
 @router.post("", response_model=InstrumentOut, status_code=201)

@@ -366,6 +366,32 @@ Same response shape for both — each officer only ever sees their own numbers, 
 
 ---
 
+## Certificate validity
+
+Role: `admin` only (owners, officers and anonymous callers get `403` / `401`). How long a **newly issued** certificate stays valid, per instrument type. A type without a rule gets `DEFAULT_CERT_VALIDITY_DAYS` (365). Certificates already issued are never changed: they keep the `valid_until` they were issued with, and the expiry reminders, re-verification window and enforcement lists all follow that date. A renewal issued while the old certificate is still valid still continues from the old expiry date, with the period of the instrument's type. Every change is audited (`validity_rule_changed`, `validity_rule_reset`).
+
+### GET `/admin/validity`
+```json
+{
+  "default_days": 365, "default_label": "1 year", "min_days": 30, "max_days": 3650,
+  "items": [
+    {"type": "Water Meter", "days": 730, "label": "2 years", "default_days": 365, "is_default": false,
+     "updated_at": "2026-10-19T09:30:00Z", "updated_by_name": "Minister"},
+    {"type": "Platform Scale", "days": 365, "label": "1 year", "default_days": 365, "is_default": true,
+     "updated_at": null, "updated_by_name": null}
+  ]
+}
+```
+One item for every instrument type.
+
+### PUT `/admin/validity/{instrument type}`
+Body `{"days": 730}`. Returns the updated item. `422` if `days` is not a whole number between `min_days` and `max_days`; `404` for an unknown instrument type.
+
+### DELETE `/admin/validity/{instrument type}`
+Removes the type's own period so it uses the default again. Returns the item. `404` for an unknown type.
+
+`GET /instruments/meta/types` (any signed-in user) also returns `validity_days` and `validity_label` for each type, so the registration form can show how long a certificate will last. Certificates carry `validity_days` as issued.
+
 ## Oversight
 
 Read-only monitoring views. Role: `admin` (whole country), `lmo` / `gatc` (own jurisdiction, same rule as the application queue; an officer with no jurisdiction gets empty results). `owner` and anonymous → `403` / `401`. A `state_code` / `district_code` filter only narrows what the role may already see. Reads may come from a replica (`MONGO_READ_PREFERENCE`), so figures can lag a moment. Responses are not cached.

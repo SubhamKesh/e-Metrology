@@ -28,6 +28,7 @@ from app.config.db import (
 )
 from app.utils.upload_to_cloudinary import upload_bytes
 from app.utils.location_format import format_location
+from app.services import validity as validity_service
 from app.services.owner_notifications import notify_certificate_issued
 from app.config.settings import FRONTEND_VERIFY_URL
 
@@ -42,20 +43,25 @@ PAPER = (0.992, 0.988, 0.972)     # warm off-white, like security paper
 LABEL_BG = (0.93, 0.96, 0.94)     # pale green tint for table label column
 
 
-def compute_validity(issued_at: datetime, prior_valid_until: datetime | None) -> tuple[datetime, datetime]:
+def compute_validity(
+    issued_at: datetime, prior_valid_until: datetime | None, days: int | None = None
+) -> tuple[datetime, datetime]:
     """(valid_from, valid_until) for a certificate issued at `issued_at`.
 
     A renewal issued while the previous certificate is still in force starts on that
     certificate's expiry date, so the owner loses no days; otherwise it starts now.
-    Always one year long.
+    It lasts `days` (the period for the instrument's type, see services/validity.py);
+    without one, the default period.
     """
+    if days is None:
+        days = validity_service.default_days()
     valid_from = issued_at
     if prior_valid_until is not None:
         if prior_valid_until.tzinfo is None:
             prior_valid_until = prior_valid_until.replace(tzinfo=timezone.utc)
         if prior_valid_until > issued_at:
             valid_from = prior_valid_until
-    return valid_from, valid_from + timedelta(days=365)
+    return valid_from, valid_from + timedelta(days=days)
 
 
 def _generate_cert_number() -> str:
@@ -376,7 +382,8 @@ def issue_certificate(inspection_id) -> dict:
         # A renewal issued while the old certificate is still in force starts on its
         # expiry date, so the owner loses no days; otherwise it starts now.
         prior = certificates_col.find_one({"instrument_id": instrument["_id"]}, sort=[("valid_until", -1)])
-        valid_from, valid_until = compute_validity(issued_at, prior["valid_until"] if prior else None)
+        validity_days = validity_service.validity_days_for(instrument.get("type"))
+        valid_from, valid_until = compute_validity(issued_at, prior["valid_until"] if prior else None, validity_days)
 
         verify_url = f"{FRONTEND_VERIFY_URL.rstrip('/')}/{cert_id}"
         qr_png = _make_qr_png(verify_url)
@@ -419,6 +426,7 @@ def issue_certificate(inspection_id) -> dict:
             "pdf_url": pdf_url,
             "issued_at": issued_at,
             "valid_from": valid_from,
+            "validity_days": validity_days,
             "valid_until": valid_until,
         }
         if pdf_url is None:
