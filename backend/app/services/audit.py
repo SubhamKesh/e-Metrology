@@ -65,6 +65,11 @@ KNOWN_AUDIT_EVENTS = (
     "enforcement_case_closed",
     "validity_rule_changed",
     "validity_rule_reset",
+    "profile_updated",
+    "profile_photo_changed",
+    "profile_photo_removed",
+    "document_uploaded",
+    "document_deleted",
 )
 
 

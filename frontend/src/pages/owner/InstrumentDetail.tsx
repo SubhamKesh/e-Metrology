@@ -8,6 +8,7 @@ import { ApplicationStatusBadge } from "@/components/ui/StatusBadge";
 import { LocationText } from "@/components/ui/LocationText";
 import { useApplications, useInstrument } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
+import { SupportingDocuments } from "@/components/domain/SupportingDocuments";
 
 export default function InstrumentDetail() {
   const { id } = useParams();
@@ -49,6 +50,10 @@ export default function InstrumentDetail() {
           <Field label="Instrument ID" value={instrument.id} mono />
         </dl>
       </Panel>
+
+      <div className="mt-6">
+        <SupportingDocuments instrumentId={instrument.id} />
+      </div>
 
       <h2 className="mb-3 mt-8 font-display text-lg text-ink">Verification history</h2>
       {related.length === 0 ? (

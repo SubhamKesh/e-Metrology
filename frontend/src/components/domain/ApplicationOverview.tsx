@@ -6,6 +6,7 @@ import { ScheduleCard } from "./ScheduleCard";
 import { InspectionRecord } from "./InspectionRecord";
 import { useInstrument } from "@/hooks/useData";
 import { Skeleton } from "@/components/ui/States";
+import { SupportingDocuments } from "./SupportingDocuments";
 import { LocationText } from "@/components/ui/LocationText";
 import type { Application } from "@/lib/types";
 
@@ -67,6 +68,8 @@ export function ApplicationOverview({
           <p className="text-sm text-slate-500">Instrument details unavailable.</p>
         )}
       </Panel>
+
+      <SupportingDocuments instrumentId={application.instrument_id} readOnly />
     </div>
   );
 }

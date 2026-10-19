@@ -7,6 +7,7 @@ import { ROLE_LABEL } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
 import { BrandMark, BrandWordmark } from "@/components/ui/Brand";
+import { Avatar } from "@/components/ui/Avatar";
 import { LogoutConfirmationDialog } from "@/components/ui/LogoutConfirmationDialog";
 import { useApplications } from "@/hooks/useData";
 import { InstallBanner } from "@/components/ui/InstallBanner";
@@ -268,13 +269,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 )}
               </Button>
             )}
-            <div
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-50 text-sm font-medium text-teal-700"
-              title={user.name}
-              aria-hidden="true"
-            >
-              {user.name.slice(0, 1).toUpperCase()}
-            </div>
+            <Link to="/app/profile" title="My profile" aria-label="My profile" className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40 focus-visible:ring-offset-2">
+              <Avatar name={user.name} src={user.avatar_url} />
+            </Link>
           </div>
         </header>
 

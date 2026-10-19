@@ -28,6 +28,8 @@ interface AuthState {
   commitSession: (session: PendingSession) => User;
   register: (payload: RegisterPayload) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<User>;
+  /** Replace the signed-in user with a fresher copy from the server (e.g. after editing the profile). */
+  updateUser: (user: User) => void;
   logout: () => void;
 }
 
@@ -262,6 +264,7 @@ export function AuthProvider({
         commitSession,
         register,
         changePassword,
+        updateUser: (next: User) => setUser(next),
         logout,
       }}>
       {children}

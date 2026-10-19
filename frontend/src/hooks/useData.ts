@@ -5,13 +5,14 @@ import {
   type InstrumentFilters,
   ApplicationApi,
   CertificateApi,
+  DocumentApi,
   DashboardApi,
   GeoApi,
   InspectionApi,
   InstrumentApi,
   UploadApi,
 } from "@/lib/endpoints";
-import type { InspectionFormSpec } from "@/lib/types";
+import type { DocumentSlot, InspectionFormSpec } from "@/lib/types";
 import type { AdminDashboard, OfficerDashboard, OwnerDashboard, Role, ScheduleInput } from "@/lib/types";
 
 // ---- Dashboards ----
@@ -285,5 +286,31 @@ export function useVerifyCertificate(certId?: string) {
     queryFn: () => CertificateApi.verifyPublic(certId as string),
     enabled: !!certId,
     retry: false,
+  });
+}
+
+// ---- Required documents on an instrument ----
+export function useInstrumentDocuments(instrumentId?: string) {
+  return useQuery({
+    queryKey: ["instrument-documents", instrumentId],
+    queryFn: () => DocumentApi.list(instrumentId as string),
+    enabled: !!instrumentId,
+    retry: false, // a 403 (not your instrument) is a final answer, not a glitch
+  });
+}
+
+export function useUploadDocument(instrumentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slot, file }: { slot: DocumentSlot; file: File }) => DocumentApi.upload(instrumentId, slot, file),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instrument-documents", instrumentId] }),
+  });
+}
+
+export function useRemoveDocument(instrumentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (slot: DocumentSlot) => DocumentApi.remove(instrumentId, slot),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instrument-documents", instrumentId] }),
   });
 }

@@ -33,6 +33,42 @@ export interface User {
   // Whether two-step verification (authenticator app) is set up. Officer and
   // admin accounts must have it; the admin's officer list shows who still has to enrol.
   mfa_enabled: boolean;
+  // Profile picture (set on the Profile page); null until one is uploaded.
+  avatar_url?: string | null;
+  is_phone_verified?: boolean;
+}
+
+export type DocumentSlot = "tax_invoice" | "owner_id_proof" | "previous_certificate";
+
+export interface InstrumentDocument {
+  id: string;
+  instrument_id: string;
+  slot: DocumentSlot;
+  label: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  url: string;
+  uploaded_at: string;
+}
+
+export interface DocumentSlotInfo {
+  slot: DocumentSlot;
+  label: string;
+  hint: string;
+  required: boolean;
+  document: InstrumentDocument | null;
+}
+
+/** What an instrument's next application needs: a first verification asks for the tax invoice and the
+ *  owner's ID proof, a re-verification asks for the previous certificate. One file per slot. */
+export interface DocumentSlots {
+  application_type: "initial" | "renewal";
+  /** Every required slot is filled, so the application can be submitted. */
+  complete: boolean;
+  /** An application is being processed, so the documents can't be changed. */
+  locked: boolean;
+  slots: DocumentSlotInfo[];
 }
 
 export interface Location {

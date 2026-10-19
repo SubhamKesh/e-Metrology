@@ -68,6 +68,10 @@ enforcement_cases_col = db["enforcement_cases"]
 # per type that differs from the default; a type without a document uses DEFAULT_CERT_VALIDITY_DAYS.
 validity_rules_col = db["validity_rules"]
 
+# Required documents an owner uploads for an instrument (tax invoice, owner ID proof, previous certificate).
+# One document per slot (unique on instrument + slot); the file itself lives in Cloudinary, only its URL and details are kept here.
+instrument_documents_col = db["instrument_documents"]
+
 # Reference data (seeded by scripts/seed_geo.py) — states/UTs and their
 # districts. Kept as data, not code, so a boundary change doesn't need a
 # deploy. Every state_code/district_code stored elsewhere in the app is
@@ -142,6 +146,12 @@ def init_indexes():
     except Exception:
         import logging
         logging.getLogger("maapsetu").warning("Could not create the validity_rules index.", exc_info=True)
+
+    try:
+        instrument_documents_col.create_index([("instrument_id", 1), ("slot", 1)], unique=True)
+    except Exception:
+        import logging
+        logging.getLogger("maapsetu").warning("Could not create the instrument_documents index.", exc_info=True)
 
     # Geo reference lookups.
     states_col.create_index("code", unique=True)

@@ -392,6 +392,41 @@ Removes the type's own period so it uses the default again. Returns the item. `4
 
 `GET /instruments/meta/types` (any signed-in user) also returns `validity_days` and `validity_label` for each type, so the registration form can show how long a certificate will last. Certificates carry `validity_days` as issued.
 
+## Profile
+
+Any signed-in user. `User` objects (login, `/auth/me`) also carry `avatar_url` (string or null).
+
+### PATCH `/auth/me`
+Body: any of `{"name", "contact", "org_name"}`; only the fields sent change. `contact` is a 10-digit mobile number starting 6-9, or `""` to clear it; changing it sets `is_phone_verified` to false. `org_name` is for owners only (`403` for officers/admins). Email, role and status cannot be changed. Returns the user. `422` for invalid values.
+
+### POST `/auth/me/avatar`
+Multipart `file`: JPG, PNG or WebP, up to 2 MB, checked by content. Replaces the previous picture. Returns the user. `413` too large, `415` wrong type, `400` empty, `502` if storage fails.
+
+### DELETE `/auth/me/avatar`
+Removes the picture. Returns the user.
+
+## Required documents
+
+An application needs its documents before it can be submitted. Slots (one file each, uploading again replaces it): `tax_invoice` and `owner_id_proof` for a first verification (the instrument has no certificate yet); `previous_certificate` for a re-verification. `POST /applications` answers `422` ("Upload the required documents first: …") until the required slots are filled. A previous-certificate copy uploaded before the newest certificate was issued does not count. While an application for the instrument is open (`submitted`, `scheduled`, `inspected`) the documents are locked (`409`).
+
+### GET `/instruments/{id}/documents`
+The instrument's owner, an admin, or an officer who can see the instrument (assigned, or in the unclaimed queue). Required slots come first.
+```json
+{"application_type": "initial", "complete": false, "locked": false,
+ "slots": [
+   {"slot": "tax_invoice", "label": "Tax invoice", "hint": "The purchase invoice for this instrument.", "required": true,
+    "document": {"id": "…", "instrument_id": "…", "slot": "tax_invoice", "label": "Tax invoice", "filename": "Invoice.pdf",
+                 "content_type": "application/pdf", "size": 120345, "url": "https://…", "uploaded_at": "2026-10-19T09:30:00Z"}},
+   {"slot": "owner_id_proof", "label": "Owner ID proof", "hint": "…", "required": true, "document": null}
+ ]}
+```
+
+### POST `/instruments/{id}/documents/{slot}`
+Owner of the instrument only. Multipart `file`: PDF, JPG or PNG, up to 5 MB, checked by content. Replaces the slot's file. `422` if the slot isn't needed for this instrument's next application, `404` unknown slot, `409` locked, `413` / `415` / `400` as for the avatar. Audited.
+
+### DELETE `/instruments/{id}/documents/{slot}`
+Owner only. `204`; `404` if the slot is empty; `409` locked. Audited.
+
 ## Oversight
 
 Read-only monitoring views. Role: `admin` (whole country), `lmo` / `gatc` (own jurisdiction, same rule as the application queue; an officer with no jurisdiction gets empty results). `owner` and anonymous → `403` / `401`. A `state_code` / `district_code` filter only narrows what the role may already see. Reads may come from a replica (`MONGO_READ_PREFERENCE`), so figures can lag a moment. Responses are not cached.

@@ -65,6 +65,7 @@ const AdminCertificateDetail = lazy(() =>
 const AdminUsers = lazy(() => import("@/pages/admin/Users"));
 const AdminAuditLog = lazy(() => import("@/pages/admin/AuditLog"));
 const AdminValidity = lazy(() => import("@/pages/admin/Validity"));
+const Profile = lazy(() => import("@/pages/Profile"));
 const Oversight = lazy(() => import("@/pages/oversight/Oversight"));
 const OversightCase = lazy(() => import("@/pages/oversight/CaseDetail"));
 
@@ -103,6 +104,19 @@ export default function App() {
       <Route path="/verify" element={<VerifyCertificate />} />
       <Route path="/verify/:certId" element={<VerifyCertificate />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
+
+      <Route
+        path="/app/profile"
+        element={
+          <ProtectedRoute roles={["owner", "lmo", "gatc", "admin"]}>
+            <AppShell>
+              <Suspense fallback={<PageFallback />}>
+                <Profile />
+              </Suspense>
+            </AppShell>
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/app/owner/*"

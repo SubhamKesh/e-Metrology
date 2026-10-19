@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useCallback, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { SelectInput } from "@/components/ui/Field";
@@ -7,6 +7,7 @@ import { Panel } from "@/components/ui/Card";
 import { useCreateApplication, useInstruments } from "@/hooks/useData";
 import { ApiError } from "@/lib/api";
 import { EmptyState } from "@/components/ui/States";
+import { SupportingDocuments } from "@/components/domain/SupportingDocuments";
 
 export default function NewApplication() {
   const navigate = useNavigate();
@@ -18,6 +19,9 @@ export default function NewApplication() {
   const renewCertId = params.get("renew") ?? undefined;
   const renewCertNo = params.get("cert_no");
   const [error, setError] = useState<string | null>(null);
+  // Whether every required document for this instrument is uploaded; Submit stays off until then.
+  const [docs, setDocs] = useState({ complete: false, loading: true });
+  const onDocsStatus = useCallback((status: { complete: boolean; loading: boolean }) => setDocs(status), []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -70,9 +74,13 @@ export default function NewApplication() {
               Re-verification of certificate <span className="font-mono text-xs">{renewCertNo}</span>.
             </p>
           )}
+          {instrumentId && <SupportingDocuments key={instrumentId} instrumentId={instrumentId} onStatus={onDocsStatus} bare />}
+          {instrumentId && !docs.loading && !docs.complete && (
+            <p className="text-sm text-slate-600">Upload every document marked * to enable Submit.</p>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row">
-            <Button type="submit" loading={create.isPending} disabled={!instrumentId}>
+            <Button type="submit" loading={create.isPending} disabled={!instrumentId || docs.loading || !docs.complete}>
               Submit application
             </Button>
             <Button type="button" variant="secondary" onClick={() => navigate(-1)}>

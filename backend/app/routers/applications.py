@@ -6,6 +6,7 @@ from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo import ReturnDocument
 
+from app.services.documents import missing_required_documents
 from app.config.db import applications_col, certificates_col, instruments_col, users_col
 from app.config.settings import REVERIFY_WINDOW_DAYS
 from app.models.instrument import ALLOWED_INSTRUMENT_TYPES
@@ -156,6 +157,12 @@ def submit_application(
             )
 
     previous = _resolve_previous_certificate(instrument_oid, payload.previous_certificate_id)
+
+    # The required documents (first verification: tax invoice + owner ID proof; re-verification: the
+    # previous certificate) must be uploaded before the application can be submitted.
+    missing = missing_required_documents(instrument_oid, newest)
+    if missing:
+        raise HTTPException(status_code=422, detail="Upload the required documents first: " + ", ".join(missing) + ".")
 
     doc = {
         "instrument_id": instrument_oid,

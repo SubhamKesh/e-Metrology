@@ -173,6 +173,14 @@ Backend:
 Frontend:
 - `src/pages/admin/Validity.tsx` *(new)*, `lib/types.ts`, `lib/endpoints.ts` (`ValidityApi`), `lib/nav.ts`, `App.tsx`, `hooks/useData.ts`, `pages/owner/RegisterInstrument.tsx` (shows the period), `content/faq.ts`
 
+## 9) Required documents, profile editing and profile picture (roadmap #10) — DONE
+
+Owners must upload the required documents (first verification: tax invoice + owner ID proof; re-verification: previous certificate) before an application can be submitted; every user can edit their profile and set a picture. Guide: `docs/CHANGELOG-requirements.md` → #10; API: `docs/api-contract.md` → "Profile" and "Required documents"
+
+Backend: `routers/instrument_documents.py`, `models/document.py`, `services/documents.py`, `utils/file_checks.py` *(new)*; `routers/applications.py`, `routers/auth.py`, `models/user.py`, `config/db.py`, `services/audit.py`, `main.py`. Tests: `tests/test_profile_and_documents.py` *(new)*, `tests/conftest.py`.
+
+Frontend: `pages/Profile.tsx`, `components/ui/Avatar.tsx`, `components/domain/SupportingDocuments.tsx` *(new)*; `owner/NewApplication.tsx`; `App.tsx`, `AppShell.tsx`, `ApplicationOverview.tsx`, `owner/InstrumentDetail.tsx`, `AuthContext.tsx`, `hooks/useData.ts`, `lib/endpoints.ts`, `lib/types.ts`
+
 ---
 
 ## Suggested process for the team

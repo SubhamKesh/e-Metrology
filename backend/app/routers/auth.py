@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from bson import ObjectId
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Response, Request, UploadFile
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -24,6 +24,7 @@ from app.models.user import (
     UserRegister,
     UserLogin,
     UserOut,
+    ProfileUpdate,
     TokenResponse,
     ChangePasswordRequest,
     ChangePasswordResponse,
@@ -70,6 +71,11 @@ except ImportError:  # pragma: no cover - slowapi not installed yet
     limiter = None
     RATE_LIMIT_AUTH = None
 
+import uuid
+
+from app.utils.file_checks import IMAGE_KINDS, MAX_AVATAR_BYTES, read_checked
+from app.utils.upload_to_cloudinary import upload_bytes
+
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # OTP purpose for password resets. Kept separate from the signup
@@ -94,6 +100,7 @@ def to_user_out(user_doc: dict) -> UserOut:
         is_phone_verified=user_doc.get("is_phone_verified", False),
         must_change_password=user_doc.get("must_change_password", False),
         mfa_enabled=bool(user_doc.get("mfa_enabled", False)),
+        avatar_url=user_doc.get("avatar_url"),
     )
 
 
@@ -455,6 +462,62 @@ def logout_all(request: Request, response: Response, current_user: dict = Depend
 @router.get("/me", response_model=UserOut)
 def me(current_user: dict = Depends(get_current_user)):
     return to_user_out(current_user)
+
+
+def _profile_actor(user: dict) -> dict:
+    return {"email": user["email"], "user_id": str(user["_id"]), "role": user["role"]}
+
+
+@router.patch("/me", response_model=UserOut)
+def update_profile(payload: ProfileUpdate, request: Request, current_user: dict = Depends(get_current_user)):
+    """Edit your own name, phone number and (owners only) organisation name. Only the fields sent
+    are changed. Email, role and status cannot be changed here. A new phone number is not
+    verified until the owner verifies it again."""
+    sent = payload.model_fields_set
+    changes: dict = {}
+    if "name" in sent and payload.name is not None and payload.name != current_user.get("name"):
+        changes["name"] = payload.name
+    if "contact" in sent and payload.contact != current_user.get("contact"):
+        changes["contact"] = payload.contact
+        changes["is_phone_verified"] = False
+    if "org_name" in sent:
+        if current_user["role"] != "owner":
+            raise HTTPException(status_code=403, detail="Your organisation is set by the administrator.")
+        if payload.org_name != current_user.get("org_name"):
+            changes["org_name"] = payload.org_name
+    if not changes:
+        return to_user_out(current_user)
+    updated = users_col.find_one_and_update(
+        {"_id": current_user["_id"]}, {"$set": changes}, return_document=ReturnDocument.AFTER
+    )
+    fields = ",".join(sorted(k for k in changes if k != "is_phone_verified"))
+    log_event("profile_updated", outcome="success", request=request, detail=f"fields={fields}", **_profile_actor(current_user))
+    return to_user_out(updated)
+
+
+@router.post("/me/avatar", response_model=UserOut)
+async def upload_avatar(request: Request, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """Set your profile picture (JPG, PNG or WebP, up to 2 MB). Replaces the previous one."""
+    data, kind = await read_checked(file, IMAGE_KINDS, MAX_AVATAR_BYTES, "profile picture")
+    # A new id on every upload, so a changed picture is never served from a cache of the old one.
+    try:
+        url = upload_bytes(data, public_id=f"avatar_{current_user['_id']}_{uuid.uuid4().hex[:8]}", resource_type="image")
+    except Exception:
+        raise HTTPException(status_code=502, detail="The picture could not be saved right now. Please try again.")
+    updated = users_col.find_one_and_update(
+        {"_id": current_user["_id"]}, {"$set": {"avatar_url": url}}, return_document=ReturnDocument.AFTER
+    )
+    log_event("profile_photo_changed", outcome="success", request=request, **_profile_actor(current_user))
+    return to_user_out(updated)
+
+
+@router.delete("/me/avatar", response_model=UserOut)
+def remove_avatar(request: Request, current_user: dict = Depends(get_current_user)):
+    updated = users_col.find_one_and_update(
+        {"_id": current_user["_id"]}, {"$unset": {"avatar_url": ""}}, return_document=ReturnDocument.AFTER
+    )
+    log_event("profile_photo_removed", outcome="success", request=request, **_profile_actor(current_user))
+    return to_user_out(updated)
 
 
 @router.post("/change-password", response_model=ChangePasswordResponse)

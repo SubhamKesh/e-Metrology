@@ -58,6 +58,22 @@ def client(monkeypatch):
     monkeypatch.setattr(validity_service, "validity_rules_col", fake_db["validity_rules"])
     monkeypatch.setattr(validity_router, "validity_rules_col", fake_db["validity_rules"])
 
+    # Supporting documents (routers/instrument_documents.py), same reason.
+    import app.routers.instrument_documents as documents_router
+
+    monkeypatch.setattr(dbmod, "instrument_documents_col", fake_db["instrument_documents"])
+    monkeypatch.setattr(documents_router, "instrument_documents_col", fake_db["instrument_documents"])
+    monkeypatch.setattr(documents_router, "instruments_col", fake_db["instruments"])
+    monkeypatch.setattr(documents_router, "applications_col", fake_db["applications"])
+    monkeypatch.setattr(documents_router, "certificates_col", fake_db["certificates"])
+    import app.services.documents as documents_service
+
+    monkeypatch.setattr(documents_service, "instrument_documents_col", fake_db["instrument_documents"])
+    import app.routers.instruments as instruments_router
+
+    monkeypatch.setattr(instruments_router, "instruments_col", fake_db["instruments"])
+    monkeypatch.setattr(instruments_router, "applications_col", fake_db["applications"])
+
     # The DDoS middleware counts requests per IP in a process-wide store. Every
     # TestClient request comes from the same IP, so without a fresh store per
     # test the counts pile up across the whole suite and eventually trip the
@@ -107,3 +123,13 @@ def registered_owner(client):
     dbmod.users_col.insert_one(user_doc)
     
     return {"email": "owner@example.com", "password": "correct-password"}
+
+
+@pytest.fixture(autouse=True)
+def documents_not_required(monkeypatch):
+    """Submitting an application needs its required documents (services/documents.py). The older tests
+    are about scheduling, inspections and so on, not documents, so they skip that check; the tests in
+    test_profile_and_documents.py switch it back on."""
+    import app.routers.applications as applications_router
+
+    monkeypatch.setattr(applications_router, "missing_required_documents", lambda *a, **k: [])

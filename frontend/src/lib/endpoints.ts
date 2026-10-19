@@ -17,6 +17,9 @@ import type {
   Role,
   StateOption,
   User,
+  InstrumentDocument,
+  DocumentSlot,
+  DocumentSlots,
   AuditLogPage,
   CaseDetail,
   CaseKind,
@@ -126,6 +129,14 @@ export const AuthApi = {
   resetPassword: (body: { email: string; code: string; new_password: string }) =>
     api.post<{ reset: boolean }>("/auth/reset-password", body, { public: true }),
   logout: () => api.post<void>("/auth/logout"),
+  // Profile: only the fields sent are changed. Email, role and status cannot be edited.
+  updateProfile: (body: { name?: string; contact?: string; org_name?: string }) => api.patch<User>("/auth/me", body),
+  uploadAvatar: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<User>("/auth/me/avatar", form, { isForm: true });
+  },
+  removeAvatar: () => api.del<User>("/auth/me/avatar"),
   changePassword: (body: { current_password: string; new_password: string }) =>
     api.post<ChangePasswordResponse>("/auth/change-password", body),
 };
@@ -197,6 +208,17 @@ export const InstrumentApi = {
   list: (params?: InstrumentFilters) => api.get<Instrument[]>(`/instruments${toQuery(params)}`),
   get: (id: string) => api.get<Instrument>(`/instruments/${id}`),
   typeSpecs: () => api.get<InstrumentTypeSpec[]>("/instruments/meta/types"),
+};
+
+// ---- Required documents on an instrument (owner uploads; officers and admins view) ----
+export const DocumentApi = {
+  list: (instrumentId: string) => api.get<DocumentSlots>(`/instruments/${instrumentId}/documents`),
+  upload: (instrumentId: string, slot: DocumentSlot, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<InstrumentDocument>(`/instruments/${instrumentId}/documents/${slot}`, form, { isForm: true });
+  },
+  remove: (instrumentId: string, slot: DocumentSlot) => api.del<void>(`/instruments/${instrumentId}/documents/${slot}`),
 };
 
 // ---- Geography (states/districts reference data) ----

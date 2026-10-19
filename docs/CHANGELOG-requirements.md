@@ -16,7 +16,7 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 7 | Search + CSV/PDF report export | ✅ (code complete; ruff and the export-rendering tests pass here; the router tests, full `pytest` and frontend lint/build still need running — no PyPI/npm access when written; not tried in a browser) |
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ✅ (backend `pytest` 452 passed, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
 | 9 | Configurable validity per instrument type | ✅ (backend `pytest` passes, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
-| 10 | Owner supporting-document upload, profile editing | ⬜ |
+| 10 | Owner supporting-document upload, profile editing (+ profile picture) | ✅ (backend `pytest` 559 passed, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
 | 11 | SMS / WhatsApp alerts | ⬜ |
 | 12 | Consolidated architecture / security / deployment document | ⬜ |
 
@@ -304,3 +304,22 @@ The two limits that were left on purpose are now built: the enforcement list use
 - Limits, on purpose: only admins can change periods (officers cannot); there is no history screen beyond the audit log; the period is in days (an "N years" label is shown when it is a whole number of 365 days).
 - Not tried in a browser. Open **Admin → Certificate validity**, set Water Meter to 730, register a Water Meter as an owner (the form should say 2 years), get it certified, and check the certificate's valid-until date is two years out.
 
+### 2026-10-19 — #10 Required documents, profile editing and profile picture
+**What was built.** The roadmap line is one sentence, so this is the smallest reading of it. Please confirm it is what is wanted; the limits are constants in `routers/instrument_documents.py` and `utils/file_checks.py`.
+- **Profile page for every role** (`/app/profile`, opened by clicking the round avatar in the top bar, which now shows the picture or the first initial). Edit **name**, **mobile number** and, for owners, **organisation**. Email, role and status cannot be changed. A changed mobile number is marked unverified again. Officers cannot change their organisation (the administrator sets it). The page also links to Change password.
+- **Profile picture** (any role): add, change or remove; JPG, PNG or WebP up to 2 MB, stored in Cloudinary, shown in the top bar and on the profile page. A new picture gets a new file name, so an old one is never served from a cache. The picture appears as `avatar_url` on the user object.
+- **Required documents, in fixed slots.** An application cannot be submitted until its documents are uploaded: a **first verification** needs the **Tax invoice** and the **Owner ID proof**; a **re-verification** needs the **Previous certificate** (the invoice and ID are not asked for again). One file per slot, no free-form uploads and no count limit; uploading again replaces the file. PDF, JPG or PNG, up to 5 MB. The owner uploads them on the **Apply for verification** page (Submit stays off until every required slot is filled, and the server refuses the application with `422` too) and can also manage them on the instrument's page. A previous-certificate copy must be uploaded after the last certificate was issued, so an old one can't be reused for the next renewal. While an application for the instrument is being processed, the documents are locked. Officers and admins see the same documents, read-only, on the application page (officers only for applications they can already see).
+- **Files are checked by their contents**, not by the name or type the browser claims: anything that is not really a PDF/JPG/PNG (or WebP for pictures) is refused, empty and oversized files are refused before being stored, and the stored file name is cleaned.
+- **Audit.** `profile_updated` (which fields), `profile_photo_changed`, `profile_photo_removed`, `document_uploaded`, `document_deleted` (instrument and kind; never file contents).
+
+**Added / changed**
+- Backend: `routers/instrument_documents.py`, `models/document.py`, `services/documents.py`, `utils/file_checks.py` (new); `routers/auth.py` (`PATCH /auth/me`, `POST` and `DELETE /auth/me/avatar`), `models/user.py` (`ProfileUpdate`, `avatar_url`), `config/db.py` (`instrument_documents` collection and index), `services/audit.py`, `main.py`.
+- Frontend: `pages/Profile.tsx`, `components/ui/Avatar.tsx`, `components/domain/SupportingDocuments.tsx` (new); `pages/owner/NewApplication.tsx` (shows the required documents, Submit held until complete); `App.tsx`, `components/layout/AppShell.tsx` (avatar is now a link), `components/domain/ApplicationOverview.tsx`, `pages/owner/InstrumentDetail.tsx`, `context/AuthContext.tsx` (`updateUser`), `hooks/useData.ts`, `lib/endpoints.ts`, `lib/types.ts`.
+- Tests: `backend/tests/test_profile_and_documents.py` (new); `backend/tests/conftest.py` points the new collection at the in-memory database and switches the document check off for the older, unrelated tests.
+- Docs: `README.md`, `docs/api-contract.md`, `docs/implementation_tasks.md`.
+
+**Notes**
+- Cloudinary links are long and unguessable but not login-protected, like the existing inspection photos. Do not use this for anything that must stay strictly private.
+- Removing a document or picture deletes the record and link here; the file is not deleted from Cloudinary.
+- Email address changes are deliberately not offered (it is the sign-in name and is OTP-verified).
+- Not tried in a browser. Click your avatar, change the name and add a picture; start an application for a new instrument and check Submit stays off until the invoice and ID proof are uploaded; do the same for a renewal (only the previous certificate is asked for); then check an officer sees the documents on the application.

@@ -88,6 +88,35 @@ class UserOut(BaseModel):
     # Whether two-step verification (authenticator app) is set up. Lets the
     # admin's officer list show who still has to enrol.
     mfa_enabled: bool = False
+    # Profile picture (Cloudinary URL), set from the profile page. None until one is uploaded.
+    avatar_url: Optional[str] = None
+
+
+class ProfileUpdate(BaseModel):
+    """PATCH /auth/me. Only the fields that are sent are changed. The email address, role and
+    status can never be changed here. `org_name` is for owners only (officer organisations are set
+    by the administrator) -- the router enforces that."""
+
+    name: Optional[str] = None
+    contact: Optional[str] = None
+    org_name: Optional[str] = None
+
+    @validator("name")
+    def _validate_name(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Name cannot be empty.")
+        return validate_name(v)
+
+    @validator("contact")
+    def _validate_contact(cls, v):
+        return validate_phone(v)
+
+    @validator("org_name")
+    def _validate_org_name(cls, v):
+        return validate_org_name(v.strip() if isinstance(v, str) else v) or None
 
 
 class TokenResponse(BaseModel):
