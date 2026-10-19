@@ -1,7 +1,7 @@
 # Requirements Tracker & Change Log
 
 Tracks the gap-closing work against the Legal Metrology e-verification problem statement.
-Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
+Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned · ⏸ deferred (blocked on funding)
 
 ## Roadmap
 
@@ -17,8 +17,8 @@ Updated after every change. Status: ✅ done · 🔧 in progress · ⬜ planned
 | 8 | Dashboards: pendency ageing, district-wise, enforcement module | ✅ (backend `pytest` 452 passed, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
 | 9 | Configurable validity per instrument type | ✅ (backend `pytest` passes, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
 | 10 | Owner supporting-document upload, profile editing (+ profile picture) | ✅ (backend `pytest` 559 passed, `ruff` clean; frontend `tsc -b`, lint and build pass; not tried in a browser) |
-| 11 | SMS / WhatsApp alerts | ⬜ |
-| 12 | Consolidated architecture / security / deployment document | ⬜ |
+| 11 | SMS / WhatsApp alerts, and mobile-number verification (OTP) | ⏸ Deferred — to be included in future if proper funding is provided (needs a paid Twilio, or similar, subscription) |
+| 12 | Consolidated architecture / security / deployment document | ✅ [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) (documentation only; no code changed) |
 
 ## Log
 
@@ -323,3 +323,17 @@ The two limits that were left on purpose are now built: the enforcement list use
 - Removing a document or picture deletes the record and link here; the file is not deleted from Cloudinary.
 - Email address changes are deliberately not offered (it is the sign-in name and is OTP-verified).
 - Not tried in a browser. Click your avatar, change the name and add a picture; start an application for a new instrument and check Submit stays off until the invoice and ID proof are uploaded; do the same for a renewal (only the previous certificate is asked for); then check an officer sees the documents on the application.
+
+### 2026-10-19 — #11 SMS / WhatsApp alerts: deferred (needs funding)
+
+**Not implemented, on purpose.** Sending SMS or WhatsApp messages needs a paid messaging provider (mainly a Twilio subscription, plus sender/template registration), which the project can't fund at present.
+
+**To be included in future if proper funding is provided.** Planned scope when it is:
+- **SMS / WhatsApp alerts** to owners for the same events that are emailed today (see *Owner Email Notifications* in the README), and to officers when a case or assignment reaches them.
+- **Mobile-number authentication, the same way emails are authenticated:** a one-time code sent to the number at registration (and when it is changed on the profile), verified before the number is trusted. The email OTP flow (`services/otp.py`, `/otp/send` + `/otp/verify`, HMAC-hashed single-use codes, attempt cap, per-IP and per-number send limits) is the template, and `otp_verifications` is already documented as holding "email/phone" codes, so the storage side is largely ready. Only the delivery channel and the provider account are missing.
+
+Until then, email remains the only verified contact channel and the only notification channel; the phone number on a profile is collected and format-checked but not verified.
+
+### 2026-10-19 — #12 Consolidated architecture / security / deployment document
+
+New [`docs/ARCHITECTURE.md`](ARCHITECTURE.md): system architecture and request paths, data model, security layers and the limits that remain, first deployment steps, scaling, CI/CD, operations, a pre-launch checklist, and what is outside the repository's reach. It summarises and links to `deployment-scaling.md`, `security-hardening-status.md` and `api-contract.md` rather than copying them. Documentation only: no code changed. Claims were checked against the code (middleware order, indexes, collections, token and lockout rules); nothing was run against a live provider.
