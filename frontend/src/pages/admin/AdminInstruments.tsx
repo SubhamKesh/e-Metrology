@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { PageHeader } from "@/components/layout/AppShell";
 import { ExportButtons } from "@/components/domain/ExportButtons";
 import { FilterBar } from "@/components/domain/FilterBar";
@@ -10,6 +11,31 @@ import { useFilters } from "@/hooks/useFilters";
 import { ANY } from "@/lib/filterOptions";
 import type { Instrument } from "@/lib/types";
 import { ApiError } from "@/lib/api";
+
+// Full owner ID, never truncated: admins copy it straight into the "Owner ID" filter.
+// Click copies it; the title shows the whole value on hover.
+function OwnerIdCell({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — the ID is still fully visible and selectable */
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title={copied ? "Copied!" : "Click to copy owner ID"}
+      className={`whitespace-nowrap rounded px-1 py-0.5 text-left font-mono text-xs ${copied ? "bg-teal-50 text-teal-800" : "text-slate-600 hover:bg-teal-50 hover:text-teal-800"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal/40`}
+    >
+      {id}
+    </button>
+  );
+}
 
 export default function AdminInstruments() {
   const filters = useFilters({ q: "", type: "", state_code: "", district_code: "", owner_id: "" });
@@ -25,7 +51,7 @@ export default function AdminInstruments() {
     { header: "UIID", cell: (i) => <span className="font-mono text-xs">{i.uiid}</span> },
     { header: "Serial no.", cell: (i) => <span className="font-mono text-xs">{i.serial_no}</span> },
     { header: "Location", cell: (i) => <LocationText location={i.location} /> },
-    { header: "Owner ID", cell: (i) => <span className="font-mono text-xs text-slate-500">{i.owner_id.slice(0, 10)}…</span> },
+    { header: "Owner ID", cell: (i) => <OwnerIdCell id={i.owner_id} /> },
   ];
 
   return (
