@@ -471,6 +471,102 @@ def render_otp(purpose: str, code: str, expiry_minutes: int) -> tuple[str, str, 
     )
 
 
+# --------------------------------------------------------------------------
+# Officer account mails: sent to an lmo/gatc officer when an administrator
+# changes their account (jurisdiction, two-step reset, suspend, reactivate).
+# None of these ever contain a password or secret.
+# --------------------------------------------------------------------------
+
+_OFFICER_ROLE_LABELS = {"lmo": "Legal Metrology Officer", "gatc": "GATC"}
+_OFFICER_CONTACT_NOTE = "If you did not expect this change, please contact your department administrator."
+
+
+def _officer_role_label(role) -> str:
+    return _OFFICER_ROLE_LABELS.get(role, "Officer")
+
+
+def _officer_jurisdiction_changed(ctx: dict):
+    return _build(
+        subject="Your MaapSetu jurisdiction has been changed",
+        owner_name=ctx["name"],
+        heading="Your jurisdiction has been updated",
+        paragraphs=[
+            "An administrator has changed the area your MaapSetu account covers. "
+            "You have been signed out so the new scope applies; please sign in again.",
+        ],
+        rows=[
+            ("Role", _officer_role_label(ctx.get("role"))),
+            ("Previous jurisdiction", ctx.get("previous") or "-"),
+            ("New jurisdiction", ctx.get("current") or "-"),
+        ],
+        tone="info",
+        cta=("Sign in", ctx["login_url"]),
+        closing=_OFFICER_CONTACT_NOTE,
+    )
+
+
+def _officer_mfa_reset(ctx: dict):
+    return _build(
+        subject="Your MaapSetu two-step verification was reset",
+        owner_name=ctx["name"],
+        heading="Two-step verification has been reset",
+        paragraphs=[
+            "An administrator has reset two-step verification on your MaapSetu account. "
+            "Your previous authenticator app and recovery codes no longer work, and you have been "
+            "signed out of all sessions.",
+            "At your next sign-in you will be asked to set up two-step verification again with a new "
+            "authenticator app.",
+        ],
+        rows=[("Role", _officer_role_label(ctx.get("role")))],
+        tone="warning",
+        cta=("Sign in", ctx["login_url"]),
+        closing=_OFFICER_CONTACT_NOTE,
+    )
+
+
+def _officer_suspended(ctx: dict):
+    return _build(
+        subject="Your MaapSetu account has been suspended",
+        owner_name=ctx["name"],
+        heading="Your account has been suspended",
+        paragraphs=[
+            "An administrator has suspended your MaapSetu account. You have been signed out and "
+            "will not be able to sign in until the account is reactivated.",
+        ],
+        rows=[("Role", _officer_role_label(ctx.get("role")))],
+        tone="danger",
+        closing="If you believe this is a mistake, please contact your department administrator.",
+    )
+
+
+def _officer_reactivated(ctx: dict):
+    return _build(
+        subject="Your MaapSetu account has been reactivated",
+        owner_name=ctx["name"],
+        heading="Your account has been reactivated",
+        paragraphs=[
+            "An administrator has reactivated your MaapSetu account. You can sign in again with your "
+            "existing credentials.",
+        ],
+        rows=[("Role", _officer_role_label(ctx.get("role")))],
+        tone="success",
+        cta=("Sign in", ctx["login_url"]),
+    )
+
+
+_OFFICER_BUILDERS = {
+    "jurisdiction_changed": _officer_jurisdiction_changed,
+    "mfa_reset": _officer_mfa_reset,
+    "suspended": _officer_suspended,
+    "reactivated": _officer_reactivated,
+}
+
+
+def render_officer_notice(event: str, ctx: dict) -> tuple[str, str, str]:
+    """Returns (subject, plain_text, html). Raises KeyError for an unknown event."""
+    return _OFFICER_BUILDERS[event](ctx)
+
+
 _BUILDERS = {
     "instrument_registered": _instrument_registered,
     "application_submitted": _application_submitted,

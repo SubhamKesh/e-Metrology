@@ -44,7 +44,7 @@ from app.config.settings import REDIS_URL
 from app.config.db import applications_col, certificates_col, inspections_col
 from app.services.cert_generator import issue_certificate
 from app.services.notifications import publish_notification_sync, broadcast_threadsafe
-from app.services.mailer import send_officer_credentials, send_admin_password_reset
+from app.services.mailer import send_officer_credentials, send_admin_password_reset, send_officer_notice
 
 logger = logging.getLogger("maapsetu")
 
@@ -237,6 +237,12 @@ def send_admin_password_reset_job(to: str, name: str, temp_password: str) -> Non
     if not send_admin_password_reset(to=to, name=name, temp_password=temp_password):
         raise MailSendError(f"password-reset email to {to} was not sent")
 
+def send_officer_notice_job(event: str, to: str, ctx: dict) -> None:
+    """Worker job for the emails sent to an officer when an administrator
+    changes their account: jurisdiction, two-step reset, suspend, reactivate
+    (see routers/admin_users.py)."""
+    if not send_officer_notice(event=event, to=to, ctx=ctx):
+        raise MailSendError(f"officer '{event}' email to {to} was not sent")
 
 
 # ---------------------------------------------------------------------------

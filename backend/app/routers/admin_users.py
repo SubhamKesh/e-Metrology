@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -15,6 +16,7 @@ from app.services.audit import log_event
 from app.services.mailer import (
     send_officer_credentials,
     send_admin_password_reset,
+    send_officer_notice,
     is_configured as smtp_is_configured,
 )
 from app.services.jobs import (
@@ -23,7 +25,10 @@ from app.services.jobs import (
     _worker_available,
     send_officer_credentials_job,
     send_admin_password_reset_job,
+    send_officer_notice_job,
 )
+
+logger = logging.getLogger("maapsetu")
 
 router = APIRouter(prefix="/api/v1/admin/users", tags=["admin"])
 
@@ -66,6 +71,43 @@ def _check_geo(jurisdiction: JurisdictionIn):
     ):
         return ("unknown_district", f"Unknown district_code '{jurisdiction.district_code}'")
     return None
+
+
+def _jurisdiction_label(j: Optional[dict]) -> str:
+    """'Murshidabad, West Bengal' / 'West Bengal (whole state)' for an email;
+    falls back to the raw codes if a name can't be found."""
+    j = j or {}
+    state_code, district_code = j.get("state_code"), j.get("district_code")
+    if not state_code:
+        return "-"
+    state = states_col.find_one({"code": state_code})
+    state_name = (state or {}).get("name") or state_code
+    if not district_code:
+        return f"{state_name} (whole state)"
+    district = districts_col.find_one({"code": district_code, "state_code": state_code})
+    return f"{(district or {}).get('name') or district_code}, {state_name}"
+
+
+def _notify_officer(event: str, user: dict, **ctx) -> None:
+    """Best-effort email to an officer about an admin action on their account.
+    Never raises and never blocks the admin's action: the change has already
+    been made by the time this runs. Queued on the RQ worker when one is
+    running, otherwise sent inline (same rule as the credentials / password
+    reset emails above). A failure is logged, not surfaced."""
+    try:
+        if not smtp_is_configured():
+            logger.info("Mail not configured; officer '%s' email to %s skipped.", event, user.get("email"))
+            return
+        ctx = {"name": user.get("name") or "Officer", "role": user.get("role"), **ctx}
+        queue = get_queue()
+        if queue is not None and not _worker_available(queue):
+            queue = None
+        if queue is not None:
+            enqueue_email(queue, send_officer_notice_job, event=event, to=user["email"], ctx=ctx)
+        elif not send_officer_notice(event=event, to=user["email"], ctx=ctx):
+            logger.warning("Officer '%s' email to %s was not sent.", event, user.get("email"))
+    except Exception:
+        logger.exception("Could not send officer '%s' email to %s.", event, user.get("email"))
 
 
 @router.post("/create-officer", response_model=OfficerCreatedOut, status_code=201)
@@ -264,6 +306,10 @@ def change_officer_jurisdiction(
             f"to={jurisdiction.state_code}/{jurisdiction.district_code or '*'}"
         ),
     )
+    _notify_officer(
+        "jurisdiction_changed", user,
+        previous=_jurisdiction_label(previous), current=_jurisdiction_label(jurisdiction.dict()),
+    )
     return _to_user_out(user)
 
 
@@ -287,6 +333,8 @@ def approve_user(user_id: str, request: Request, current_user: dict = Depends(ro
         actor_email=current_user["email"],
         detail=f"from={previous}",
     )
+    if previous != "active":  # approving an already-active account changes nothing
+        _notify_officer("reactivated", user)
     return _to_user_out(user)
 
 
@@ -318,6 +366,8 @@ def reject_user(user_id: str, request: Request, current_user: dict = Depends(rol
         actor_email=current_user["email"],
         detail=f"from={previous}",
     )
+    if previous != "rejected":  # already suspended: no second email
+        _notify_officer("suspended", user)
     return _to_user_out(user)
 
 
@@ -364,6 +414,7 @@ def admin_reset_officer_mfa(
         actor_email=current_user["email"],
     )
     user["mfa_enabled"] = False
+    _notify_officer("mfa_reset", user)
     return _to_user_out(user)
 
 

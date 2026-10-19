@@ -25,6 +25,8 @@ from app.config.settings import (
     FRONTEND_LOGIN_URL,
 )
 
+from app.services.email_templates import render_officer_notice
+
 logger = logging.getLogger("app.mailer")
 
 
@@ -213,3 +215,11 @@ def send_password_changed_notice(*, to: str, name: str) -> bool:
         "Reset your password again right away and contact your department administrator.\n"
     )
     return send_email(to, "Your MaapSetu password was changed", body)
+
+
+def send_officer_notice(*, event: str, to: str, ctx: dict) -> bool:
+    """Tell an officer an administrator changed their account. `event` is one of
+    jurisdiction_changed / mfa_reset / suspended / reactivated (see
+    email_templates.render_officer_notice). Never carries a password or secret."""
+    subject, text, html = render_officer_notice(event, {**ctx, "login_url": FRONTEND_LOGIN_URL})
+    return send_email(to, subject, text, html=html)
