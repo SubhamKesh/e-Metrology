@@ -1,31 +1,37 @@
-# Python caches and bytecode
-__pycache__/
-*.py[cod]
-
-# Virtual environments
+# Python
 venv/
 .venv/
-
-# Environment files
-.env
-.env.*
-
-# Test/artifact caches
+__pycache__/
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
 coverage/
 
-# Editor/IDE
+# Environment files (keep the examples)
+.env
+.env.*
+!.env.example
+
+# Editors
 .vscode/
 .idea/
 
-# Database files
-*.sqlite3
-
-# Build/dist
-build/
+# Build output
 dist/
+build/
 *.egg-info/
+node_modules/
+*.tsbuildinfo
+frontend/src/**/*.js
 
-# Logs
+# Misc
+*.sqlite3
 *.log
+.DS_Store
+
+# Dev-only files
+backend/seed/Gemini_Generated_Image_*.png
+backend/verify_fixes.ps1
+backend/burst_test.py
+backend/check_lmo_access.py
+backend/ws_listener.py

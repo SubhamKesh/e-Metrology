@@ -95,8 +95,8 @@ writeFileSync(
         { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
       ],
       shortcuts: [
-        { name: "Verify a certificate", short_name: "Verify", url: "/verify" },
-        { name: "Sign in", short_name: "Sign in", url: "/login" },
+        { name: "Verify a certificate", short_name: "Verify", url: "/verify", icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }] },
+        { name: "Sign in", short_name: "Sign in", url: "/login", icons: [{ src: "/icon-192.png", sizes: "192x192", type: "image/png" }] },
       ],
     },
     null,
